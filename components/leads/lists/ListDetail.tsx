@@ -45,7 +45,7 @@ function Chips({ m }: { m: ContactListMember }) {
   return <span className="flex flex-wrap gap-1"><Chip info={email} /><Chip info={sms} /></span>;
 }
 
-// Mobiles come as E.164 (+14165550100); they read as +1 416 555 0100.
+// Mobiles come as E.164 (+11235555555); they read as +1 123 555 5555.
 const phoneText = (phone: string) => formatSentTo(phone);
 const displayName = (m: ContactListMember) => m.name || m.email || (m.phone ? phoneText(m.phone) : '') || 'Someone';
 

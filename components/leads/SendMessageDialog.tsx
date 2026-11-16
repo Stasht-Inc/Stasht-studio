@@ -262,7 +262,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                     setPhoneCountry(next.countryCode);
                     setPhone(next.number);
                   }}
-                  placeholder="e.g. 4163028755"
+                  placeholder="1235555555"
                   autoComplete="off"
                   aria-describedby={showPhoneHint ? 'sm-phone-hint' : undefined}
                   className={`${field} flex-1 min-w-0`}

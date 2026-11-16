@@ -183,7 +183,7 @@ export function DocuSignSendModal({ isOpen, onClose, memoryId, postId }: Props) 
               type="email"
               value={recipientEmail}
               onChange={e => setRecipientEmail(e.target.value)}
-              placeholder="john@example.com"
+              placeholder="name@example.com"
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
             />
           </div>

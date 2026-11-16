@@ -1,9 +1,9 @@
 // components/newsletters/lib/phoneDisplay.ts
-// How a test's "sent to" address reads in a toast. The API returns phones in E.164 ("+14165550100").
+// How a test's "sent to" address reads in a toast. The API returns phones in E.164 ("+11235555555").
 import { parsePhonePrefill } from '../../../utils/phoneUtils.ts';
 
 /**
- * North American numbers read as "+1 416 555 0100"; other codes the app supports get a space after
+ * North American numbers read as "+1 123 555 5555"; other codes the app supports get a space after
  * the code ("+44 7911123456"). Emails, unknown codes and anything that is not a clean number stay as is.
  */
 export function formatSentTo(value: string): string {

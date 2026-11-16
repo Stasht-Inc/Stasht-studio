@@ -445,7 +445,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
       console.log('🔗 [LoginPage] Decoded phone:', decodedPhone);
 
       // Split the invited phone into the correct country code + national number.
-      // Handles both "+14163028755" and "14163028755" (see parsePhonePrefill).
+      // Handles both "+11235555555" and "11235555555" (see parsePhonePrefill).
       const parsedPhone = parsePhonePrefill(decodedPhone);
       if (parsedPhone.countryCode) {
         setCountryCode(parsedPhone.countryCode);

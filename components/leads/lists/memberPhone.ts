@@ -11,7 +11,7 @@ export function memberPhoneParts(stored: string | null | undefined): { countryCo
   return stored && stored.trim() ? splitPrefillPhone(stored, MEMBER_DIAL_CODE) : { countryCode: MEMBER_DIAL_CODE, number: '' };
 }
 
-/** What is saved: the E.164 form ("+14165550100"), or '' when the box is empty. A pasted "+44…" uses its own code. */
+/** What is saved: the E.164 form ("+11235555555"), or '' when the box is empty. A pasted "+44…" uses its own code. */
 export function memberPhoneValue(countryCode: string, national: string): string {
   return (national ?? '').trim() ? collaboratorPhoneValue(countryCode, national) : '';
 }

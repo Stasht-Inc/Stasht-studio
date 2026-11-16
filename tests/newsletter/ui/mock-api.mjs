@@ -652,7 +652,7 @@ export function createMockApi(options = {}) {
       const phone = normPhone(rawPhone);
       if (!rawEmail && !rawPhone) errors.email = ['Add an email address or a mobile number.'];
       else if (rawEmail && !email) errors.email = ['Enter an email address like name@example.com.'];
-      if (rawPhone && !phone) errors.phone = ['Enter a mobile number with its country code, like +1 416 555 0100.'];
+      if (rawPhone && !phone) errors.phone = ['Enter a mobile number with its country code, like +1 1235555555.'];
       // Chris, 29 Oct (round 2), item 8: the API's words for a number outside Canada and the US (naMobilesOnly).
       if (state.naMobilesOnly && errors.phone) errors.phone = [NA_MOBILES_ONLY];
       if (!['express', 'implied'].includes(body?.consent_type)) errors.consent_type = ['Choose how this person agreed to hear from you.'];
@@ -685,7 +685,7 @@ export function createMockApi(options = {}) {
       if (body && 'phone' in body) {
         const raw = String(body.phone ?? '').trim();
         next.phone = raw ? normPhone(raw) : null;
-        if (raw && !next.phone) errors.phone = ['Enter a mobile number with its country code, like +1 416 555 0100.'];
+        if (raw && !next.phone) errors.phone = ['Enter a mobile number with its country code, like +1 1235555555.'];
         if (state.naMobilesOnly && errors.phone) errors.phone = [NA_MOBILES_ONLY];
       }
       if (!errors.email && !errors.phone && !next.email && !next.phone) errors.email = ['Add an email address or a mobile number.'];

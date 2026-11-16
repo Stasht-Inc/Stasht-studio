@@ -96,7 +96,7 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
         website: ensureString(profileData?.website)
   });
 
-  // Phone number is stored fully-qualified (e.g. "+14163028755"); split it into
+  // Phone number is stored fully-qualified (e.g. "+11235555555"); split it into
   // a country-code selector + national number for editing, mirroring the invite
   // and signup flows.
   const [phoneCountry, setPhoneCountry] = useState('+1');
@@ -585,7 +585,7 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
                 type="tel"
                 value={phoneNational}
                 onChange={(e) => applyPhone(phoneCountry, e.target.value)}
-                placeholder="e.g. 4163028755"
+                placeholder="1235555555"
                 className="flex-1 px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-[#6C60FF]"
               />
             </div>

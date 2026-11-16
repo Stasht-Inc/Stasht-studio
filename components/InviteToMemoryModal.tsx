@@ -1076,7 +1076,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
               <div className="mb-3 relative">
                 <div className="flex gap-2">
                   <Input
-                    placeholder="e.g. name@example.com"
+                    placeholder="name@example.com"
                     value={emailInput}
                     onChange={(e) => {
                       setEmailInput(e.target.value);
@@ -1156,7 +1156,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
                     className="w-28 h-9 flex-shrink-0 border border-gray-300 rounded-md bg-gray-50 text-sm focus:outline-none focus:border-gray-400"
                   />
                   <Input
-                    placeholder="e.g. 4163028755"
+                    placeholder="1235555555"
                     inputMode="tel"
                     value={phoneInput}
                     onChange={(e) => {

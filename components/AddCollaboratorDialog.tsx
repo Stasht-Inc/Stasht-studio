@@ -833,7 +833,7 @@ export default function AddCollaboratorDialog({
               )}
               <div className="flex-1 relative">
                 <Input
-                  placeholder={inviteMethod === 'email' ? "john@example.com" : "e.g. 4163028755"}
+                  placeholder={inviteMethod === 'email' ? "name@example.com" : "1235555555"}
                   value={searchQuery}
                   type={inviteMethod === 'email' ? 'email' : 'tel'}
                   onChange={(e) => {

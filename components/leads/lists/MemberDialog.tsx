@@ -123,7 +123,7 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
             <CountrySelect value={phoneCode} ariaLabel="Country code"
               onChange={(code) => { setPhoneCode(code); if (errors.phone) setErrors((p) => ({ ...p, phone: undefined })); }}
               className={`h-9 w-28 flex-shrink-0 rounded-lg border bg-white text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 ${errors.phone ? 'border-red-400' : 'border-gray-200'}`} />
-            <input id="lists-member-phone" type="tel" value={phone} placeholder="416 555 0100" autoComplete="off" inputMode="tel"
+            <input id="lists-member-phone" type="tel" value={phone} placeholder="1235555555" autoComplete="off" inputMode="tel"
               aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? 'lists-member-phone-error' : undefined}
               onChange={(e) => {
                 // A full number pasted with its code ("+44 7911…") moves the code to the picker.

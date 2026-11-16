@@ -219,7 +219,7 @@ const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function 
               <CountrySelect value={fields.phoneCode} ariaLabel="Country code" disabled={readOnly}
                 onChange={(code) => change({ ...fields, phoneCode: code })}
                 className={`h-9 w-28 flex-shrink-0 rounded-lg border bg-white text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 disabled:bg-gray-50 ${phoneError ? 'border-red-400' : 'border-gray-200'}`} />
-              <input ref={phoneRef} id={`${idPrefix}-person-phone`} type="tel" inputMode="tel" autoComplete="off" placeholder="416 555 0100"
+              <input ref={phoneRef} id={`${idPrefix}-person-phone`} type="tel" inputMode="tel" autoComplete="off" placeholder="1235555555"
                 value={fields.phone} disabled={readOnly} {...comboProps('phone')}
                 aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? `${idPrefix}-person-phone-error` : undefined}
                 onChange={(e) => {

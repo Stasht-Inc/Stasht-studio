@@ -614,3 +614,25 @@ export function leadShareManualItems(items: ReadonlyArray<ProductSummary>): Arra
       category: p.categories?.[0]?.name ?? p.category ?? null, url: null, main_image: p.main_image, images_count: p.images_count,
     }));
 }
+
+/**
+ * The Campaigns sidebar's Products box with Products on (Chris 16 Nov 2026 point 6, "manually added products should
+ * also show"): every product the picker lists (PICKER_FILTERS) except Shopify's — the separate Shopify box shows those —
+ * shaped like the catalogue's items. Grouped by its first Products category (a website item's mapped one), else its
+ * website category. The price is what a viewer may see (hidden / on request, as the product's moments show it).
+ */
+export function productsNavItems(items: ReadonlyArray<ProductSummary>): Array<{
+  id: number; title: string; price: string | null; currency: string | null; price_label: string; category: string | null;
+  url: string | null; main_image: string | null; images_count: number; user_id: number; read_only: boolean;
+  owner?: ProductSummary['owner'];
+}> {
+  return items
+    .filter((p) => p.origin !== 'shopify')
+    .map((p) => ({
+      id: p.id, title: p.title, price: p.price, currency: p.currency,
+      price_label: p.price_on_request ? 'Price on request' : (p.show_price === false ? '' : p.price_label || ''),
+      category: p.categories?.[0]?.name ?? p.category ?? null,
+      url: p.origin === 'manual' ? null : p.url, main_image: p.main_image, images_count: p.images_count,
+      user_id: p.user_id, read_only: p.read_only, ...(p.owner ? { owner: p.owner } : {}),
+    }));
+}

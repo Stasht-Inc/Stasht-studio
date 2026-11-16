@@ -516,7 +516,7 @@ export default function RequestMomentModal({
                       }
                       if (contactError) setContactError('');
                     }}
-                    placeholder={contactType === 'email' ? 'you@example.com' : 'e.g. 4163028755'}
+                    placeholder={contactType === 'email' ? 'name@example.com' : '1235555555'}
                     maxLength={contactType === 'email' ? 191 : 20}
                     aria-label={contactType === 'email' ? 'Email address' : 'Mobile number'}
                     aria-invalid={!!contactError}

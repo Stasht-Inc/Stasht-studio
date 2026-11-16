@@ -93,11 +93,11 @@ test('email and text status chips', () => {
 test('add or edit a person: an email or a mobile number, written so we can use it', () => {
   assert.deepEqual(memberFormProblems({ email: '', phone: '  ' }), { email: 'Add an email address or a mobile number.' });
   assert.deepEqual(memberFormProblems({ email: 'jane@', phone: '' }), { email: 'Enter an email address like name@example.com.' });
-  assert.deepEqual(memberFormProblems({ email: '', phone: '555' }), { phone: 'Enter a mobile number with its country code, like +1 416 555 0100.' });
+  assert.deepEqual(memberFormProblems({ email: '', phone: '555' }), { phone: 'Enter a mobile number with its country code, like +1 1235555555.' });
   assert.deepEqual(memberFormProblems({ email: ' jane@example.com ', phone: '' }), {});
   assert.deepEqual(memberFormProblems({ email: '', phone: '+1 416 555 0100' }), {});
   assert.deepEqual(memberFormProblems({ email: 'nope', phone: 'call me' }), {
-    email: 'Enter an email address like name@example.com.', phone: 'Enter a mobile number with its country code, like +1 416 555 0100.',
+    email: 'Enter an email address like name@example.com.', phone: 'Enter a mobile number with its country code, like +1 1235555555.',
   });
 });
 

@@ -257,7 +257,7 @@ try {
     await page.getByText('Sign Up', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
     await page.getByPlaceholder('First Name').fill('Artem');
     await page.getByPlaceholder('Last Name').fill('Auto');
-    await page.getByPlaceholder('(555) 123-4567').fill('4165550199');
+    await page.getByPlaceholder('1235555555').fill('4165550199');
     await page.waitForTimeout(900); // the existing-account check (debounced)
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByText('Verify your phone number').waitFor({ state: 'visible', timeout: 10000 });
@@ -277,7 +277,7 @@ try {
     await page.getByPlaceholder('First Name').waitFor({ state: 'visible', timeout: 30000 });
     await page.getByPlaceholder('First Name').fill('Artem');
     await page.getByPlaceholder('Last Name').fill('Auto');
-    await page.getByPlaceholder('(555) 123-4567').fill('4165550199');
+    await page.getByPlaceholder('1235555555').fill('4165550199');
     await page.waitForTimeout(900);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByPlaceholder('Enter 6-digit code').waitFor({ state: 'visible', timeout: 10000 });
