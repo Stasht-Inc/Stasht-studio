@@ -12,6 +12,8 @@ import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phon
 import { useProperty } from '../../contexts/PropertyContext';
 import { actingPerson, messageSignoff } from '../../utils/messageSignoff';
 import { fallbackDraft, removeDraft, replaceDraft } from '../../utils/composerCampaign';
+import { defaultSendAs } from '../../utils/sendAsDefault';
+import { findPropertyRow } from '../../utils/propertyRows';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
@@ -76,7 +78,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const [phoneCountry, setPhoneCountry] = useState('+1');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  // null = use the suggested text, which follows the cars/dealership picked.
+  // null = use the suggested text, which follows the items / business picked.
   const [subjectOverride, setSubjectOverride] = useState<string | null>(null);
   const [bodyOverride, setBodyOverride] = useState<string | null>(null);
   const [picked, setPicked] = useState<PickedCampaign | null>(null);
@@ -94,16 +96,16 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     setPicked(null); setShowPicker(false); setError(null);
 
     let cancelled = false;
-    const fullRows = dashboardAPI.getProperties()
-      .then((res: any) => (Array.isArray(res?.data?.properties) ? res.data.properties : []) as any[])
-      .catch(() => [] as any[]);
+    // The full GET /properties rows, found however the response is wrapped (utils/propertyRows, as AccountChoiceModal).
+    const fullRows = dashboardAPI.getProperties().catch(() => null);
     dashboardAPI.getStoreelMyProperties().then(async (res: any) => {
       const list: any[] = res?.properties || res?.data?.properties || [];
       const rows = await fullRows;
       if (cancelled) return;
-      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: rows.find((r) => String(r?.id) === String(p.id)) }));
+      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: findPropertyRow(rows, p.id) ?? undefined }));
       setProperties(opts);
-      setPropertyId(opts.length === 1 ? opts[0].id : '');
+      // "Send as" starts on the current view's business, or the account's own (utils/sendAsDefault); changeable.
+      setPropertyId(defaultSendAs(opts, viewType === 'property' ? (currentProperty as any)?.id ?? null : null));
     }).catch(() => { if (!cancelled) setProperties([]); });
     return () => { cancelled = true; };
   }, [open]);
@@ -280,15 +282,16 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
 
           {properties.length > 1 && (
             <div>
-              <span id="sm-property-label" className={label}>Send from</span>
+              <span id="sm-property-label" className={label}>Send as</span>
               <Select value={propertyId} onValueChange={setPropertyId}>
-                <SelectTrigger aria-labelledby="sm-property-label" className="h-10 w-full bg-white border-gray-200 text-sm">
-                  <SelectValue placeholder="Choose a dealership" />
+                <SelectTrigger aria-labelledby="sm-property-label" aria-describedby="sm-property-hint" className="h-10 w-full bg-white border-gray-200 text-sm">
+                  <SelectValue placeholder="Choose a business" />
                 </SelectTrigger>
                 <SelectContent>
                   {properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <p id="sm-property-hint" className="mt-1 text-xs text-gray-500">Which business this conversation is filed under. Its team sees it in Leads.</p>
             </div>
           )}
 
