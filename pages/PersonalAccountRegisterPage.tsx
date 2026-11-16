@@ -564,7 +564,7 @@ export default function PersonalAccountRegisterPage() {
                           setFormErrors(p => ({ ...p, phone: '' }));
                           triggerUserCheck(v, 'phone');
                         }}
-                        placeholder="(555) 123-4567"
+                        placeholder="1235555555"
                         autoComplete="off"
                         disabled={isSubmitting}
                         className={`flex-1 min-w-0 h-12 px-4 text-base border rounded-lg bg-[#F3F3F5] focus:outline-none focus:border-black ${formErrors.phone ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
@@ -586,7 +586,7 @@ export default function PersonalAccountRegisterPage() {
                         setFormErrors(p => ({ ...p, email: '' }));
                         triggerUserCheck(e.target.value, 'email');
                       }}
-                      placeholder="your.email@example.com"
+                      placeholder="name@example.com"
                       autoComplete="off"
                       disabled={isSubmitting}
                       className={`w-full px-4 py-3 text-base border rounded-lg bg-[#F3F3F5] focus:outline-none focus:border-black ${formErrors.email ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}

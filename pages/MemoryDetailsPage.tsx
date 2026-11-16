@@ -5129,7 +5129,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   })();
 
   const handleDownloadCSVTemplate = () => {
-    const csv = '﻿' + '"name","email or phone","role"\n"John Doe","john@example.com","viewer"\n"Jane Smith","1234567890","contributor"';
+    const csv = '﻿' + '"name","email or phone","role"\n"John Doe","name@example.com","viewer"\n"Jane Smith","1235555555","contributor"';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -5250,7 +5250,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           if (digitsOnly.length > 0) {
             rowErrors.push(`Row ${rowNum}: invalid phone number — must be exactly 10 digits (got ${digitsOnly.length})`);
           } else {
-            rowErrors.push(`Row ${rowNum}: invalid email format — must be like name@domain.com`);
+            rowErrors.push(`Row ${rowNum}: invalid email format — must be like name@example.com`);
           }
           return;
         }
@@ -15309,8 +15309,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <p className="text-xs text-gray-500 mb-2">Your CSV file should include the following columns:</p>
                               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 font-mono text-xs text-gray-700 space-y-1">
                                 <p className="font-semibold text-gray-900">name, email or phone, role</p>
-                                <p>John Doe, john@example.com, viewer</p>
-                                <p>Jane Smith, 1234567890, contributor</p>
+                                <p>John Doe, name@example.com, viewer</p>
+                                <p>Jane Smith, 1235555555, contributor</p>
                               </div>
                               <p className="text-xs text-gray-400 mt-1.5">Role must be <span className="font-medium text-gray-600">viewer</span> or <span className="font-medium text-gray-600">contributor</span></p>
                             </div>

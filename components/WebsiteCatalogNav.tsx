@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Folder, FolderOpen, ChevronRight, ChevronDown, Search, Store } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
-import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
+import type { CatalogueItemSummary } from "../services/catalogueAPI";
+import { loadProductsNavItems } from "../services/productsAPI";
 import { loadShopifyForBrowsing, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
 import { SHOPIFY_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { runWhenIdle } from "../utils/deferIdle";
@@ -267,11 +268,13 @@ export function InventoryItemsNav({ title, loader, marker, color, searchLabel, o
   );
 }
 
+// With Products on, the box lists every manual and website product (not Shopify's: its own box below); without it,
+// the Website Catalogue's items as before (loadProductsNavItems, Chris 16 Nov 2026 point 6).
 export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?: (memoryId: string) => void }) {
   return (
     <InventoryItemsNav
       title="Products"
-      loader={loadCatalogueForBrowsing}
+      loader={loadProductsNavItems}
       marker="catalog_item:"
       color={WEBSITE_CATALOG_COLOR}
       searchLabel="Search your products"

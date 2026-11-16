@@ -6,8 +6,8 @@ const SUPPORTED_DIAL_CODES = ['+91', '+44', '+86', '+61', '+33', '+49', '+81', '
  * pre-filling the login/signup phone field from an invite link.
  *
  * Handles both forms the backend may send:
- *   "+14163028755"  → { countryCode: "+1",  number: "4163028755" }
- *   "14163028755"   → { countryCode: "+1",  number: "4163028755" }  (no leading +)
+ *   "+11235555555"  → { countryCode: "+1",  number: "1235555555" }
+ *   "11235555555"   → { countryCode: "+1",  number: "1235555555" }  (no leading +)
  *   "+919876543210" → { countryCode: "+91", number: "9876543210" }
  *
  * Matching the supported codes (rather than a greedy \d{1,3}) prevents a +1

@@ -98,7 +98,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
 
   // Check for magic link email prefill or ?email= query param
   useEffect(() => {
-    // Check URL query param first: /signup?email=john@example.com
+    // Check URL query param first: /signup?email=name@example.com
     const urlParams = new URLSearchParams(window.location.search);
     const queryEmail = urlParams.get('email');
     if (queryEmail) {
@@ -314,7 +314,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
     }
   }, []);
 
-  // Pre-fill phone/email from a plain invite link (e.g. /signup?phone=+14163028755),
+  // Pre-fill phone/email from a plain invite link (e.g. /signup?phone=+11235555555),
   // used by admin invites for a brand-new user. Collaborator invites are handled by
   // the lock effect above, so skip when a collaborator param is present.
   useEffect(() => {

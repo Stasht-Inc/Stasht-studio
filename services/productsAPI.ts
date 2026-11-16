@@ -4,7 +4,8 @@
 import { apiRequest, postFormData } from '../utils/authUtils';
 import type { ApiResponse } from '../utils/authUtils';
 import { requestUpgrade } from '../utils/planEvents';
-import { collectPickerPages, fieldErrorsFrom, leadShareManualItems, PICKER_FILTERS, productQueryString } from '../utils/products';
+import { collectPickerPages, fieldErrorsFrom, leadShareManualItems, PICKER_FILTERS, productQueryString, productsGate, productsNavItems } from '../utils/products';
+import { loadCatalogueForBrowsing, type CatalogueItemSummary } from './catalogueAPI';
 
 export type ProductBadge = 'active' | 'draft' | 'out_of_stock' | 'archived';
 export type ProductStatus = 'draft' | 'active' | 'archived';
@@ -216,4 +217,26 @@ export async function loadManualProductsForLeadShare(): Promise<ReturnType<typeo
   } catch {
     return [];
   }
+}
+
+/**
+ * The Campaigns sidebar's Products box (Chris 16 Nov 2026 point 6). With Products: every product the Add a Moment picker
+ * lists — manual and website, not Shopify (its own box) — grouped like the catalogue's items. Each opens the same
+ * `catalog_item:<id>` page (GET /website-catalogue/items/{id} answers manual products too). Without Products: exactly
+ * today's Website Catalogue list. Never throws.
+ */
+export async function loadProductsNavItems(): Promise<CatalogueItemSummary[]> {
+  try {
+    const status = await productsAPI.getStatus();
+    if (status.ok && productsGate(status.data) === 'ready') {
+      const { items, complete } = await collectPickerPages(async (page) => {
+        const res = await productsAPI.list({ ...PICKER_FILTERS, page });
+        return res.ok && res.data ? { items: res.data.items, last_page: res.data.pagination?.last_page || 1 } : null;
+      });
+      if (items.length > 0 || complete) return productsNavItems(items);
+    }
+  } catch {
+    // fall through to the Website Catalogue, as before Products
+  }
+  return loadCatalogueForBrowsing();
 }

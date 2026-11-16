@@ -904,7 +904,7 @@ export default function PropertyRegisterPage() {
                       }
                       triggerUserCheck(numericValue, 'phone');
                     }}
-                    placeholder="(555) 123-4567"
+                    placeholder="1235555555"
                     className={`flex-1 min-w-0 h-12 px-4 text-base border rounded-lg bg-[#F3F3F5] focus:outline-none focus:border-black ${
                       formErrors.phone ? 'border-red-300 bg-red-50' : 'border-gray-300'
                     }`}
@@ -936,7 +936,7 @@ export default function PropertyRegisterPage() {
                     }
                     triggerUserCheck(e.target.value, 'email');
                   }}
-                  placeholder="your.email@example.com"
+                  placeholder="name@example.com"
                   className={`w-full px-4 py-3 text-base border rounded-lg bg-[#F3F3F5] focus:outline-none focus:border-black ${
                     formErrors.email ? 'border-red-300 bg-red-50' : 'border-gray-300'
                   }`}

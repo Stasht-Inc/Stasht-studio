@@ -116,7 +116,7 @@ export function smsStatusChip(status: MemberSmsStatus | null | undefined): Statu
 
 export const NEED_CONTACT = 'Add an email address or a mobile number.';
 export const BAD_EMAIL = 'Enter an email address like name@example.com.';
-export const BAD_PHONE = 'Enter a mobile number with its country code, like +1 416 555 0100.';
+export const BAD_PHONE = 'Enter a mobile number with its country code, like +1 1235555555.';
 
 /** The same words the API answers with (422); the API has the last say on what it can use. */
 export function memberFormProblems(input: { email: string; phone: string }): Partial<Record<'email' | 'phone', string>> {

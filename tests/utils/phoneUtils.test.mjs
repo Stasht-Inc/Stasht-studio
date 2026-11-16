@@ -60,8 +60,8 @@ test('isPlausibleSplitPhone: +1 needs 10 digits, others at least 7', () => {
 
 test('splitPrefillPhone always yields a code the selector offers', () => {
   assert.deepEqual(splitPrefillPhone('+447911123456'), { countryCode: '+44', number: '7911123456' });
-  assert.deepEqual(splitPrefillPhone('14163028755'), { countryCode: '+1', number: '4163028755' });
-  assert.deepEqual(splitPrefillPhone('4163028755'), { countryCode: '+1', number: '4163028755' });
+  assert.deepEqual(splitPrefillPhone('14165550123'), { countryCode: '+1', number: '4165550123' });
+  assert.deepEqual(splitPrefillPhone('4165550123'), { countryCode: '+1', number: '4165550123' });
   assert.deepEqual(splitPrefillPhone(''), { countryCode: '+1', number: '' });
   assert.deepEqual(splitPrefillPhone(null), { countryCode: '+1', number: '' });
   // Unsupported code: kept whole, and still sent correctly.
