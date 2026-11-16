@@ -6,6 +6,7 @@ import type { ProductMediaItem } from '../../services/productsAPI';
 import { mergeVariants, renameOption, settleOptions, variantLabel, variantRowKey, type OptionDraft, type VariantDraft } from '../../utils/products';
 import { BUTTON_SMALL, LINK_BUTTON, inputClass } from '../newsletters/lib/ui';
 import { ChipsInput } from './ProductSpecsField';
+import ProductSelect, { fieldTrigger } from './ProductSelect';
 
 const ErrorText = ({ id, text }: { id: string; text?: string }) => (text ? <p id={id} className="mt-1 text-xs text-red-600">{text}</p> : null);
 
@@ -71,16 +72,17 @@ export default function ProductVariantsField({ options, variants, photos, disabl
                     <td className={cell}><input aria-label={`${name} compare-at price`} placeholder="e.g. 59.99" inputMode="decimal" value={v.compare_at_price} disabled={disabled} onChange={(e) => setVariant(i, { compare_at_price: e.target.value })} className={inputClass(Boolean(err(i, 'compare_at_price')))} {...invalidProps(eid(i, 'compare_at_price'), err(i, 'compare_at_price'))} /><ErrorText id={eid(i, 'compare_at_price')} text={err(i, 'compare_at_price')} /></td>
                     <td className={cell}><input aria-label={`${name} SKU`} placeholder="e.g. WAL-CHAIR-01-S" maxLength={191} value={v.sku} disabled={disabled} onChange={(e) => setVariant(i, { sku: e.target.value })} className={inputClass(Boolean(err(i, 'sku')))} {...invalidProps(eid(i, 'sku'), err(i, 'sku'))} /><ErrorText id={eid(i, 'sku')} text={err(i, 'sku')} /></td>
                     <td className={cell}>
-                      <select aria-label={`${name} stock`} value={v.stock_status} disabled={disabled} onChange={(e) => setVariant(i, { stock_status: e.target.value as VariantDraft['stock_status'] })} className={`${inputClass()} !px-2`}>
-                        <option value="in_stock">In stock</option><option value="out_of_stock">Out of stock</option>
-                      </select>
+                      <ProductSelect label={`${name} stock`} value={v.stock_status} disabled={disabled} className={`${fieldTrigger()} px-2`}
+                        options={[{ value: 'in_stock', label: 'In stock' }, { value: 'out_of_stock', label: 'Out of stock' }]}
+                        onChange={(val) => setVariant(i, { stock_status: val as VariantDraft['stock_status'] })} />
                     </td>
                     <td className={cell}><input aria-label={`${name} quantity`} placeholder="e.g. 25" inputMode="numeric" value={v.quantity} disabled={disabled} onChange={(e) => setVariant(i, { quantity: e.target.value })} className={inputClass(Boolean(err(i, 'quantity')))} {...invalidProps(eid(i, 'quantity'), err(i, 'quantity'))} /><ErrorText id={eid(i, 'quantity')} text={err(i, 'quantity')} /></td>
                     <td className={cell}>
-                      <select aria-label={`${name} photo`} value={v.image_id ?? ''} disabled={disabled || photos.length === 0} onChange={(e) => setVariant(i, { image_id: e.target.value ? Number(e.target.value) : null })} className={`${inputClass(Boolean(err(i, 'image_id')))} !px-2`} {...invalidProps(eid(i, 'image_id'), err(i, 'image_id'))}>
-                        <option value="">None</option>
-                        {photos.map((p, n) => <option key={p.id} value={p.id}>Photo {n + 1}</option>)}
-                      </select>
+                      {/* "none" stands for no photo (the Select has no empty value). */}
+                      <ProductSelect label={`${name} photo`} value={v.image_id === null ? 'none' : String(v.image_id)} disabled={disabled || photos.length === 0}
+                        className={`${fieldTrigger(Boolean(err(i, 'image_id')))} px-2`} {...invalidProps(eid(i, 'image_id'), err(i, 'image_id'))}
+                        options={[{ value: 'none', label: 'None' }, ...photos.map((p, n) => ({ value: String(p.id), label: `Photo ${n + 1}` }))]}
+                        onChange={(val) => setVariant(i, { image_id: val === 'none' ? null : Number(val) })} />
                       <ErrorText id={eid(i, 'image_id')} text={err(i, 'image_id')} />
                     </td>
                   </tr>

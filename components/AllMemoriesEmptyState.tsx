@@ -5,9 +5,12 @@ interface AllMemoriesEmptyStateProps {
   onClearFilters?: () => void;
   onCreateMemory?: () => void;
   isLimitExceeded?: boolean;
+  /** The Products page reuses this empty state (Chris, 16 Nov) with its own words; Campaigns keeps the defaults. */
+  title?: string;
+  subtitle?: string;
 }
 
-export default function AllMemoriesEmptyState({ onClearFilters, onCreateMemory, isLimitExceeded }: AllMemoriesEmptyStateProps) {
+export default function AllMemoriesEmptyState({ onClearFilters, onCreateMemory, isLimitExceeded, title = 'No campaigns found', subtitle = 'Try adjusting your search or filter criteria' }: AllMemoriesEmptyStateProps) {
   return (
     <div className="px-6 py-12 text-center">
       {/* Search Icon */}
@@ -17,12 +20,12 @@ export default function AllMemoriesEmptyState({ onClearFilters, onCreateMemory, 
 
       {/* Heading */}
       <h3 className="text-lg font-medium text-gray-900 mb-2">
-        No campaigns found
+        {title}
       </h3>
 
       {/* Subtitle */}
       <p className="text-gray-600 mb-6">
-        Try adjusting your search or filter criteria
+        {subtitle}
       </p>
 
       {/* Action Buttons */}

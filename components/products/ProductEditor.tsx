@@ -57,6 +57,12 @@ function Field({ id, label, error, hint, children }: { id: string; label: string
   );
 }
 
+const STOCK_OPTIONS = [{ value: 'in_stock', label: 'In stock' }, { value: 'out_of_stock', label: 'Out of stock' }];
+const STATUS_OPTIONS = [{ value: 'active', label: 'Active' }, { value: 'draft', label: 'Draft' }, { value: 'archived', label: 'Archived' }];
+const WEIGHT_UNITS = ['kg', 'g', 'lb', 'oz'];
+const DIM_UNITS = ['cm', 'mm', 'm', 'in', 'ft'];
+/** A unit list, plus the product's own unit when it isn't listed (a website value), so nothing is lost. */
+const unitOptions = (units: string[], current: string) => [...(current && !units.includes(current) ? [current] : []), ...units].map((u) => ({ value: u, label: u }));
 const DIM_EXAMPLE = { length: 'e.g. 50', width: 'e.g. 45', height: 'e.g. 90' } as const;
 
 const ErrorText = ({ id, text }: { id?: string; text?: string }) => (text ? <p id={id} className="mt-1 text-xs text-red-600">{text}</p> : null);
@@ -289,7 +295,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field id="p-sku" label="SKU" error={errors.sku}><input id="p-sku" placeholder="e.g. WAL-CHAIR-01" maxLength={191} value={form.sku} disabled={!can('sku')} onChange={(e) => set('sku', e.target.value)} className={inputClass(Boolean(errors.sku))} /></Field>
                   <Field id="p-barcode" label="Barcode / UPC" error={errors.barcode}><input id="p-barcode" placeholder="e.g. 012345678905" maxLength={64} value={form.barcode} disabled={!can('barcode')} onChange={(e) => set('barcode', e.target.value)} className={inputClass(Boolean(errors.barcode))} /></Field>
-                  <Field id="p-stock" label="Stock status"><select id="p-stock" value={form.stock_status} disabled={!can('stock_status')} onChange={(e) => set('stock_status', e.target.value as ProductForm['stock_status'])} className={inputClass()}><option value="in_stock">In stock</option><option value="out_of_stock">Out of stock</option></select></Field>
+                  <Field id="p-stock" label="Stock status"><ProductSelect id="p-stock" value={form.stock_status} disabled={!can('stock_status')} options={STOCK_OPTIONS} onChange={(v) => set('stock_status', v as ProductForm['stock_status'])} /></Field>
                   <Field id="p-qty" label="Quantity (optional)" error={errors.quantity}><input id="p-qty" placeholder="e.g. 25" inputMode="numeric" value={form.quantity} disabled={!can('quantity')} onChange={(e) => set('quantity', e.target.value)} className={inputClass(Boolean(errors.quantity))} /></Field>
                 </div>
               </Section>
@@ -303,13 +309,13 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 <div><span className={LABEL}>Specifications</span><ProductSpecsField rows={form.attributes} disabled={!can('attributes')} onChange={(rows) => set('attributes', rows)} /><ErrorText text={under(errors, 'attributes')} /></div>
                 <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
                   <Field id="p-weight" label="Weight" error={errors.weight}><input id="p-weight" placeholder="e.g. 7.5" inputMode="decimal" value={form.weight} disabled={!can('weight')} onChange={(e) => set('weight', e.target.value)} className={inputClass(Boolean(errors.weight))} /></Field>
-                  <Field id="p-weight-unit" label="Unit" error={errors.weight_unit}><select id="p-weight-unit" value={form.weight_unit} disabled={!can('weight_unit')} onChange={(e) => set('weight_unit', e.target.value)} className={inputClass()}>{['kg', 'g', 'lb', 'oz'].map((u) => <option key={u}>{u}</option>)}</select></Field>
+                  <Field id="p-weight-unit" label="Unit" error={errors.weight_unit}><ProductSelect id="p-weight-unit" value={form.weight_unit} disabled={!can('weight_unit')} options={unitOptions(WEIGHT_UNITS, form.weight_unit)} onChange={(v) => set('weight_unit', v)} /></Field>
                 </div>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {(['length', 'width', 'height'] as const).map((d) => (
                     <Field key={d} id={`p-${d}`} label={d[0].toUpperCase() + d.slice(1)} error={errors[`dimensions.${d}`]}><input id={`p-${d}`} placeholder={DIM_EXAMPLE[d]} inputMode="decimal" value={form.dimensions[d]} disabled={!can('dimensions')} onChange={(e) => set('dimensions', { ...form.dimensions, [d]: e.target.value })} className={inputClass(Boolean(errors[`dimensions.${d}`]))} /></Field>
                   ))}
-                  <Field id="p-dim-unit" label="Unit" error={errors['dimensions.unit'] || errors.dimensions}><select id="p-dim-unit" value={form.dimensions.unit} disabled={!can('dimensions')} onChange={(e) => set('dimensions', { ...form.dimensions, unit: e.target.value })} className={inputClass()}>{['cm', 'mm', 'm', 'in', 'ft'].map((u) => <option key={u}>{u}</option>)}</select></Field>
+                  <Field id="p-dim-unit" label="Unit" error={errors['dimensions.unit'] || errors.dimensions}><ProductSelect id="p-dim-unit" value={form.dimensions.unit} disabled={!can('dimensions')} options={unitOptions(DIM_UNITS, form.dimensions.unit)} onChange={(v) => set('dimensions', { ...form.dimensions, unit: v })} /></Field>
                 </div>
               </Section>
             </div>
@@ -317,7 +323,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
             {/* A website product: on a phone the groups it can change (status, categories, tags, notes) come first. */}
             <div className={`min-w-0 space-y-4 ${website && !readOnly ? 'order-first lg:order-none' : ''}`}>
               <Section title="Visibility">
-                <Field id="p-status" label="Status" error={errors.status}><select id="p-status" value={form.status} disabled={!can('status')} onChange={(e) => set('status', e.target.value as ProductForm['status'])} className={inputClass(Boolean(errors.status))}><option value="active">Active</option><option value="draft">Draft</option><option value="archived">Archived</option></select></Field>
+                <Field id="p-status" label="Status" error={errors.status}><ProductSelect id="p-status" value={form.status} disabled={!can('status')} options={STATUS_OPTIONS} onChange={(v) => set('status', v as ProductForm['status'])} /></Field>
                 <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_enquire} disabled={!can('show_enquire')} onCheckedChange={(v) => set('show_enquire', v)} aria-label="Show the Enquire button" />Show the Enquire button</label>
                 <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_price} disabled={!can('show_price')} onCheckedChange={(v) => set('show_price', v)} aria-label="Show the price" />Show the price</label>
               </Section>
