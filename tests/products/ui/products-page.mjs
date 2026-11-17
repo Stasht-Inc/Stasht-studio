@@ -799,7 +799,7 @@ try {
       const a = await open(cf, { width, height });
       await a.page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
       expect(await a.page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).count() > 0, `${tag}: categories failed → Add a product still shows`);
-      expect(await a.page.getByRole('button', { name: 'Import from your website' }).filter({ visible: true }).count() > 0, `${tag}: … and Import from your website`);
+      expect(await a.page.getByTestId('products-import').filter({ visible: true }).count() > 0, `${tag}: … and the Import button ("Import active": its products include a website one)`);
       await a.page.screenshot({ path: `${OUT}/${tag}-01-categories-failed.png` });
       await a.context.close();
 
@@ -1171,7 +1171,7 @@ try {
       const pill = (title) => cards.filter({ hasText: title }).getByTestId('product-card-category');
 
       // C8: Import from your website in the Website Catalogue connector's teal.
-      const importBg = await page.getByRole('button', { name: 'Import from your website' }).filter({ visible: true }).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+      const importBg = await page.getByTestId('products-import').filter({ visible: true }).first().evaluate((el) => getComputedStyle(el).backgroundColor);
       expect(importBg === 'rgb(15, 118, 110)', `${tag}: C8 Import from your website is the connector's teal (${importBg})`);
       // C6: a card with a category shows it as a pill.
       expect((await pill('Walnut Chair').textContent())?.trim() === 'Chairs' && !(await pill('Draft Stool').count()), `${tag}: C6 Walnut Chair shows its Chairs pill; Draft Stool has none`);
@@ -1185,7 +1185,7 @@ try {
       expect((await filter.textContent()).trim() === 'All Categories', `${tag}: … with the All Categories dropdown`);
       expect(!(await nav.getByText('New category', { exact: true }).count()), `${tag}: … and no inline "New category" link`);
       const allRowBg = await nav.getByRole('button', { name: /^All products/ }).evaluate((el) => getComputedStyle(el.parentElement).backgroundColor);
-      expect(allRowBg === 'rgb(229, 231, 235)', `${tag}: the active row is gray, not purple (${allRowBg})`);
+      expect(allRowBg === 'rgba(15, 118, 110, 0.15)', `${tag}: the active row is the Products green (16 Nov point 1), not purple (${allRowBg})`);
       await nav.getByRole('button', { name: 'New category' }).click();
       const pop = page.getByRole('dialog').filter({ hasText: 'New Category' });
       await pop.waitFor({ timeout: 5000 });
@@ -1248,7 +1248,7 @@ try {
       expect(await cards.count() === 1 && w.calls.some((c) => c.p === '/products' && c.q.includes('category_id=1')), `${tag}: the Category Filter dropdown filters the grid`);
       await openNav();
       const chairsBg = await nav.getByRole('button', { name: /^Chairs/ }).evaluate((el) => getComputedStyle(el.parentElement).backgroundColor);
-      expect(chairsBg === 'rgb(229, 231, 235)', `${tag}: … its row is the active (gray) one (${chairsBg})`);
+      expect(chairsBg === 'rgba(15, 118, 110, 0.15)', `${tag}: … its row is the active (green) one (${chairsBg})`);
       await choose(page, nav.getByRole('combobox', { name: 'Category filter' }), 'All Categories');
       await page.waitForTimeout(800);
 
