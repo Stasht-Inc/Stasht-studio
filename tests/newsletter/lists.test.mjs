@@ -82,6 +82,8 @@ test('email and text status chips', () => {
   assert.equal(emailStatusChip(null), null);
   assert.equal(emailStatusChip(undefined), null);
   assert.deepEqual(emailStatusChip('subscribed'), { label: 'Email', tone: 'good', title: 'Gets emails' });
+  // Deepak, 17 Nov 2026: a STOP blocks email too.
+  assert.deepEqual(emailStatusChip('stopped'), { label: 'Email: stopped', tone: 'muted', title: 'Replied STOP to a text, which stops emails too' });
   assert.deepEqual(emailStatusChip('unsubscribed'), { label: 'Email: unsubscribed', tone: 'muted', title: 'Unsubscribed from emails' });
   assert.deepEqual(emailStatusChip('bounced'), { label: 'Email: bounced', tone: 'bad', title: 'Emails to this address bounced' });
   assert.deepEqual(emailStatusChip('complained'), { label: 'Email: marked as spam', tone: 'bad', title: 'Marked an email as spam' });

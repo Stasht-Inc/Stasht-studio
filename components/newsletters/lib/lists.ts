@@ -99,6 +99,7 @@ const EMAIL_CHIP: Record<MemberEmailStatus, StatusChipInfo> = {
   unsubscribed: { label: 'Email: unsubscribed', tone: 'muted', title: 'Unsubscribed from emails' },
   bounced: { label: 'Email: bounced', tone: 'bad', title: 'Emails to this address bounced' },
   complained: { label: 'Email: marked as spam', tone: 'bad', title: 'Marked an email as spam' },
+  stopped: { label: 'Email: stopped', tone: 'muted', title: 'Replied STOP to a text, which stops emails too' },
 };
 const SMS_CHIP: Record<MemberSmsStatus, StatusChipInfo> = {
   subscribed: { label: 'Text', tone: 'good', title: 'Gets texts' },

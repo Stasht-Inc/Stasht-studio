@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { groupMemberName, initialsOf } from '../utils/leadNames';
-import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, CheckCheck, Loader2, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { Ban, Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, CheckCheck, Loader2, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
@@ -1308,6 +1308,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
               {statusFilter === 'visited' && <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span>}
               {statusFilter === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
+              {statusFilter === 'opted_out' && <span className="flex items-center gap-1.5 whitespace-nowrap"><Ban className="w-3.5 h-3.5" />Opted out</span>}
               {statusFilter === 'all' && <SelectValue placeholder="Status" />}
             </SelectTrigger>
             <SelectContent className="leads-filter-menu">
@@ -1317,6 +1318,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
               <SelectItem value="visited"><span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span></SelectItem>
               <SelectItem value="sold"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span></SelectItem>
+              {/* The stop list (Chris 17 Nov 2026: "Where is stop list?"): everyone who replied STOP or unsubscribed. */}
+              <SelectItem value="opted_out"><span className="flex items-center gap-1.5"><Ban className="w-3.5 h-3.5" />Opted out</span></SelectItem>
             </SelectContent>
           </Select>
 

@@ -29,7 +29,7 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 async function open({ width, height }) {
-  const state = { sms: [] };
+  const state = { sms: [], statuses: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seed]) => {
     if (sessionStorage.getItem('to-seeded')) return;
@@ -53,7 +53,9 @@ async function open({ width, height }) {
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p === '/leads' && req.method() === 'GET') {
       const id = Number(url.searchParams.get('lead_id'));
-      const leads = id ? LEADS.filter((l) => l.id === id) : LEADS;
+      state.statuses.push(url.searchParams.get('status'));
+      const stopList = url.searchParams.get('status') === 'opted_out';
+      const leads = id ? LEADS.filter((l) => l.id === id) : stopList ? LEADS.filter((l) => l.opted_out) : LEADS;
       return route.fulfill({ json: { total: leads.length, status_counts: {}, messages_total: 0, tab_counts: { open: leads.length, closed: 0 }, leads, team_leads: null } });
     }
     if (p === '/leads/unread-count') return route.fulfill({ json: { total_unread_messages: 0, total_unread_comments: 0, total_unread: 0 } });
@@ -124,6 +126,25 @@ try {
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(!overflow, `${tag}: no horizontal page scroll`);
+    await context.close();
+  }
+
+  // The stop list (Chris 17 Nov: "Where is stop list?"): Status → "Opted out" lists only the people who opted out.
+  for (const [width, height, tag] of [[1280, 900, 'd'], [390, 844, 'm']]) {
+    const { page, context, state } = await open({ width, height });
+    await vis(page.getByText('John Cardoso')).first().waitFor({ state: 'visible', timeout: 40000 });
+    if (width >= 768) {
+      await vis(page.getByRole('combobox')).filter({ hasText: /Status/ }).first().click();
+      await page.getByRole('option', { name: 'Opted out' }).click();
+    } else {
+      await vis(page.getByRole('button', { name: /Filters/ })).first().click();
+      await vis(page.getByRole('button', { name: 'Opted out' })).first().click();
+      await vis(page.getByRole('button', { name: 'Done' })).first().click();
+    }
+    await page.waitForTimeout(1200);
+    expect(state.statuses.includes('opted_out'), `${tag}: Opted out asks the API for status=opted_out (${state.statuses.join(',')})`);
+    expect(await vis(page.getByText('John Cardoso')).count() === 0 && await vis(page.getByText('Robert Contento')).count() > 0, `${tag}: only the people who opted out are listed`);
+    await shot(page, `to17-${tag}5-stop-list`);
     await context.close();
   }
 } catch (e) {

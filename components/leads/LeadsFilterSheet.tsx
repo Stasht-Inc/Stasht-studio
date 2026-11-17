@@ -1,6 +1,6 @@
 import { useId } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { CheckCircle2, MapPin, MessageSquare, Search, X } from 'lucide-react';
+import { Ban, CheckCircle2, MapPin, MessageSquare, Search, X } from 'lucide-react';
 import { ALL_LEADS, assignedOptions, offersAllLeads, ticksOf, toggleAssigned } from '../../utils/leadsAssignedFilter';
 import { FilterCheckbox } from './AssignedFilterMenu';
 
@@ -42,6 +42,8 @@ const STATUS_OPTIONS: { value: string; label: string; icon?: React.ReactNode }[]
   { value: 'cold', label: 'Cold', icon: <img src="/cold-icon.svg" className="w-3.5 h-3.5" alt="" /> },
   { value: 'visited', label: 'Visited', icon: <MapPin className="w-3.5 h-3.5" /> },
   { value: 'sold', label: 'Sold', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  // The stop list (Chris 17 Nov 2026: "Where is stop list?"): everyone who replied STOP or unsubscribed.
+  { value: 'opted_out', label: 'Opted out', icon: <Ban className="w-3.5 h-3.5" /> },
 ];
 
 // Same cut-offs as LeadsTab's displayLeads (first seen within the last day/week/…).

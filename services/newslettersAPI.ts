@@ -291,7 +291,8 @@ export interface ImportRow { name?: string; email?: string; phone?: string; cons
 export interface ImportInput { name: string; consent: true; consent_type: ConsentType; consent_source?: string; rows: ImportRow[] }
 export type ImportResult = ContactList & { imported: number; skipped_invalid: number; merged_duplicates: number };
 /** null: no email address (or no mobile number) on file. */
-export type MemberEmailStatus = 'subscribed' | 'unsubscribed' | 'bounced' | 'complained';
+/** 'stopped': their mobile replied STOP, which blocks email too (Deepak, 17 Nov 2026). */
+export type MemberEmailStatus = 'subscribed' | 'unsubscribed' | 'bounced' | 'complained' | 'stopped';
 export type MemberSmsStatus = 'subscribed' | 'stopped';
 export interface ContactListMember {
   /** Newer API versions (the Lists tab needs it to edit or remove someone). */
