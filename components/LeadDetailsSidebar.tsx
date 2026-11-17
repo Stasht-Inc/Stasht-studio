@@ -10,6 +10,7 @@ import LeadNotesCard from './leads/LeadNotesCard';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadBusinessTag from './leads/LeadBusinessTag';
 import WantsMoreTag from './leads/WantsMoreTag';
+import TextsOffTag from './leads/TextsOffTag';
 
 export type LeadStatus = 'hot' | 'warm' | 'cold' | 'visited' | 'sold';
 
@@ -214,6 +215,7 @@ export default function LeadDetailsSidebar({
             <p className="text-sm text-gray-600 truncate">{leadViaLabel(lead)}</p>
             <LeadBusinessTag lead={lead} className="mt-1" />
             <WantsMoreTag lead={lead} className="mt-1" />
+            <TextsOffTag lead={lead} className="mt-1" />
             {lead.campaign_deleted && <CampaignDeletedTag className="mt-1" />}
           </div>
         </div>

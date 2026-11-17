@@ -14,6 +14,7 @@ import RowActionButton from './RowActionButton';
 import CampaignDeletedTag from './CampaignDeletedTag';
 import LeadBusinessTag from './LeadBusinessTag';
 import WantsMoreTag from './WantsMoreTag';
+import TextsOffTag from './TextsOffTag';
 import OpenBadge, { openTitle } from './OpenBadge';
 import ClaimedBadge, { claimedTitle } from './ClaimedBadge';
 import {
@@ -381,6 +382,7 @@ export default function LeadsInboxTable(props: Props) {
                       <span className="truncate">{leadName(lead)}</span>
                       <StatusIndicator status={lead.status} />
                       <WantsMoreTag lead={lead} />
+                      <TextsOffTag lead={lead} />
                       {unread && <UnreadDot />}
                     </span>
                   </td>
@@ -449,6 +451,7 @@ export default function LeadsInboxTable(props: Props) {
                 <span className="min-w-0 flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>
                   <WantsMoreTag lead={lead} />
+                  <TextsOffTag lead={lead} />
                   {lead.campaign_deleted && <CampaignDeletedTag />}
                 </span>
                 <div className="flex items-center gap-1 shrink-0 -mr-2.5">

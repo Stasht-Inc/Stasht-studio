@@ -165,6 +165,11 @@ export interface Lead {
   can_mark_unread?: boolean;
   // Answered YES to "Want to see more like this?" (Chris 14 Nov 2026): the "Wants more" tag.
   wants_more?: boolean;
+  // Opted out (texted STOP, said NO to a Storeel, or unsubscribed from Leads email): the API refuses texts and emails.
+  opted_out?: boolean;
+  opted_out_at?: string | null;
+  // When they texted STOP (their number is on the stop list), else null: the "Texts off" tag (Chris 17 Nov 2026).
+  texts_stopped_at?: string | null;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
