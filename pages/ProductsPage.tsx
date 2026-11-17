@@ -1,6 +1,6 @@
 // pages/ProductsPage.tsx — Products (spec "Products page in Studio"; plan 2026-11-09-products-m1-m2 Tasks 12–14).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Folder, Globe, Package, Plus, Search } from 'lucide-react';
+import { CheckCircle2, Folder, Globe, Package, Plus, Search } from 'lucide-react';
 import { productsAPI, type ProductCategory, type ProductDetail, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
 import { useInventoryViewKey } from '../hooks/useInventoryViewKey';
 import ProductCard from '../components/products/ProductCard';
@@ -73,6 +73,16 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { status } = useProductsStatus();
   const viewKey = useInventoryViewKey();
   const canCreate = Boolean(status?.can_create);
+  const importActive = (status?.counts?.website ?? 0) > 0 || (status?.counts?.shopify ?? 0) > 0;
+  // Back from Shopify's approval page (the web API's callback sends people here, Chris 17 Nov 2026): say so once, then
+  // drop the marker so a reload doesn't repeat it.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('shopify') !== 'connected') return;
+    url.searchParams.delete('shopify');
+    window.history.replaceState(window.history.state, '', url.toString());
+    toast.success('Shopify connected. Your products are below.');
+  }, []);
   const [filters, setFilters] = useState<Filters>(() => ({ ...DEFAULT_FILTERS }));
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<PageData | null>(null);
@@ -164,7 +174,12 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   // On a phone the two buttons don't fit one row, so each wraps onto its own full-width row; from sm up they sit side by side.
   const createButtons = (align: string) => canCreate && (
     <div className={`flex w-full flex-wrap gap-2 sm:w-auto ${align}`}>
-      <button type="button" className={`${IMPORT_BUTTON} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}><Globe className="h-4 w-4" aria-hidden="true" />Import from your website</button>
+      {/* Chris, 17 Nov 2026: once products came in from a website or a Shopify store, the button says so ("Import active"); it
+          still opens Connectors, where each import is managed. */}
+      <button type="button" className={`${IMPORT_BUTTON} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}
+        title={importActive ? 'Products are importing from your website or Shopify store. Manage it in Connectors.' : undefined} data-testid="products-import">
+        {importActive ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <Globe className="h-4 w-4" aria-hidden="true" />}{importActive ? 'Import active' : 'Import from your website'}
+      </button>
       <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => setLayer({ kind: 'edit', id: null })}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
     </div>
   );
