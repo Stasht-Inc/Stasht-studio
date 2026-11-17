@@ -1,6 +1,6 @@
 // components/products/layerFocus.ts — where focus goes back to when the product layers close (post-live P1).
-// The details view and the editor are full-screen layers that swap with each other (details → Edit → editor → Save →
-// details). What had focus when the first of them opened (a product card, Add a product) is kept across every swap
+// The editor is a full-screen layer (opened from Add a product or a product page's Edit; until 17 Nov it swapped with a
+// details view, whose test id the selector below still accepts). What had focus when the first of them opened (a product card, Add a product) is kept across every swap
 // and focused again only when the last layer closes.
 
 const LAYERS = '[data-testid="product-editor"], [data-testid="product-details"]';

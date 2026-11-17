@@ -63,7 +63,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus, Package } from 'lucide-react';
 import ProductsPage from "./pages/ProductsPage";
 import { useProductsStatus } from './hooks/useProductsStatus';
-import { showsProductsNav } from './utils/products';
+import { productPageId, productPageIdOf, showsProductsNav } from './utils/products';
 import { inventoryViewPropertyId } from './utils/inventoryView';
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
@@ -1195,6 +1195,7 @@ function MainApp() {
     handleNavigation,
     handleMemorySelect,
     handleLinkedMemorySelect,
+    handleProductSelect,
     handleBackFromMemory,
     toggleSubSidebarExpansion,
   } = useAppNavigation();
@@ -4053,6 +4054,31 @@ function MainApp() {
     }
 
 
+    // Products (Chris 17 Nov 2026): a product opens the same page as a Serpa car / catalogue item (`product:<id>`), and
+    // the Products page stays mounted (hidden) behind it, so Back returns to its search, filters, page and scroll.
+    // Any other page opened from here (a notification's campaign) renders as before, below.
+    if (currentPage === "products" && (!selectedMemoryId || productPageIdOf(selectedMemoryId) !== null)) {
+      return (
+        <>
+          <div hidden={Boolean(selectedMemoryId)}>
+            <ProductsPage onNavigate={handleNavigation} onOpenProduct={(id) => handleProductSelect(productPageId(id))}
+              detailOpen={Boolean(selectedMemoryId)} onCloseDetail={handleBackFromMemory} />
+          </div>
+          {selectedMemoryId && (
+            <MemoryDetailsPage
+              key={selectedMemoryId}
+              memoryId={selectedMemoryId}
+              onBack={handleBackFromMemory}
+              categories={categories}
+              onNavigate={handleNavigation}
+              onMemorySelect={handleLinkedMemorySelect}
+              onOpenProduct={(id) => handleProductSelect(productPageId(id))}
+            />
+          )}
+        </>
+      );
+    }
+
     if (selectedMemoryId) {
       console.log('🔍 App.tsx - Rendering MemoryDetailsPage with selectedMemoryId:', selectedMemoryId);
       return <MemoryDetailsPage
@@ -4154,10 +4180,6 @@ function MainApp() {
 
     if (currentPage === "billing") {
       return <BillingPage onNavigateToMemory={handleMemorySelect} />;
-    }
-
-    if (currentPage === "products") {
-      return <ProductsPage onNavigate={handleNavigation} />;
     }
 
     if (currentPage === "leads") {

@@ -1,14 +1,14 @@
 // pages/ProductsPage.tsx — Products (spec "Products page in Studio"; plan 2026-11-09-products-m1-m2 Tasks 12–14).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, Folder, Globe, Package, Plus, Search } from 'lucide-react';
-import { productsAPI, type ProductCategory, type ProductDetail, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
+import { productsAPI, type ProductCategory, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
 import { useInventoryViewKey } from '../hooks/useInventoryViewKey';
 import ProductCard from '../components/products/ProductCard';
 import ProductCategoryNav from '../components/products/ProductCategoryNav';
 import ProductFilters from '../components/products/ProductFilters';
 import ProductBulkBar from '../components/products/ProductBulkBar';
 import ProductEditor from '../components/products/ProductEditor';
-import ProductDetails from '../components/products/ProductDetails';
+import { useBackToClose } from '../components/newsletters/hooks/useBackToClose';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import ProductSelect, { FILTER_TRIGGER } from '../components/products/ProductSelect';
 import AllMemoriesEmptyState from '../components/AllMemoriesEmptyState';
@@ -19,7 +19,20 @@ import { categoryChooserChoices, DEFAULT_CURRENCY, filterStatusesFor, pageToClam
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
-export default function ProductsPage({ onNavigate }: { onNavigate: (page: string) => void }) {
+/**
+ * Chris 17 Nov 2026: a product opens the same page as a Serpa car and a catalogue item (MemoryDetailsPage, `product:<id>`),
+ * through App (onOpenProduct). This page stays mounted, hidden, while it shows (detailOpen), so closing it comes back to
+ * the same search, filters, page, selection and scroll; the list reloads only if a product changed meanwhile.
+ */
+interface ProductsPageProps {
+  onNavigate: (page: string) => void;
+  onOpenProduct?: (id: number) => void;
+  detailOpen?: boolean;
+  /** Close the product page (the browser's Back while it shows). */
+  onCloseDetail?: () => void;
+}
+
+export default function ProductsPage({ onNavigate, onOpenProduct, detailOpen = false, onCloseDetail }: ProductsPageProps) {
   const { status, loading } = useProductsStatus();
   const gate = productsGate(status);
   const { viewType } = useProperty();
@@ -46,7 +59,7 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: string
       ) : gate === 'hidden' ? (
         <p className="py-10 text-sm text-gray-500 md:px-6">Products isn't available on your account yet.</p>
       ) : (
-        <ProductsReady onNavigate={onNavigate} />
+        <ProductsReady onNavigate={onNavigate} onOpenProduct={onOpenProduct} detailOpen={detailOpen} onCloseDetail={onCloseDetail} />
       )}
     </div>
   );
@@ -62,14 +75,12 @@ const IMPORT_BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounde
 
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 
-/** Post-live P1: a card opens the read-only details view; Edit (and Add a product) the editor. The two swap. */
-type Layer =
-  | { kind: 'details'; id: number; initial?: ProductDetail; notice?: string }
-  | { kind: 'edit'; id: number | null };
+/** Add a product opens the editor here; a saved product then opens on its product page (onOpenProduct). */
+type Layer = { kind: 'edit'; id: number | null };
 
 const SORTS: Array<[ProductSort, string]> = [['updated', 'Recently updated'], ['newest', 'Newest'], ['title', 'Title A–Z'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']];
 
-function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
+function ProductsReady({ onNavigate, onOpenProduct, detailOpen = false, onCloseDetail }: ProductsPageProps) {
   const { status } = useProductsStatus();
   const viewKey = useInventoryViewKey();
   const canCreate = Boolean(status?.can_create);
@@ -101,6 +112,13 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   // Final review M4: which list a bulk action ran on. A new search, filter, sort, page or view moves it on, and a bulk
   // action that finishes after that does not put its old result and selection on the new list.
   const listGen = useRef(0);
+  // The product page (Chris 17 Nov): where the window was scrolled and which card opened it; whether a product changed
+  // while it showed (an edit, archive, delete or duplicate there), so the list reloads when it closes.
+  const opened = useRef<{ scrollY: number; opener: HTMLElement | null } | null>(null);
+  const changedWhileOpen = useRef(false);
+  const editorOpener = useRef<HTMLElement | null>(null); // the Add a product button: focus goes back to it at the end
+  const detailOpenRef = useRef(detailOpen);
+  detailOpenRef.current = detailOpen;
 
   useEffect(() => {
     const t = window.setTimeout(() => setFilters((f) => ((f.q || '') === search ? f : { ...f, q: search, page: 1 })), 300);
@@ -141,7 +159,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   }, []);
   useEffect(() => { void loadCategories(); }, [loadCategories, viewKey]);
   useEffect(() => {
-    const onChanged = () => { void loadCategories(); };
+    const onChanged = () => { void loadCategories(); if (detailOpenRef.current) changedWhileOpen.current = true; };
     window.addEventListener(PRODUCTS_CHANGED_EVENT, onChanged);
     return () => window.removeEventListener(PRODUCTS_CHANGED_EVENT, onChanged);
   }, [loadCategories]);
@@ -158,6 +176,28 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const loadRef = useRef(load);
   loadRef.current = load;
   const changed = useCallback(async () => { await loadRef.current(); announceProductsChanged(); }, []);
+  const openProduct = (id: number, from?: HTMLElement | null) => {
+    const active = document.activeElement;
+    opened.current = { scrollY: window.scrollY, opener: from ?? (active instanceof HTMLElement && active !== document.body ? active : null) };
+    changedWhileOpen.current = false;
+    onOpenProduct?.(id);
+  };
+  // The product page closed: back to where it was (scroll, the card that opened it), reloading the list only if
+  // something changed there. A deleted product's card is gone: focus goes to the Products heading.
+  useEffect(() => {
+    if (detailOpen || !opened.current) return;
+    const { scrollY, opener } = opened.current;
+    opened.current = null;
+    if (changedWhileOpen.current) { changedWhileOpen.current = false; void loadRef.current(); }
+    window.requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+      const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>('[data-products-focus-fallback]');
+      target?.focus({ preventScroll: true });
+    });
+  }, [detailOpen]);
+  // The browser's (and phone's) Back closes the product page, as it closed the old details screen.
+  useBackToClose(detailOpen && Boolean(onCloseDetail), () => { onCloseDetail?.(); return true; });
+
   const items = result?.items ?? [];
   const pagination = result?.pagination;
   const filtered = Boolean(filters.q || filters.category_id || filters.status?.length || filters.source || filters.price_min || filters.price_max || filters.in_stock);
@@ -180,7 +220,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
         title={importActive ? 'Products are importing from your website or Shopify store. Manage it in Connectors.' : undefined} data-testid="products-import">
         {importActive ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : <Globe className="h-4 w-4" aria-hidden="true" />}{importActive ? 'Import active' : 'Import from your website'}
       </button>
-      <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => setLayer({ kind: 'edit', id: null })}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
+      <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={(e) => { editorOpener.current = e.currentTarget; setLayer({ kind: 'edit', id: null }); }}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
     </div>
   );
 
@@ -237,7 +277,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 xl:grid-cols-4">
             {items.map((p) => (
-              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} websiteCategoryIds={websiteCategoryIds} shopifyCategoryIds={shopifyCategoryIds} />
+              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => openProduct(p.id)} websiteCategoryIds={websiteCategoryIds} shopifyCategoryIds={shopifyCategoryIds} />
             ))}
           </div>
         )}
@@ -257,16 +297,13 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
           <div className="p-2 pt-4">{nav}</div>
         </SheetContent>
       </Sheet>
-      {/* The search, filters, page and selection behind these layers stay as they were: closing comes back to them. */}
-      {layer?.kind === 'details' && (
-        <ProductDetails key={`details-${layer.id}`} productId={layer.id} websiteCategoryIds={websiteCategoryIds} shopifyCategoryIds={shopifyCategoryIds} initial={layer.initial} notice={layer.notice}
-          onClose={() => setLayer(null)} onEdit={(id) => setLayer({ kind: 'edit', id })} onDuplicated={(id) => setLayer({ kind: 'edit', id })} onChanged={changed} />
-      )}
+      {/* The search, filters, page and selection behind the editor stay as they were: closing comes back to them.
+          A product saved here opens on its product page (C4: its photos upload with the first save). */}
       {layer?.kind === 'edit' && (
         <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || DEFAULT_CURRENCY}
-          onClose={() => setLayer(layer.id ? { kind: 'details', id: layer.id } : null)} onChanged={changed}
-          onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved.' }) /* review minor 4: no reload; C4: photos upload with the first save */}
-          onSaved={(d) => setLayer({ kind: 'details', id: d.id, initial: d, notice: 'Saved.' })} />
+          onClose={() => setLayer(null)} onChanged={changed}
+          onOpen={(id) => { setLayer(null); toast.success('Saved.'); openProduct(id, editorOpener.current); }}
+          onSaved={(d) => { setLayer(null); toast.success('Saved.'); openProduct(d.id, editorOpener.current); }} />
       )}
     </div>
   );

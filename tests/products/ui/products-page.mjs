@@ -1,5 +1,6 @@
 // tests/products/ui/products-page.mjs — Products M2 in the real app, every API call answered here (nothing leaves this
-// machine). Blocks: nav (Task 12), grid (13), details (post-live P1), editor (14), campaigns (15; Task 16 adds older-API, failed-status, Dashboard). Run one: PR_ONLY=nav node tests/products/ui/products-page.mjs
+// machine). Blocks: nav (Task 12), grid (13), details (a product's page — since Chris 17 Nov the Serpa-style page; serpa
+// has the side-by-side screenshots), editor (14), campaigns (15; Task 16 adds older-API, failed-status, Dashboard). Run one: PR_ONLY=nav node tests/products/ui/products-page.mjs
 // Needs the dev server: PR_BASE (default http://localhost:5341). Screenshots: PR_SHOTS.
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
@@ -269,16 +270,15 @@ async function choose(page, trigger, name) {
   await page.waitForTimeout(250);
 }
 
-// A product layer (details view or editor) is fixed and scrolls itself: grow the viewport to its full height for one shot.
-async function shootLayer(page, testId, path) {
-  const size = page.viewportSize();
-  const full = await page.getByTestId(testId).evaluate((el) => el.scrollHeight);
-  await page.setViewportSize({ width: size.width, height: Math.max(size.height, full) });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path });
-  await page.setViewportSize(size);
-  await page.waitForTimeout(200);
-}
+// Chris, 17 Nov: a product opens the SAME page as a Serpa car / catalogue item (MemoryDetailsPage, `product:<id>`), not
+// a details screen of its own. Its Edit and ⋯ are in that page's header; results are toasts; Back returns to Products.
+const productPage = (page) => page.getByTestId('product-page');
+const pageButton = (page, name) => productPage(page).getByRole('button', { name, exact: true }).filter({ visible: true }).first();
+const pageHeading = (page, name) => productPage(page).getByRole('heading', { name, exact: true }).filter({ visible: true }).first();
+const pageText = (page, text) => productPage(page).getByText(text, { exact: true }).filter({ visible: true });
+const toastText = (page, text) => page.locator('[data-sonner-toast]').getByText(text, { exact: true });
+async function backToProducts(page) { await pageButton(page, 'Back').click(); await page.waitForTimeout(800); }
+async function pageMenu(page, item) { await pageButton(page, 'More actions').click(); await page.getByRole('menu').getByRole('menuitem', { name: item, exact: true }).click(); }
 
 // The product editor is a fixed layer that scrolls itself: grow the viewport to its full height for one shot.
 async function shootEditor(page, path) {
@@ -626,27 +626,24 @@ try {
       expect(created && created.body.title === 'Oak Bench' && created.body.price === 120 && created.body.compare_at_price === 150, `${tag}: POST /products body (${JSON.stringify(created?.body)?.slice(0, 160)})`);
       expect(created && created.body.variants.length === 2 && created.body.options[0].name === 'Size', `${tag}: options and variants saved`);
       expect(!('media' in (created?.body || {})), `${tag}: media is never in the JSON body`);
-      // Post-live P1: the first save lands on the new product's details view; Edit there opens the editor for photos.
-      const details = page.getByTestId('product-details');
-      await details.waitFor({ timeout: 10000 });
-      expect(!(await editor.count()) && await details.getByRole('heading', { name: 'Oak Bench' }).isVisible(), `${tag}: after the first save, the new product's details view shows`);
-      expect(await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: … saying Saved (at the bottom of the card)`);
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      // Chris 17 Nov: the first save lands on the new product's page (the Serpa-style page); Edit there opens the editor.
+      const details = productPage(page);
+      await pageHeading(page, 'Oak Bench').waitFor({ timeout: 15000 });
+      expect(!(await editor.count()) && await pageHeading(page, 'Oak Bench').isVisible(), `${tag}: after the first save, the new product's page shows`);
+      await pageButton(page, 'Edit').click();
       await editor.waitFor({ timeout: 10000 });
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       expect(await editor.getByRole('button', { name: /Add photos or a video/ }).isVisible(), `${tag}: … and Edit there lets photos be added`);
       await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await details.waitFor({ timeout: 10000 });
-      expect(!(await editor.count()), `${tag}: Cancel (nothing changed) goes back to the details view`);
-      await details.getByRole('button', { name: 'Products', exact: true }).click();
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(800);
+      expect(!(await editor.count()) && await details.isVisible(), `${tag}: Cancel (nothing changed) goes back to the product page`);
+      await backToProducts(page);
 
       await page.getByTestId('product-card').filter({ hasText: 'Harbour Sofa' }).getByRole('button').first().click();
-      await details.waitFor({ timeout: 10000 });
-      await details.getByRole('heading', { name: 'Harbour Sofa' }).waitFor({ timeout: 10000 });
-      expect(!(await details.getByRole('button', { name: 'Edit', exact: true }).count()), `${tag}: a website product's details have no Edit`);
-      expect(await details.getByText('This product comes from your website and updates each time it syncs.').isVisible(), `${tag}: … and say it comes from the website`);
-      await details.getByRole('button', { name: 'More actions' }).click();
+      await pageHeading(page, 'Harbour Sofa').waitFor({ timeout: 15000 });
+      expect(!(await details.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).count()), `${tag}: a website product's page has no Edit`);
+      expect(await pageText(page, 'This product comes from your website and updates each time it syncs.').count() > 0, `${tag}: … and says it comes from the website`);
+      await pageButton(page, 'More actions').click();
       const wmenu = page.getByRole('menu');
       const wItems = (await wmenu.getByRole('menuitem').allTextContents()).map((t) => t.trim()).join(',');
       expect(wItems === 'Edit settings,Duplicate,Archive', `${tag}: … its ⋯ keeps Duplicate and Archive, plus Edit settings, no Delete (${wItems})`);
@@ -663,19 +660,20 @@ try {
       await page.waitForTimeout(800);
       const patch = w.calls.filter((c) => c.m === 'PATCH').pop();
       expect(patch && Object.keys(patch.body).every((k) => ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids'].includes(k)) && patch.body.status === 'archived', `${tag}: PATCH carries Studio-only fields only (${JSON.stringify(patch?.body)})`);
-      expect(!(await editor.count()) && await details.getByText('Archived', { exact: true }).isVisible() && await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: Save goes back to the details view, showing Archived`);
+      await page.waitForTimeout(800);
+      expect(!(await editor.count()) && await pageText(page, 'Archived').count() > 0 && await toastText(page, 'Saved.').isVisible(), `${tag}: Save goes back to the product page, showing Archived`);
       await context.close();
     }
   }
   if (run('details')) {
-    // Post-live P1 (15 Nov): a product card opens a read-only details view (not the form). Manual: Edit + ⋯; website:
-    // no Edit, the sync line, View on website; Back keeps the search, sort and page; Edit → Save → details (new values);
-    // Cancel with edits asks first. Phone: full screen, Edit and ⋯ inside the viewport, no sideways scroll.
+    // Chris 17 Nov: a product card opens the Serpa-style product page (not the form). Manual: Edit + ⋯; website: no
+    // Edit, the sync line, View on website; Back keeps the search, sort and page; Edit → Save → the page (new values);
+    // Cancel with edits asks first. Phone: Edit and ⋯ inside the viewport, no sideways scroll.
     for (const [width, height] of [[1280, 900], [390, 844]]) {
       const tag = `details-${width}`;
       const w = world({ lastPage: 2 });
       w.products[0].extra = {
-        brand: 'Royal Wood', short_description: 'A solid walnut dining chair.', description_html: '<p>Hand made from <strong>solid walnut</strong>.</p><ul><li>Oiled finish</li></ul>',
+        brand: 'Royal Wood', short_description: 'A solid walnut dining chair.', description: 'Hand made from solid walnut.', description_html: '<p>Hand made from <strong>solid walnut</strong>.</p><ul><li>Oiled finish</li></ul>',
         options: [{ name: 'Size', values: ['Small', 'Large'] }],
         variants: [
           { id: 1, title: 'Small', options: { Size: 'Small' }, sku: 'WC-S', barcode: null, price: '450.00', compare_at_price: null, price_label: '$450 CAD', stock_status: 'in_stock', quantity: 4, image_id: null, sort_order: 0 },
@@ -688,7 +686,7 @@ try {
       const { page, context } = await open(w, { width, height });
       const cards = page.getByTestId('product-card');
       await cards.first().waitFor({ timeout: 15000 });
-      const details = page.getByTestId('product-details');
+      const details = productPage(page);
       const editor = page.getByTestId('product-editor');
 
       // Search + sort set before opening: Back keeps them (and the grid).
@@ -697,29 +695,21 @@ try {
       await page.waitForTimeout(1000);
       const listsBefore = w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length;
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
-      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 10000 });
-      expect(!(await editor.count()), `${tag}: a card opens the details view, not the editor`);
-      expect(await details.getByText('$450 CAD').first().isVisible() && await details.getByText('$500 CAD').isVisible(), `${tag}: … price and the struck-through compare-at`);
-      expect(await details.getByText('Active', { exact: true }).isVisible() && await details.getByText('Manual', { exact: true }).isVisible(), `${tag}: … status and source badges`);
-      expect(await details.getByText('Chairs', { exact: true }).isVisible() && await details.getByText('solid wood', { exact: true }).isVisible(), `${tag}: … categories and tags`);
-      expect(await details.getByText('SKU-601').isVisible() && await details.getByText('Royal Wood').isVisible() && await details.getByText('7.5 kg').isVisible(), `${tag}: … SKU, brand and weight`);
-      expect(await details.locator('strong', { hasText: 'solid walnut' }).isVisible() && await details.getByText('Oiled finish').isVisible(), `${tag}: … the formatted description`);
-      const large = details.getByRole('row').filter({ hasText: 'Large' });
-      expect(await large.getByText('$520 CAD').isVisible() && await large.getByText('Out of stock').isVisible() && await large.getByText('WC-L').isVisible(), `${tag}: … the variants table`);
-      expect(await details.getByText('Finish', { exact: true }).isVisible(), `${tag}: … the specifications`);
-      expect(await details.getByRole('link', { name: /Buy link/ }).getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the buy link`);
-      expect(!(await details.locator('input, textarea, select, [contenteditable="true"]').count()), `${tag}: … read-only (no form fields)`);
-      await details.getByRole('button', { name: 'Show photo 3' }).click();
-      expect(await details.getByRole('button', { name: 'Show photo 3' }).getAttribute('aria-pressed') === 'true' && await details.getByRole('img', { name: 'Walnut Chair, photo 3 of 3' }).isVisible(), `${tag}: … the gallery shows the chosen photo`);
-      const fits = await details.evaluate((el) => el.scrollWidth <= el.clientWidth && document.documentElement.scrollWidth <= window.innerWidth);
+      await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      expect(!(await editor.count()) && !(await page.getByTestId('product-details').count()), `${tag}: a card opens the product page, not the editor or the old details screen`);
+      expect(await pageText(page, '$450 CAD').count() > 0 && await pageText(page, 'Active').count() > 0 && await pageText(page, 'Manual').count() > 0, `${tag}: … price, status and source badges`);
+      expect(await pageText(page, 'Chairs').count() > 0 && await pageText(page, 'solid wood').count() > 0, `${tag}: … category and tag badges`);
+      expect(await pageText(page, 'Oil').count() > 0, `${tag}: … the spec line under the title (its specifications)`);
+      expect(await details.getByRole('link', { name: /Buy link/ }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the buy link`);
+      expect(await details.getByText(/3 moments/).filter({ visible: true }).count() > 0, `${tag}: … its photos as the page's moments`);
+      const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
       expect(fits, `${tag}: no sideways scroll`);
-      for (const name of ['Edit', 'More actions', 'Products']) {
-        const b = await details.getByRole('button', { name, exact: true }).boundingBox();
+      for (const name of ['Edit', 'More actions', 'Back']) {
+        const b = await pageButton(page, name).boundingBox();
         expect(b && b.x >= 0 && b.x + b.width <= width && b.y >= 0 && b.y + b.height <= height, `${tag}: ${name} is inside the viewport`);
       }
-      await shootLayer(page, 'product-details', `${OUT}/${tag}-01-manual.png`);
-      await details.getByRole('button', { name: 'Products', exact: true }).click();
-      await page.waitForTimeout(600);
+      await page.screenshot({ path: `${OUT}/${tag}-01-manual.png` });
+      await backToProducts(page);
       expect(!(await details.count()) && await page.getByRole('searchbox', { name: 'Search products' }).inputValue() === 'Walnut' && (await page.getByRole('combobox', { name: 'Sort' }).textContent()).trim() === 'Title A–Z' && await cards.count() === 1,
         `${tag}: Back keeps the search, the sort and the list`);
       expect(w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length === listsBefore, `${tag}: … without reloading the list`);
@@ -732,49 +722,47 @@ try {
       await page.waitForTimeout(1000);
       expect(await page.getByText('Page 2 of 2').isVisible(), `${tag}: (setup) page 2`);
       await cards.filter({ hasText: 'Draft Stool' }).getByRole('button').first().click();
-      await details.getByRole('heading', { name: 'Draft Stool' }).waitFor({ timeout: 10000 });
-      expect(await details.getByText('Price hidden').isVisible() && !(await details.getByText('$450 CAD').count()) && await details.getByText('Draft', { exact: true }).isVisible(), `${tag}: show price off → "Price hidden"; Draft badge`);
+      await pageHeading(page, 'Draft Stool').waitFor({ timeout: 15000 });
+      expect(await pageText(page, 'Price hidden').count() > 0 && !(await pageText(page, '$450 CAD').count()) && await pageText(page, 'Draft').count() > 0, `${tag}: show price off → "Price hidden"; Draft badge`);
       await page.goBack();
-      await page.waitForTimeout(600);
+      await page.waitForTimeout(800);
       expect(!(await details.count()) && await page.getByText('Page 2 of 2').isVisible() && new URL(page.url()).pathname === '/products', `${tag}: browser Back closes it and keeps page 2`);
 
       // A website product: no Edit, the sync line, View on website, ⋯ without Delete.
       await cards.filter({ hasText: 'Harbour Sofa' }).getByRole('button').first().click();
-      await details.getByRole('heading', { name: 'Harbour Sofa' }).waitFor({ timeout: 10000 });
-      expect(await details.getByText('Website', { exact: true }).isVisible() && await details.getByText('This product comes from your website and updates each time it syncs.').isVisible(), `${tag}: website product: Website tag and the sync line`);
-      expect(!(await details.getByRole('button', { name: 'Edit', exact: true }).count()) && await details.getByRole('button', { name: 'More actions' }).isVisible(), `${tag}: … no Edit, ⋯ stays`);
-      expect(await details.getByRole('link', { name: /View on website/ }).getAttribute('href') === 'https://royalwood.example.ca/harbour', `${tag}: … View on website`);
-      await shootLayer(page, 'product-details', `${OUT}/${tag}-02-website.png`);
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(500);
-      expect(!(await details.count()), `${tag}: Escape closes the details view`);
+      await pageHeading(page, 'Harbour Sofa').waitFor({ timeout: 15000 });
+      expect(await pageText(page, 'Website').count() > 0 && await pageText(page, 'This product comes from your website and updates each time it syncs.').count() > 0, `${tag}: website product: Website tag and the sync line`);
+      expect(!(await details.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).count()) && await pageButton(page, 'More actions').isVisible(), `${tag}: … no Edit, ⋯ stays`);
+      expect(await details.getByRole('link', { name: /View on website/ }).filter({ visible: true }).first().getAttribute('href') === 'https://royalwood.example.ca/harbour', `${tag}: … View on website`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-website.png` });
+      await backToProducts(page);
 
-      // Edit → Save → details with the new values; Edit → change → Cancel asks first, Leave → details unchanged.
+      // Edit → Save → the page with the new values; Edit → change → Cancel asks first, Leave → the page unchanged.
       await page.getByRole('button', { name: 'Previous' }).click();
       await page.waitForTimeout(800);
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       await editor.getByLabel('Title', { exact: true }).fill('Walnut Chair Deluxe');
       await editor.getByRole('button', { name: 'Save' }).last().click();
-      await details.getByRole('heading', { name: 'Walnut Chair Deluxe' }).waitFor({ timeout: 10000 }).catch(() => {});
-      expect(!(await editor.count()) && await details.getByRole('heading', { name: 'Walnut Chair Deluxe' }).isVisible() && await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: Edit → Save → the details view with the new title, "Saved."`);
+      await pageHeading(page, 'Walnut Chair Deluxe').waitFor({ timeout: 15000 }).catch(() => {});
+      expect(!(await editor.count()) && await pageHeading(page, 'Walnut Chair Deluxe').isVisible() && await toastText(page, 'Saved.').isVisible(), `${tag}: Edit → Save → the product page with the new title, "Saved."`);
       expect(w.calls.filter((c) => c.m === 'PATCH').pop()?.body?.title === 'Walnut Chair Deluxe', `${tag}: … PATCHed`);
       await page.screenshot({ path: `${OUT}/${tag}-03-saved.png` });
       const patches = w.calls.filter((c) => c.m === 'PATCH').length;
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       await editor.getByLabel('Title', { exact: true }).fill('Something else');
       await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
       const leave = page.getByRole('alertdialog');
       expect(await leave.getByText('Leave without saving?').isVisible(), `${tag}: Cancel with unsaved edits asks first`);
       await leave.getByRole('button', { name: 'Leave' }).click();
-      await details.waitFor({ timeout: 10000 });
-      await details.getByRole('heading', { name: 'Walnut Chair Deluxe' }).waitFor({ timeout: 10000 }).catch(() => {}); // it reloads ("Loading…" first)
-      expect(!(await editor.count()) && await details.getByRole('heading', { name: 'Walnut Chair Deluxe' }).isVisible() && w.calls.filter((c) => c.m === 'PATCH').length === patches, `${tag}: … Leave → back to the details view, nothing saved`);
-      await details.getByRole('button', { name: 'Products', exact: true }).click();
+      await pageHeading(page, 'Walnut Chair Deluxe').waitFor({ timeout: 15000 }).catch(() => {});
+      expect(!(await editor.count()) && await pageHeading(page, 'Walnut Chair Deluxe').isVisible() && w.calls.filter((c) => c.m === 'PATCH').length === patches, `${tag}: … Leave → back to the product page, nothing saved`);
+      await backToProducts(page);
       await page.waitForTimeout(600);
-      expect(await cards.filter({ hasText: 'Walnut Chair Deluxe' }).count() === 1, `${tag}: the grid shows the saved title`);
+      expect(await cards.filter({ hasText: 'Walnut Chair Deluxe' }).count() === 1, `${tag}: the grid shows the saved title (the list reloads after a change)`);
       await context.close();
     }
   }
@@ -873,12 +861,11 @@ try {
       await page.waitForTimeout(3500);
       const posts = w.calls.filter((c) => c.p === '/products' && c.m === 'POST').length;
       expect(posts === 1, `${tag}: … a second click never POSTs a second copy (${posts} POSTs)`);
-      const details = page.getByTestId('product-details');
-      expect(await details.getByRole('heading', { name: 'Ash Stool' }).isVisible().catch(() => false), `${tag}: … and the new product is open (its details view)`);
+      expect(await pageHeading(page, 'Ash Stool').isVisible().catch(() => false), `${tag}: … and the new product is open (its product page)`);
       w.slowListMs = 0;
 
       // An existing product: the fields are locked while its save is on its way.
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       await editor.getByLabel('Title', { exact: true }).fill('Ash Stool II');
       w.slowSaveMs = 1500;
@@ -890,8 +877,9 @@ try {
       expect(await editor.getByRole('heading', { name: 'Basics', exact: true }).isVisible(), `${tag}: … the form stays on screen`);
       await page.screenshot({ path: `${OUT}/${tag}-01-saving-locked.png` });
       await page.waitForTimeout(2000);
-      // Post-live P1: the save goes back to the details view, which shows the saved title.
-      expect(!(await editor.count()) && await details.getByRole('heading', { name: 'Ash Stool II' }).isVisible(), `${tag}: after the save the details view shows the saved title`);
+      // The save goes back to the product page, which shows the saved title.
+      await pageHeading(page, 'Ash Stool II').waitFor({ timeout: 10000 }).catch(() => {});
+      expect(!(await editor.count()) && await pageHeading(page, 'Ash Stool II').isVisible(), `${tag}: after the save the product page shows the saved title`);
       expect(w.calls.filter((c) => c.m === 'PATCH').pop()?.body?.title === 'Ash Stool II', `${tag}: … PATCHed`);
       w.slowSaveMs = 0;
       await context.close();
@@ -968,10 +956,10 @@ try {
       await editor.getByRole('button', { name: 'Save' }).last().click();
       await page.waitForTimeout(1200);
       const id = w.products[0].id;
-      const details = page.getByTestId('product-details');
-      expect(w.products[0].title === 'Pine Table' && await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: created, and its details view says Saved`);
-      expect(await details.getByRole('table').getByRole('cell', { name: 'Red', exact: true }).isVisible() && await details.getByRole('cell', { name: 'Blue', exact: true }).isVisible(), `${tag}: … and lists its variants`);
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      const details = productPage(page);
+      await pageHeading(page, 'Pine Table').waitFor({ timeout: 15000 });
+      expect(w.products[0].title === 'Pine Table' && await pageHeading(page, 'Pine Table').isVisible(), `${tag}: created, and its product page shows`);
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       expect(await editor.getByLabel('Red price', { exact: true }).inputValue() === '300', `${tag}: the reopened product keeps its variants`);
       const made = w.calls.filter((c) => c.m === 'POST' && c.p === '/products').pop();
@@ -980,7 +968,8 @@ try {
       const listsBefore = w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length;
       await editor.locator('input[type=file]').setInputFiles([tiny('a.jpg'), tiny('b.jpg')]);
       await page.waitForTimeout(1200);
-      expect(w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length - listsBefore === 1, `${tag}: one grid refresh for the whole upload batch`);
+      // The grid is hidden behind the product page: it isn't reloaded per upload (once, when the product page closes).
+      expect(w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length - listsBefore === 0, `${tag}: no grid refresh per upload while the product page shows`);
       const uploads = w.calls.filter((c) => c.m === 'POST' && c.p === `/products/${id}/media`);
       expect(uploads.length === 2, `${tag}: two uploads, one request each (${uploads.length})`);
       expect(await editor.getByRole('img', { name: 'Photo 1' }).isVisible() && await editor.getByRole('img', { name: 'Photo 2' }).isVisible() && await editor.getByText('Main', { exact: true }).isVisible(), `${tag}: two photos, the first marked Main`);
@@ -995,9 +984,10 @@ try {
       await page.waitForTimeout(800);
       const vp = w.calls.filter((c) => c.m === 'PATCH').pop();
       expect(vp && vp.body.variants[1].image_id === first && !('media' in vp.body), `${tag}: Blue's photo is saved as its image_id (${JSON.stringify(vp?.body?.variants?.map((v) => v.image_id))})`);
-      // Save went back to the details view: its gallery shows both photos. Edit again for the rest.
-      expect(!(await editor.count()) && await details.getByRole('button', { name: 'Show photo 2' }).isVisible(), `${tag}: Save → details view with both photos`);
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      // Save went back to the product page: both photos are its moments. Edit again for the rest.
+      await page.waitForTimeout(800);
+      expect(!(await editor.count()) && await details.getByText(/2 moments/).filter({ visible: true }).count() > 0, `${tag}: Save → the product page with both photos`);
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       w.mediaReject = 'A product can have up to 20 photos.';
       await editor.locator('input[type=file]').setInputFiles([tiny('c.jpg')]);
@@ -1043,8 +1033,8 @@ try {
       await leave.getByRole('button', { name: 'Keep editing' }).click();
       await leave.waitFor({ state: 'detached' }); // Radix hides the rest of the page from the accessibility tree while it is open
       expect(await editor.getByLabel('Title', { exact: true }).inputValue() === 'Pine Table XL', `${tag}: Keep editing keeps the edit`);
-      // Post-live P1: Duplicate, Archive and Delete moved from the editor's header to the details view's ⋯.
-      expect(!(await editor.getByRole('button', { name: /^(Duplicate|Archive|Unarchive|Delete)$/ }).count()), `${tag}: the editor no longer has Duplicate / Archive / Delete (they are on the details view)`);
+      // Duplicate, Archive and Delete are in the product page's ⋯, not the editor's header.
+      expect(!(await editor.getByRole('button', { name: /^(Duplicate|Archive|Unarchive|Delete)$/ }).count()), `${tag}: the editor has no Duplicate / Archive / Delete (they are on the product page)`);
       await editor.getByLabel('Title', { exact: true }).fill('Pine Table Draft Name');
       // Back (browser or phone) with unsaved edits asks first; Keep editing stays.
       await page.goBack();
@@ -1062,11 +1052,12 @@ try {
       await editor.getByLabel('Title', { exact: true }).fill('Pine Table'); // back to the saved title: nothing unsaved
       await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
       await details.waitFor({ timeout: 10000 });
-      expect(!(await editor.count()) && !(await page.getByRole('alertdialog').count()), `${tag}: Cancel with nothing unsaved goes straight back to the details view`);
+      await page.waitForTimeout(600);
+      expect(!(await editor.count()) && !(await page.getByRole('alertdialog').count()), `${tag}: Cancel with nothing unsaved goes straight back to the product page`);
 
-      // The details view's ⋯: Archive / Unarchive change the status only; Duplicate opens the copy; Delete asks first.
-      const menu = async (item) => { await details.getByRole('button', { name: 'More actions' }).click(); await page.getByRole('menu').getByRole('menuitem', { name: item, exact: true }).click(); };
-      await details.getByRole('button', { name: 'More actions' }).click();
+      // The product page's ⋯: Archive / Unarchive change the status only; Duplicate opens the copy; Delete asks first.
+      const menu = (item) => pageMenu(page, item);
+      await pageButton(page, 'More actions').click();
       const mItems = (await page.getByRole('menu').getByRole('menuitem').allTextContents()).map((t) => t.trim()).join(',');
       expect(mItems === 'Duplicate,Archive,Delete', `${tag}: a manual product's ⋯ has Duplicate, Archive, Delete (${mItems})`);
       await page.waitForTimeout(300);
@@ -1078,14 +1069,8 @@ try {
       await page.waitForTimeout(800);
       const arch = w.calls.filter((c) => c.m === 'PATCH').pop();
       expect(arch && JSON.stringify(arch.body) === '{"status":"archived"}', `${tag}: Archive sends only the status (${JSON.stringify(arch?.body)})`);
-      expect(await details.getByText('Archived', { exact: true }).first().isVisible() && await details.getByText('Archived.', { exact: true }).isVisible(), `${tag}: … the badge reads Archived and the card says so`);
-      // Focus is trapped in the details view too.
-      let dOutside = 0;
-      for (let k = 0; k < 30; k += 1) {
-        await page.keyboard.press('Tab');
-        if (!(await page.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="product-details"]'))))) dOutside += 1;
-      }
-      expect(dOutside === 0, `${tag}: Tab stays inside the details view (${dOutside} stops outside)`);
+      expect(await pageText(page, 'Archived').count() > 0 && await toastText(page, 'Archived.').isVisible(), `${tag}: … the badge reads Archived and a toast says so`);
+      // (The old details screen trapped Tab inside it; the product page is a page, not a dialog — no trap.)
       await menu('Unarchive');
       await page.waitForTimeout(800);
       expect(JSON.stringify(w.calls.filter((c) => c.m === 'PATCH').pop()?.body) === '{"status":"active"}', `${tag}: Unarchive sends only the status`);
@@ -1094,7 +1079,8 @@ try {
       expect(w.calls.some((c) => c.m === 'POST' && c.p === `/products/${id}/duplicate`) && await editor.getByRole('heading', { name: 'Pine Table (copy)' }).isVisible(), `${tag}: Duplicate opens the copy (in the editor, as before)`);
       const copyId = w.products[0].id;
       await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await details.getByRole('heading', { name: 'Pine Table (copy)' }).waitFor({ timeout: 10000 });
+      await pageHeading(page, 'Pine Table (copy)').waitFor({ timeout: 15000 });
+      expect(await pageText(page, 'Draft').count() > 0, `${tag}: … Cancel shows the copy's page (a draft)`);
       await menu('Delete');
       const del = page.getByRole('alertdialog');
       expect(await del.getByText('Delete this product?').isVisible(), `${tag}: Delete asks first`);
@@ -1102,36 +1088,39 @@ try {
       await page.screenshot({ path: `${OUT}/${tag}-03-delete.png` });
       await del.getByRole('button', { name: 'Delete' }).click();
       await page.waitForTimeout(1000);
-      expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${copyId}`) && !(await editor.count()) && !(await details.count()), `${tag}: … deletes it and closes the details view`);
+      expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${copyId}`) && !(await editor.count()) && !(await details.count()), `${tag}: … deletes it and goes back to Products`);
       expect(!(await page.getByTestId('product-card').filter({ hasText: 'Pine Table (copy)' }).count()), `${tag}: … and the copy left the grid`);
-      // Opened from "Add a product", remounted on the new product and then on its copy: focus goes back to that button.
+      // Opened from "Add a product", then the new product's page and its copy's: focus goes back to that button.
       expect(await page.evaluate(() => (document.activeElement?.textContent || '').includes('Add a product')), `${tag}: after create, duplicate and delete, focus is back on Add a product (${await page.evaluate(() => document.activeElement?.tagName + ' ' + (document.activeElement?.textContent || '').slice(0, 30))})`);
 
-      // Closing returns focus to the card that opened the details view (also after Edit → Cancel); Back closes the
-      // editor to the details view, then the details view to the list.
+      // Closing returns focus to the card that opened the product page (also after Edit → Cancel); Back closes the
+      // editor to the product page, then the product page to the list.
       const chairOpen = page.getByTestId('product-card').filter({ hasText: 'Walnut Chair' }).getByRole('button').first();
       await chairOpen.click();
-      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 10000 });
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
       await details.waitFor({ timeout: 10000 });
-      await details.getByRole('button', { name: 'Products', exact: true }).click();
+      await page.waitForTimeout(600);
+      await backToProducts(page);
       await page.waitForTimeout(400);
       expect(await chairOpen.evaluate((el) => el === document.activeElement), `${tag}: closing puts focus back on the card`);
       await chairOpen.click();
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       await page.goBack();
       await page.waitForTimeout(500);
-      expect(!(await editor.count()) && await details.isVisible(), `${tag}: Back closes a clean editor to the details view`);
+      expect(!(await editor.count()) && await details.isVisible(), `${tag}: Back closes a clean editor to the product page`);
       await page.goBack();
       await page.waitForTimeout(500);
-      expect(!(await details.count()) && new URL(page.url()).pathname === '/products', `${tag}: … and Back again closes the details view and stays on Products`);
+      expect(!(await details.count()) && new URL(page.url()).pathname === '/products', `${tag}: … and Back again closes the product page and stays on Products`);
 
       // Closing the tab with unsaved edits: the browser asks.
       await chairOpen.click();
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      await pageButton(page, 'Edit').click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
       await editor.getByLabel('Title', { exact: true }).fill('Walnut Chair 2');
       let asked = false;
@@ -1148,18 +1137,17 @@ try {
       xw.products = xw.products.map((x) => ({ ...x, read_only: true, owner }));
       const x = await open(xw, { width, height, path: '/products', view: 'property', property: EXT });
       await x.page.getByTestId('product-card').filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
-      // Post-live P1: the External view opens the read-only details view: no Edit, no ⋯, no form at all.
-      const xe = x.page.getByTestId('product-details');
-      await xe.waitFor({ timeout: 10000 });
-      await xe.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 10000 });
-      expect(await xe.getByText('Shared by Serpa Chrysler. You can view it here.').isVisible(), `${tag}: External view says who shared it`);
-      expect(!(await xe.getByRole('textbox').count()) && !(await xe.getByRole('combobox').count()) && !(await x.page.getByTestId('product-editor').count()), `${tag}: … read-only (no fields)`);
+      // The External view opens the read-only product page: no Edit, no ⋯, no editor.
+      const xe = productPage(x.page);
+      await pageHeading(x.page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      expect(await pageText(x.page, 'Shared by Serpa Chrysler. You can view it here.').count() > 0, `${tag}: External view says who shared it`);
+      expect(await pageText(x.page, 'Serpa Chrysler').count() > 0, `${tag}: … and names the owner as the author`);
+      expect(!(await x.page.getByTestId('product-editor').count()), `${tag}: … read-only (no editor)`);
       expect(!(await xe.getByRole('button', { name: /^(Edit|Edit settings|Save|Duplicate|Archive|Delete|More actions)$/ }).count()), `${tag}: … no Edit, no ⋯, no Save, Duplicate, Archive or Delete`);
       expect(!(await xe.getByRole('button', { name: /Add photos/ }).count()) && !(await xe.getByRole('heading', { name: 'Internal notes' }).count()), `${tag}: … no photo upload and no internal notes`);
       expect(xw.calls.some((c) => c.p === '/products/601' && c.view === '31'), `${tag}: … asked with the property header`);
       await x.page.screenshot({ path: `${OUT}/${tag}-04-external.png` });
-      await xe.getByRole('button', { name: 'Products', exact: true }).click();
-      await x.page.waitForTimeout(400);
+      await backToProducts(x.page);
       expect(!(await xe.count()) && !xw.calls.some((c) => ['PATCH', 'POST', 'PUT', 'DELETE'].includes(c.m) && c.p.startsWith('/products')), `${tag}: … closes without asking and nothing was written`);
       await x.context.close();
     }
@@ -1323,17 +1311,17 @@ try {
       await page.waitForTimeout(300);
       const before = w.calls.length;
       await editor.getByRole('button', { name: 'Save' }).last().click();
-      const details = page.getByTestId('product-details');
-      await details.waitFor({ timeout: 15000 });
+      const details = productPage(page);
+      await pageHeading(page, 'Linen Cushion').waitFor({ timeout: 15000 });
+      await page.waitForTimeout(1000);
       const made = w.calls.slice(before);
       const posts = made.filter((c) => c.m === 'POST' && c.p === '/products');
       const ups = made.filter((c) => c.m === 'POST' && /^\/products\/\d+\/media$/.test(c.p));
       expect(posts.length === 1 && posts[0].body.currency === 'EUR', `${tag}: one POST /products, currency EUR (${posts.length})`);
       expect(ups.length === 2 && w.uploads.map((u) => u.name).join(',') === 'green.png,red.png', `${tag}: then the 2 photos upload in their order (${w.uploads.map((u) => u.name)})`);
-      expect(await details.getByRole('heading', { name: 'Linen Cushion' }).isVisible() && await details.getByRole('button', { name: /^Show photo/ }).count() === 2 && await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: … the details view shows the product with its 2 photos`);
-      await shootLayer(page, 'product-details', `${OUT}/${tag}-07-created-details.png`);
-      await details.getByRole('button', { name: 'Products', exact: true }).click();
-      await page.waitForTimeout(600);
+      expect(await pageHeading(page, 'Linen Cushion').isVisible() && await details.getByText(/2 moments/).filter({ visible: true }).count() > 0 && await toastText(page, 'Saved.').isVisible(), `${tag}: … the product page shows the product with its 2 photos, "Saved."`);
+      await page.screenshot({ path: `${OUT}/${tag}-07-created-details.png`, fullPage: true });
+      await backToProducts(page);
       expect(await cards.filter({ hasText: 'Linen Cushion' }).count() === 1, `${tag}: … and its card is in the grid`);
 
       // A failed upload keeps the product and the other photos; the editor stays on the saved product.
@@ -1352,15 +1340,16 @@ try {
       expect(w.products.some((x) => x.title === 'Wool Throw') && w.uploads.map((u) => u.name).join(',') === 'big.png,small.png' && await editor.locator('ul img').count() === 1, `${tag}: … the product exists and small.png still uploaded`);
       await shootEditor(page, `${OUT}/${tag}-08-upload-failed.png`);
       await editor.getByRole('button', { name: 'Save' }).last().click();
-      await details.waitFor({ timeout: 15000 });
+      await pageHeading(page, 'Wool Throw').waitFor({ timeout: 15000 });
       const after2 = w.calls.slice(before2);
-      expect(after2.filter((c) => c.m === 'POST' && c.p === '/products').length === 1 && after2.some((c) => c.m === 'PATCH'), `${tag}: … Save again PATCHes it (still one POST) and opens its details`);
+      expect(after2.filter((c) => c.m === 'POST' && c.p === '/products').length === 1 && after2.some((c) => c.m === 'PATCH'), `${tag}: … Save again PATCHes it (still one POST) and opens its product page`);
       w.mediaRejectName = null;
       await context.close();
     }
   }
   if (run('photos')) {
-    // Chris, 17 Nov: "should have option to hide photo in edit. So this should be gone" — the editor's "Show photos".
+    // Chris, 17 Nov: "should have option to hide photo in edit. So this should be gone" — the editor's "Show photos";
+    // the product page then has no photo area (no moments, no media column) and shows its details in their place.
     for (const [width, height] of [[1280, 900], [390, 844]]) {
       const tag = `photos-${width}`;
       const w = world();
@@ -1370,25 +1359,27 @@ try {
       const { page, context } = await open(w, { width, height });
       const cards = page.getByTestId('product-card');
       await cards.first().waitFor({ timeout: 15000 });
-      const details = page.getByTestId('product-details');
+      const details = productPage(page);
       const editor = page.getByTestId('product-editor');
-      const photos = details.getByTestId('product-photos');
+      const moments = () => details.getByText(/\d+ moments?/).filter({ visible: true }).count();
+      const block = () => details.getByTestId('product-page-details').filter({ visible: true }).count();
 
       await cards.filter({ hasText: 'Draft Stool' }).getByRole('button').first().click();
-      await details.getByRole('heading', { name: 'Draft Stool' }).waitFor({ timeout: 10000 });
-      expect(await photos.count() === 1 && !(await details.getByText('Photos', { exact: true }).count()), `${tag}: older web API: photos show, no Photos line`);
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageHeading(page, 'Draft Stool').waitFor({ timeout: 15000 });
+      await page.waitForTimeout(600);
+      expect(await moments() > 0 && !(await block()), `${tag}: older web API: photos show (as moments), no details block`);
+      await pageButton(page, 'Edit').click();
       await editor.waitFor({ timeout: 10000 });
       expect(!(await editor.getByTestId('product-show-photos').count()), `${tag}: … and the editor offers no switch`);
       await editor.getByRole('button', { name: /^Cancel/ }).first().click();
-      await page.waitForTimeout(600);
-      if (await details.isVisible()) await details.getByRole('button', { name: 'Products' }).first().click();
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(800);
+      await backToProducts(page);
 
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
-      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 10000 });
-      expect(await photos.count() === 1, `${tag}: Walnut Chair shows its photo`);
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
+      await page.waitForTimeout(600);
+      expect(await moments() > 0, `${tag}: Walnut Chair shows its photo`);
+      await pageButton(page, 'Edit').click();
       await editor.waitFor({ timeout: 10000 });
       const sw = editor.getByTestId('product-show-photos');
       await sw.scrollIntoViewIfNeeded();
@@ -1398,22 +1389,21 @@ try {
       await sw.click();
       const before = w.calls.length;
       await editor.getByRole('button', { name: 'Save' }).last().click();
-      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 15000 });
+      await page.waitForTimeout(1500);
       const patch = w.calls.slice(before).find((c) => c.m === 'PATCH');
       expect(patch && patch.body.show_photos === false, `${tag}: Save sends show_photos: false (${JSON.stringify(patch?.body?.show_photos)})`);
-      await page.waitForTimeout(400);
-      expect(await photos.count() === 0, `${tag}: the details page has no photo area`);
-      expect(await details.getByText('Hidden', { exact: true }).isVisible(), `${tag}: … and its Details say Photos: Hidden`);
+      expect(!(await moments()) && await block() === 1, `${tag}: the product page has no photo area, its details instead`);
+      expect(!(await page.getByText('Drag images to change the order').filter({ visible: true }).count()), `${tag}: … no media column`);
+      expect(await details.getByTestId('product-page-details').filter({ visible: true }).getByText('Hidden', { exact: true }).isVisible(), `${tag}: … and its details say Photos: Hidden`);
       await page.screenshot({ path: `${OUT}/${tag}-02-hidden.png` });
 
-      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await pageButton(page, 'Edit').click();
       await editor.waitFor({ timeout: 10000 });
       expect((await editor.getByTestId('product-show-photos').getAttribute('aria-checked')) === 'false', `${tag}: the editor opens with it off`);
       await editor.getByTestId('product-show-photos').click();
       await editor.getByRole('button', { name: 'Save' }).last().click();
-      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 15000 });
-      await page.waitForTimeout(400);
-      expect(await photos.count() === 1, `${tag}: on again: the photo is back`);
+      await page.waitForTimeout(1500);
+      expect(await moments() > 0 && !(await block()), `${tag}: on again: the photo is back`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       expect(!overflow, `${tag}: no horizontal page scroll`);
       await context.close();
@@ -1454,6 +1444,106 @@ try {
       expect(await page.locator('[data-sonner-toast]').getByText('Shopify connected. Your products are below.').count() === 1, `${tag}: after connecting: Products page + toast`);
       expect(!(await page.evaluate(() => location.search)).includes('shopify=connected'), `${tag}: … and the marker is gone from the address`);
       await page.screenshot({ path: `${OUT}/${tag}-02-after-connect.png` });
+      await context.close();
+    }
+  }
+  if (run('serpa')) {
+    // Chris, 17 Nov: "why are there 2 different interfaces? … All u have to do is screenshot Serpa details screen and
+    // follow that pattern". A product (manual, website, Shopify; photos shown or hidden) opens the SAME page as a Serpa
+    // car / catalogue item (MemoryDetailsPage, `product:<id>`), with the owner's Edit and ⋯ in that page's header.
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `serpa-${width}`;
+      const w = world();
+      w.products[0].extra = {
+        brand: 'Royal Wood', short_description: 'A solid walnut dining chair.', description: 'Hand made from solid walnut.\nOiled finish', description_html: '<p>Hand made from <strong>solid walnut</strong>.</p><ul><li>Oiled finish</li></ul>',
+        variants: [
+          { id: 1, title: 'Small', options: { Size: 'Small' }, sku: 'WC-S', barcode: null, price: '450.00', compare_at_price: null, price_label: '$450 CAD', stock_status: 'in_stock', quantity: 4, image_id: null, sort_order: 0 },
+          { id: 2, title: 'Large', options: { Size: 'Large' }, sku: 'WC-L', barcode: null, price: '520.00', compare_at_price: null, price_label: '$520 CAD', stock_status: 'out_of_stock', quantity: 0, image_id: null, sort_order: 1 },
+        ],
+        attributes: [{ label: 'Finish', value: 'Oil' }], tags: ['solid wood'], buy_url: 'https://shop.example.ca/walnut-chair', weight: '7.5', weight_unit: 'kg',
+        media: [6011, 6012, 6013].map((id, i) => ({ id, url: img(id), type: 'photo', sort_order: i })),
+      };
+      w.products.push(product(604, 'Cedar Planter', { origin: 'shopify', category: 'Garden', url: 'https://royalwood.myshopify.com/products/cedar', price_label: '$89 CAD' }));
+      w.products.push(product(605, 'Plain Stool', { can_hide_photos: true, show_photos: false, categories: [{ id: 1, name: 'Chairs' }], extra: { description: 'A plain three-leg stool.', attributes: [{ label: 'Wood', value: 'Maple' }], brand: 'Royal Wood' } }));
+      const { page, context } = await open(w, { width, height });
+      const cards = page.getByTestId('product-card');
+      await cards.first().waitFor({ timeout: 15000 });
+      const pageOf = page.getByTestId('product-page');
+      const openCard = async (title) => { await cards.filter({ hasText: title }).getByRole('button').first().click(); await pageOf.getByRole('heading', { name: title }).first().waitFor({ timeout: 15000 }); await page.waitForTimeout(1200); };
+      const back = async () => { await pageOf.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).first().click(); await page.waitForTimeout(800); };
+      const shoot = async (name) => { await page.screenshot({ path: `${OUT}/${tag}-${name}.png`, fullPage: true }); };
+
+      await page.getByRole('searchbox', { name: 'Search products' }).fill('Walnut');
+      await page.waitForTimeout(1000);
+      const listsBefore = w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length;
+      await openCard('Walnut Chair');
+      expect(!(await page.getByTestId('product-details').count()) && await pageOf.isVisible(), `${tag}: a manual product opens the Serpa-style page, not the old details screen`);
+      expect(w.calls.some((c) => c.p === '/products/601' && c.m === 'GET'), `${tag}: … read from GET /products/601`);
+      for (const t of ['Chairs', '$450 CAD', 'Active', 'Manual', 'solid wood']) expect(await pageOf.getByText(t, { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … header shows "${t}"`);
+      expect(await pageOf.getByRole('link', { name: /Buy link/ }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the Buy link`);
+      expect(await pageOf.getByText(/3 moments/).filter({ visible: true }).count() > 0, `${tag}: … its 3 photos are the timeline, as a car's`);
+      for (const name of ['Edit', 'More actions']) {
+        const b = await pageOf.getByRole('button', { name, exact: true }).filter({ visible: true }).first().boundingBox();
+        expect(b && b.x >= 0 && b.x + b.width <= width && b.y >= 0 && b.y + b.height <= height, `${tag}: ${name} is in the page header, inside the viewport`);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${tag}: no sideways scroll`);
+      await shoot('01-manual');
+      // The photo viewer: the page's details/specs block (as a car's mileage / engine).
+      await pageOf.locator('img[src*="/pr-img/6012"]').filter({ visible: true }).first().click();
+      await page.waitForTimeout(1200);
+      // Phone: the description and details are in the viewer's comments sheet, as a car's are.
+      if (width < 768) { await page.locator('button.fixed.bottom-2.right-6').filter({ visible: true }).last().click(); await page.waitForTimeout(800); }
+      const viewerText = await page.evaluate(() => document.body.innerText);
+      expect(['SKU-601', 'Royal Wood', '7.5 kg', 'Oil', 'WC-L', 'Out of stock', 'Hand made from solid walnut.'].every((t) => viewerText.includes(t)), `${tag}: the photo viewer shows the product's description and details (SKU, brand, weight, specs, variants)`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-manual-viewer.png` });
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(600);
+      if (await page.getByRole('button', { name: /close/i }).filter({ visible: true }).count() && !(await pageOf.getByRole('heading', { name: 'Walnut Chair' }).filter({ visible: true }).count())) await page.getByRole('button', { name: /close/i }).filter({ visible: true }).first().click();
+      await page.waitForTimeout(400);
+      await back();
+      expect(!(await pageOf.count()) && await page.getByRole('searchbox', { name: 'Search products' }).inputValue() === 'Walnut' && await cards.count() === 1, `${tag}: Back returns to Products with the search and list`);
+      expect(w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length === listsBefore, `${tag}: … without reloading the list`);
+      await page.getByRole('searchbox', { name: 'Search products' }).fill('');
+      await page.waitForTimeout(1000);
+
+      // Website product: no Edit; ⋯ = Edit settings, Duplicate, Archive; View on website; the sync line.
+      await openCard('Harbour Sofa');
+      expect(!(await pageOf.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).count()), `${tag}: website product: no Edit`);
+      expect(await pageOf.getByRole('link', { name: /View on website/ }).filter({ visible: true }).first().getAttribute('href') === 'https://royalwood.example.ca/harbour', `${tag}: … View on website`);
+      expect(await pageOf.getByText('This product comes from your website and updates each time it syncs.').filter({ visible: true }).count() > 0 && await pageOf.getByText('Website', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … the sync line and the Website pill`);
+      await pageOf.getByRole('button', { name: 'More actions' }).filter({ visible: true }).first().click();
+      const wItems = (await page.getByRole('menu').getByRole('menuitem').allTextContents()).map((t) => t.trim()).join(',');
+      expect(wItems === 'Edit settings,Duplicate,Archive', `${tag}: … its ⋯ (${wItems})`);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      await shoot('03-website');
+      await back();
+
+      // Shopify product: View in your store, the Shopify pill.
+      await openCard('Cedar Planter');
+      expect(await pageOf.getByRole('link', { name: /View in your store/ }).filter({ visible: true }).first().getAttribute('href') === 'https://royalwood.myshopify.com/products/cedar', `${tag}: Shopify product: View in your store`);
+      expect(await pageOf.getByText('Shopify', { exact: true }).filter({ visible: true }).count() > 0 && await pageOf.getByText('This product comes from your Shopify store and updates each time it syncs.').filter({ visible: true }).count() > 0, `${tag}: … the Shopify pill and sync line`);
+      await shoot('04-shopify');
+      await back();
+
+      // Show photos off: no timeline, no media column; the details take the width.
+      await openCard('Plain Stool');
+      const block = pageOf.getByTestId('product-page-details').filter({ visible: true });
+      expect(await block.count() === 1, `${tag}: photos hidden: the details block shows on the page`);
+      const blockText = await block.innerText();
+      expect(['A plain three-leg stool.', 'MAPLE', 'HIDDEN'].every((t) => blockText.toUpperCase().includes(t.toUpperCase())), `${tag}: … description, specs and Photos: Hidden (${blockText.replace(/\n/g, ' | ').slice(0, 160)})`);
+      expect(!(await pageOf.getByText(/\d+ moments/).filter({ visible: true }).count()) && !(await page.getByText('Drag images to change the order').filter({ visible: true }).count()), `${tag}: … no timeline and no media column`);
+      if (width >= 1024) {
+        const bw = (await block.boundingBox())?.width || 0;
+        expect(bw > 600, `${tag}: … and the details take the width (${Math.round(bw)}px)`);
+      }
+      await shoot('05-manual-photos-hidden');
+      await back();
+
+      // Manual with photos again, for the "photos shown" comparison at the same scroll.
+      await openCard('Draft Stool');
+      expect(await pageOf.getByText('Draft', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: Draft badge`);
+      await back();
       await context.close();
     }
   }

@@ -1,8 +1,8 @@
 // components/products/ProductEditor.tsx — the full product editor (spec "Product editor"). Manual products: every group.
 // Website products: read-only except Studio-only fields (status, categories, tags, collections, notes, visibility).
-// A salesperson's view of the main account's product: read-only. Post-live P1 (15 Nov): the editor opens from the
-// product details view (ProductDetails), whose header now holds Duplicate, Archive and Delete; Save and Cancel go back
-// to that view. Preview / Copy link (M3), Share / newsletter / QR (M4) and Analytics (M5) come with their milestones.
+// A salesperson's view of the main account's product: read-only. The editor opens from the product's page (since Chris
+// 17 Nov 2026 the Serpa-style page, MemoryDetailsPage `product:<id>`, whose header holds Edit and ⋯: Duplicate, Archive
+// and Delete) and from Add a product; Save and Cancel go back to that page. Preview / Copy link (M3), Share / newsletter / QR (M4) and Analytics (M5) come with their milestones.
 import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FocusScope } from '@radix-ui/react-focus-scope';
