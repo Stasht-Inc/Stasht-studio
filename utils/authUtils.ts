@@ -2370,6 +2370,14 @@ export const dashboardAPI = {
   },
 
   // Edit category by ID
+  // Campaigns sidebar colour picker (Chris, 17 Nov 2026). null = back to the automatic colour.
+  setCategoryColor: async (categoryId: string, color: string | null): Promise<ApiResponse<{ id: number; name: string; custom_color?: string | null }>> => {
+    return await apiRequest(`/categories/${categoryId}/color`, {
+      method: 'POST',
+      body: JSON.stringify({ color }),
+    });
+  },
+
   editCategory: async (categoryId: string, name: string): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.editCategory: Editing category with ID "${categoryId}" to name "${name}"`);
     devLog(`API URL: /edit-category/${categoryId}`);

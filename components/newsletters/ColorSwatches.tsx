@@ -6,8 +6,9 @@ import { useRecentColors } from './RecentColors';
 
 type Swatch = { value: string; name: string };
 
-/** One row of colour radios: arrow keys move and pick, one Tab stop (the picked one, else the first). */
-function SwatchGroup({ list, value, onChange, labelledBy, label, recent = false }: {
+/** One row of colour radios: arrow keys move and pick, one Tab stop (the picked one, else the first). Also the
+ *  Campaigns sidebar's category colour picker (Chris, 17 Nov 2026). */
+export function SwatchGroup({ list, value, onChange, labelledBy, label, recent = false }: {
   list: ReadonlyArray<Swatch>;
   value: string;
   onChange(color: string): void;

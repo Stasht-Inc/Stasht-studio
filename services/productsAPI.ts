@@ -86,6 +86,10 @@ export interface ProductDetail extends ProductSummary {
   seo: { slug: string | null; title: string | null; description: string | null; share_image: string | null };
   buy_url: string | null;
   show_enquire: boolean;
+  // Chris 17 Nov 2026: "Show photos" off hides the photo area on the details page. can_hide_photos: the switch is
+  // offered (the web API has the column). Both missing on an older web API: photos show, no switch.
+  show_photos?: boolean;
+  can_hide_photos?: boolean;
   media: ProductMediaItem[];
   editable_fields: string[];
   internal_notes?: string | null;

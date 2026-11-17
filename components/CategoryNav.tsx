@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from "react";
-import { Plus, ChevronLeft, Folder, FolderOpen, Menu, ChevronRight, ChevronDown, Image, X, Trash2, Pencil, ChevronUp } from "lucide-react";
+import { Plus, ChevronLeft, Folder, FolderOpen, Menu, ChevronRight, ChevronDown, Image, X, Trash2, Pencil, ChevronUp, Palette } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -23,7 +23,8 @@ import { getCategoryColor } from "../constants/mediaConstants";
 import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
-import { updateCategoryColor } from "../utils/categoryColorManager";
+import { CATEGORY_PICKER_COLORS, getCustomCategoryColor, setCustomCategoryColor, updateCategoryColor } from "../utils/categoryColorManager";
+import { SwatchGroup } from "./newsletters/ColorSwatches";
 import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 
@@ -299,6 +300,57 @@ function CategoryCard({ name, count, isActive = false, onClick, hasMemories = fa
   );
 }
 
+/**
+ * The colour picker next to a category's pencil, on hover (Chris, 17 Nov 2026: "a color selector next to pencil icon
+ * … 5 or 6 colors"). Saved on the web API, so it follows the owner to every device; the card, the campaign badges and
+ * the folders change straight away and go back if the save fails.
+ */
+function CategoryColorPicker({ categoryId, name, color }: { categoryId: string; name: string; color: string }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const label = categoryDisplayName(name);
+
+  const pick = async (next: string) => {
+    if (saving) return;
+    const before = getCustomCategoryColor(name);
+    setCustomCategoryColor(name, next);
+    window.dispatchEvent(new CustomEvent('category-colors-changed'));
+    setOpen(false);
+    setSaving(true);
+    try {
+      const res = await dashboardAPI.setCategoryColor(categoryId, next);
+      if (!res.success) throw new Error(res.message || res.error || '');
+    } catch (e) {
+      setCustomCategoryColor(name, before);
+      window.dispatchEvent(new CustomEvent('category-colors-changed'));
+      toast.error((e instanceof Error && e.message) || `Couldn't change the colour of ${label}. Please try again.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className={`p-1 rounded hover:bg-gray-200 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:opacity-100 ${open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          aria-label={`Colour of ${label}`}
+          title={`Colour of ${label}`}
+          data-testid="category-color-button"
+        >
+          <Palette className="w-3 h-3 text-gray-500 hover:text-gray-700" aria-hidden="true" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" sideOffset={6} className="w-auto rounded-lg border border-gray-200 bg-white p-3 shadow-lg" onClick={(e) => e.stopPropagation()} data-testid="category-color-picker">
+        <p className="mb-2 text-xs font-medium text-gray-700" id={`cat-color-${categoryId}`}>Colour</p>
+        <SwatchGroup list={CATEGORY_PICKER_COLORS} value={color} onChange={(v) => void pick(v)} labelledBy={`cat-color-${categoryId}`} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function EditableCategoryCard({
   name,
   count,
@@ -320,6 +372,8 @@ function EditableCategoryCard({
   // owner OR explicitly cannot add a story to it.
   const cannotAddCampaign = isOwner === false || canAddStory === false;
   const categoryColor = isLabel ? '#eab308' : getCategoryColor(name, categories);
+  // Only an own-account category the web API offers a colour for (it sent custom_color).
+  const pickerCategory = categories?.find((c) => c.name === name && c.can_pick_color);
   
   // Inline editing state
   const [isEditing, setIsEditing] = useState(false);
@@ -536,6 +590,10 @@ function EditableCategoryCard({
                 <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-700" />
               </button>
             )}
+            {/* The colour picker sits next to the pencil, on hover, wherever the pencil is offered (Chris, 17 Nov 2026). */}
+            {!isLabel && !isEditing && !suggested && name !== 'Published' && name !== 'Shared With' && !cannotAddCampaign && pickerCategory?.id && (
+              <CategoryColorPicker categoryId={pickerCategory.id} name={name} color={categoryColor} />
+            )}
           </div>
           <div className="relative flex-shrink-0">
             <span
@@ -620,6 +678,8 @@ export interface Category {
   suggested?: boolean;
   is_owner?: boolean;
   can_add_story?: boolean;
+  // The web API sent custom_color for it: an own-account category the owner may colour (Chris, 17 Nov 2026).
+  can_pick_color?: boolean;
 }
 
 export interface Label {

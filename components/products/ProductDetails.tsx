@@ -10,7 +10,7 @@ import { FocusScope } from '@radix-ui/react-focus-scope';
 import { Archive, ArchiveRestore, ArrowLeft, Copy, ExternalLink, MoreHorizontal, Package, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
-import { BADGE_CLASS, BADGE_LABEL, SHOPIFY_SYNC_NOTE, WEBSITE_SYNC_NOTE, detailActions, detailFacts, enquireFact, priceLine, productCategoryColor, sourceColor, sourceLabel, variantLabel } from '../../utils/products';
+import { BADGE_CLASS, BADGE_LABEL, SHOPIFY_SYNC_NOTE, WEBSITE_SYNC_NOTE, detailActions, detailFacts, enquireFact, photosFacts, priceLine, productCategoryColor, sourceColor, sourceLabel, variantLabel } from '../../utils/products';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../newsletters/lib/ui';
 import { TEXT_CLASS, renderTextNodes } from '../newsletters/blocks/TextBlockEditor';
 import { parseTextHtml } from '../newsletters/lib/textHtml';
@@ -136,7 +136,9 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
 
   const price = detail ? priceLine(detail) : { main: '', was: '' };
   const current = media[shown];
-  const facts = detail ? [...detailFacts(detail), enquireFact(detail)] : [];
+  const facts = detail ? [...detailFacts(detail), enquireFact(detail), ...photosFacts(detail)] : [];
+  // Chris 17 Nov 2026: "Show photos" off: no photo card, the summary takes the full width.
+  const showPhotos = detail?.show_photos !== false;
   const descriptionNodes = useMemo(() => (detail?.description_html ? renderTextNodes(parseTextHtml(detail.description_html)) : null), [detail?.description_html]);
   const stockBadge = detail && detail.stock_status === 'out_of_stock' && detail.badge !== 'out_of_stock';
   const links = detail ? [
@@ -188,9 +190,9 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
           )}
           {readOnly && <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shared by {detail.owner?.name || 'your main account'}. You can view it here.</p>}
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className={`grid gap-4 ${showPhotos ? 'lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]' : ''}`}>
             {/* Photos */}
-            <div className="min-w-0">
+            {showPhotos && <div className="min-w-0" data-testid="product-photos">
               <Card>
                 <div className="relative aspect-square overflow-hidden rounded-lg bg-gray-100 sm:aspect-[4/3]">
                   {current ? (current.type === 'video'
@@ -211,7 +213,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
                   </div>
                 )}
               </Card>
-            </div>
+            </div>}
 
             {/* Summary: title, price, badges, categories, links; the card's messages sit at its bottom (Chris). */}
             <div className="min-w-0 space-y-4">

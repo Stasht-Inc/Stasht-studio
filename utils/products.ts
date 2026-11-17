@@ -122,7 +122,7 @@ export function showsProductsNav(s: ProductsStatus | null | undefined, viewType:
 export const MANUAL_FIELDS: readonly string[] = [
   'title', 'short_description', 'description_html', 'brand', 'product_type', 'price', 'compare_at_price', 'currency',
   'price_on_request', 'sku', 'barcode', 'stock_status', 'quantity', 'options', 'variants', 'attributes', 'weight',
-  'weight_unit', 'dimensions', 'category_ids', 'tags', 'collections', 'status', 'show_enquire', 'show_price', 'slug',
+  'weight_unit', 'dimensions', 'category_ids', 'tags', 'collections', 'status', 'show_enquire', 'show_price', 'show_photos', 'slug',
   'seo_title', 'seo_description', 'share_image', 'buy_url', 'internal_notes',
 ];
 
@@ -294,7 +294,7 @@ export interface ProductForm {
   attributes: Array<{ label: string; value: string }>;
   weight: string; weight_unit: string; dimensions: { length: string; width: string; height: string; unit: string };
   category_ids: number[]; tags: string[]; collections: string[];
-  status: ProductStatus; show_enquire: boolean; show_price: boolean;
+  status: ProductStatus; show_enquire: boolean; show_price: boolean; show_photos: boolean;
   slug: string; seo_title: string; seo_description: string; share_image: string; buy_url: string; internal_notes: string;
 }
 
@@ -322,7 +322,7 @@ export function emptyProductForm(currency: string): ProductForm {
     options: [], variants: [], attributes: [],
     weight: '', weight_unit: 'kg', dimensions: { length: '', width: '', height: '', unit: 'cm' },
     category_ids: [], tags: [], collections: [],
-    status: 'active', show_enquire: true, show_price: true,
+    status: 'active', show_enquire: true, show_price: true, show_photos: true,
     slug: '', seo_title: '', seo_description: '', share_image: '', buy_url: '', internal_notes: '',
   };
 }
@@ -340,7 +340,7 @@ export function formFromDetail(d: ProductDetail): ProductForm {
     weight: str(d.weight), weight_unit: str(d.weight_unit) || 'kg',
     dimensions: { length: str(d.dimensions?.length), width: str(d.dimensions?.width), height: str(d.dimensions?.height), unit: str(d.dimensions?.unit) || 'cm' },
     category_ids: (d.categories || []).map((c) => c.id), tags: [...(d.tags || [])], collections: [...(d.collections || [])],
-    status: d.status || 'active', show_enquire: d.show_enquire !== false, show_price: d.show_price !== false,
+    status: d.status || 'active', show_enquire: d.show_enquire !== false, show_price: d.show_price !== false, show_photos: d.show_photos !== false,
     slug: str(d.seo?.slug), seo_title: str(d.seo?.title), seo_description: str(d.seo?.description), share_image: str(d.seo?.share_image),
     buy_url: str(d.buy_url), internal_notes: str(d.internal_notes),
   };
@@ -388,6 +388,7 @@ export function payloadFromForm(form: ProductForm, editable: readonly string[]):
     status: form.status,
     show_enquire: form.show_enquire,
     show_price: form.show_price,
+    show_photos: form.show_photos,
     slug: text(form.slug),
     seo_title: text(form.seo_title),
     seo_description: text(form.seo_description),
@@ -552,6 +553,13 @@ export const ENQUIRE_HELP = 'Shows an Enquire button on this product in your cam
 export function enquireFact(d: { show_enquire?: boolean | null }): { label: string; value: string } {
   return { label: 'Enquire button', value: d.show_enquire === false ? 'Off' : 'On' };
 }
+
+/** The details page's "Photos" line (Chris 17 Nov 2026), only once the web API offers the switch. */
+export function photosFacts(d: { show_photos?: boolean | null; can_hide_photos?: boolean | null }): Array<{ label: string; value: string }> {
+  return d.can_hide_photos ? [{ label: 'Photos', value: d.show_photos === false ? 'Hidden' : 'Shown' }] : [];
+}
+
+export const PHOTOS_HELP = 'Off hides the photo area on this product\'s page.';
 
 /** The account's real campaign category for catalogue campaigns is stored as this name (web API config catalog.category_name). */
 export const CATALOGUE_CATEGORY_NAME = 'Website Catalogue';

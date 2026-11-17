@@ -52,6 +52,78 @@ const SYSTEM_CATEGORY_COLORS: { [key: string]: string } = {
 // LocalStorage key for storing category colors
 const CATEGORY_COLORS_KEY = 'stasht_category_colors';
 
+/**
+ * The six colours the Campaigns sidebar's picker offers (Chris, 17 Nov 2026: "an assortment of colors … 5 or 6").
+ * Picked colours are the owner's (user_categories.color on the web API, sent as custom_color) and win over every
+ * automatic one, the fixed "Personal" purple included.
+ */
+export const CATEGORY_PICKER_COLORS: ReadonlyArray<{ value: string; name: string }> = [
+  { value: '#6C60FF', name: 'Purple' },
+  { value: '#3B82F6', name: 'Blue' },
+  { value: '#10B981', name: 'Green' },
+  { value: '#F59E0B', name: 'Amber' },
+  { value: '#EF4444', name: 'Red' },
+  { value: '#EC4899', name: 'Pink' },
+];
+
+// Picked colours by category name, as the web API last sent them (kept so the first paint after a reload matches).
+const CUSTOM_COLORS_KEY = 'stasht_category_custom_colors';
+let customColors: StoredCategoryColors | null = null;
+
+function getCustomColors(): StoredCategoryColors {
+  if (customColors) return customColors;
+  try {
+    const stored = localStorage.getItem(CUSTOM_COLORS_KEY);
+    customColors = stored ? JSON.parse(stored) : {};
+  } catch {
+    customColors = {};
+  }
+  return customColors!;
+}
+
+function saveCustomColors(): void {
+  try {
+    localStorage.setItem(CUSTOM_COLORS_KEY, JSON.stringify(getCustomColors()));
+  } catch {
+    // storage blocked: the colours still apply for this visit
+  }
+}
+
+/** The web API offers a colour for this sidebar category: it sent custom_color (an own-account category). */
+export function canPickCategoryColor(cat: unknown): boolean {
+  return Boolean(cat && typeof cat === 'object' && 'custom_color' in (cat as object) && (cat as { id?: unknown }).id);
+}
+
+/** One category's picked colour (null = back to automatic). */
+export function setCustomCategoryColor(name: string, color: string | null): void {
+  const all = getCustomColors();
+  if (color) all[name] = color.toUpperCase();
+  else delete all[name];
+  saveCustomColors();
+}
+
+export function getCustomCategoryColor(name: string): string | null {
+  return getCustomColors()[name] ?? null;
+}
+
+/**
+ * The web API's answer for the sidebar: every category that carries a custom_color key sets (or clears) its picked
+ * colour. Categories without the key (an older web API, a property account's list) leave theirs as they are.
+ */
+export function syncCustomCategoryColors(items: Array<{ name: string; custom_color?: string | null }>): void {
+  let changed = false;
+  const all = getCustomColors();
+  for (const item of items) {
+    if (!item || !('custom_color' in item)) continue;
+    const next = item.custom_color ? item.custom_color.toUpperCase() : null;
+    if ((all[item.name] ?? null) === next) continue;
+    if (next) all[item.name] = next;
+    else delete all[item.name];
+    changed = true;
+  }
+  if (changed) saveCustomColors();
+}
+
 // Interface for stored color data
 interface StoredCategoryColors {
   [categoryName: string]: string;
@@ -97,6 +169,12 @@ function getNextAvailableColor(usedColors: Set<string>): string {
  * Main function to get persistent category color
  */
 export function getPersistentCategoryColor(categoryName: string): string {
+  // A colour the owner picked wins (Chris, 17 Nov 2026).
+  const custom = getCustomColors()[categoryName];
+  if (custom) {
+    return custom;
+  }
+
   // Return system color if it exists
   if (SYSTEM_CATEGORY_COLORS[categoryName]) {
     return SYSTEM_CATEGORY_COLORS[categoryName];
@@ -197,6 +275,13 @@ export function clearStoredColors(): void {
  * Update existing category color (for category rename)
  */
 export function updateCategoryColor(oldName: string, newName: string): void {
+  // A picked colour follows the rename.
+  const custom = getCustomColors()[oldName];
+  if (custom) {
+    setCustomCategoryColor(newName, custom);
+    setCustomCategoryColor(oldName, null);
+  }
+
   // Don't update system categories
   if (SYSTEM_CATEGORY_COLORS[oldName] || SYSTEM_CATEGORY_COLORS[newName]) {
     return;

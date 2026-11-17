@@ -41,7 +41,7 @@ import { landingAfterSignIn } from './utils/landing';
 import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
 import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
 import { mediaAPI, mediaTransformers, resetMediaCache } from './services/mediaAPI';
-import { initializeCategoryColors } from './utils/categoryColorManager';
+import { canPickCategoryColor, initializeCategoryColors, syncCustomCategoryColors } from './utils/categoryColorManager';
 import { useMemoriesRefreshProvider } from './hooks/useMemoriesRefresh';
 import { useInviteFlow } from './hooks/useInviteFlow';
 import { useQrInviteFlow } from './hooks/useQrInviteFlow';
@@ -1355,6 +1355,13 @@ function MainApp() {
   const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
   const [timePeriod, setTimePeriod] = useState("weekly");
   const [categories, setCategories] = useState<Category[]>(categoriesData);
+  // A category colour was picked in the sidebar (Chris, 17 Nov 2026): new objects so every card, badge and folder
+  // that reads the colour by name draws again.
+  useEffect(() => {
+    const redraw = () => setCategories((prev) => prev.map((c) => ({ ...c })));
+    window.addEventListener('category-colors-changed', redraw);
+    return () => window.removeEventListener('category-colors-changed', redraw);
+  }, []);
   const [labels, setLabels] = useState<Label[]>(labelsData);
 
   // AI Processing state for background processing
@@ -3368,9 +3375,12 @@ function MainApp() {
               // accounts. The properties API provides these; personal API does not, so they are
               // simply undefined for personal accounts (unchanged behavior).
               is_owner: cat.is_owner,
-              can_add_story: cat.can_add_story
+              can_add_story: cat.can_add_story,
+              // Chris 17 Nov 2026: the colour picker; offered only where the web API sends custom_color.
+              can_pick_color: canPickCategoryColor(cat)
             }));
 
+          syncCustomCategoryColors(actualData.sidebar.categories.items);
           initializeCategoryColors(apiCategories.map(cat => ({
             name: cat.name,
             color: cat.color
@@ -4483,7 +4493,8 @@ function MainApp() {
                           suggested: cat.suggested || false,
                           // is_owner === true means the category belongs to the logged-in user.
                           is_owner: cat.is_owner,
-                          can_add_story: cat.can_add_story
+                          can_add_story: cat.can_add_story,
+                          can_pick_color: canPickCategoryColor(cat)
                         }));
 
                       // Filter out Suggested category if count is 0

@@ -1359,6 +1359,66 @@ try {
       await context.close();
     }
   }
+  if (run('photos')) {
+    // Chris, 17 Nov: "should have option to hide photo in edit. So this should be gone" — the editor's "Show photos".
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `photos-${width}`;
+      const w = world();
+      const MANUAL_EDITABLE = detailOf(w.products[0]).editable_fields;
+      // Walnut Chair: a web API with the column (can_hide_photos). Draft Stool: an older web API (no switch).
+      Object.assign(w.products[0], { can_hide_photos: true, show_photos: true, extra: { editable_fields: [...MANUAL_EDITABLE, 'show_photos'] } });
+      const { page, context } = await open(w, { width, height });
+      const cards = page.getByTestId('product-card');
+      await cards.first().waitFor({ timeout: 15000 });
+      const details = page.getByTestId('product-details');
+      const editor = page.getByTestId('product-editor');
+      const photos = details.getByTestId('product-photos');
+
+      await cards.filter({ hasText: 'Draft Stool' }).getByRole('button').first().click();
+      await details.getByRole('heading', { name: 'Draft Stool' }).waitFor({ timeout: 10000 });
+      expect(await photos.count() === 1 && !(await details.getByText('Photos', { exact: true }).count()), `${tag}: older web API: photos show, no Photos line`);
+      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await editor.waitFor({ timeout: 10000 });
+      expect(!(await editor.getByTestId('product-show-photos').count()), `${tag}: … and the editor offers no switch`);
+      await editor.getByRole('button', { name: /^Cancel/ }).first().click();
+      await page.waitForTimeout(600);
+      if (await details.isVisible()) await details.getByRole('button', { name: 'Products' }).first().click();
+      await page.waitForTimeout(400);
+
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
+      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 10000 });
+      expect(await photos.count() === 1, `${tag}: Walnut Chair shows its photo`);
+      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await editor.waitFor({ timeout: 10000 });
+      const sw = editor.getByTestId('product-show-photos');
+      await sw.scrollIntoViewIfNeeded();
+      expect(await sw.isVisible() && (await sw.getAttribute('aria-checked')) === 'true', `${tag}: the editor has "Show photos", on`);
+      expect(await editor.getByText("Off hides the photo area on this product's page.").isVisible(), `${tag}: … with its help line`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-switch.png` });
+      await sw.click();
+      const before = w.calls.length;
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 15000 });
+      const patch = w.calls.slice(before).find((c) => c.m === 'PATCH');
+      expect(patch && patch.body.show_photos === false, `${tag}: Save sends show_photos: false (${JSON.stringify(patch?.body?.show_photos)})`);
+      await page.waitForTimeout(400);
+      expect(await photos.count() === 0, `${tag}: the details page has no photo area`);
+      expect(await details.getByText('Hidden', { exact: true }).isVisible(), `${tag}: … and its Details say Photos: Hidden`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-hidden.png` });
+
+      await details.getByRole('button', { name: 'Edit', exact: true }).click();
+      await editor.waitFor({ timeout: 10000 });
+      expect((await editor.getByTestId('product-show-photos').getAttribute('aria-checked')) === 'false', `${tag}: the editor opens with it off`);
+      await editor.getByTestId('product-show-photos').click();
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await details.getByRole('heading', { name: 'Walnut Chair' }).waitFor({ timeout: 15000 });
+      await page.waitForTimeout(400);
+      expect(await photos.count() === 1, `${tag}: on again: the photo is back`);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+      expect(!overflow, `${tag}: no horizontal page scroll`);
+      await context.close();
+    }
+  }
   if (run('campaigns')) {
     for (const [width, height] of [[1280, 900], [390, 844]]) {
       const tag = `campaigns-${width}`;

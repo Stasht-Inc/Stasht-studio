@@ -11,7 +11,7 @@ import { productsAPI, type ProductCategory, type ProductDetail } from '../../ser
 import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
-  ENQUIRE_HELP, SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
+  ENQUIRE_HELP, PHOTOS_HELP, SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
@@ -371,6 +371,13 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                   <p id="p-enquire-help" className="mt-1 text-xs text-gray-500">{ENQUIRE_HELP}</p>
                 </div>
                 <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_price} disabled={!can('show_price')} onCheckedChange={(v) => set('show_price', v)} aria-label="Show the price" />Show the price</label>
+                {/* Chris 17 Nov 2026: a product with no photo (a service) needn't show an empty photo box. Offered once the web API has the column. */}
+                {detail?.can_hide_photos && (
+                  <div>
+                    <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_photos} disabled={!can('show_photos')} onCheckedChange={(v) => set('show_photos', v)} aria-label="Show photos" aria-describedby="p-photos-help" data-testid="product-show-photos" />Show photos</label>
+                    <p id="p-photos-help" className="mt-1 text-xs text-gray-500">{PHOTOS_HELP}</p>
+                  </div>
+                )}
               </Section>
               <Section title="Organisation">
                 <fieldset>

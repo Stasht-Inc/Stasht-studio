@@ -32,7 +32,7 @@ import CategoryNav from "../components/CategoryNav";
 import QrCodePopover from "../components/qr-codes/QrCodePopover";
 import { canManageQrCodes } from "../utils/qrCodes";
 import { campaignCardCover } from "../utils/campaignCover";
-import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
+import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR, canPickCategoryColor } from "../utils/categoryColorManager";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { memoryCountsManager } from '../hooks/useMemoryCounts';
 import { loadShopifyForBrowsing, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
@@ -3582,7 +3582,8 @@ function MemoriesPageContent({
                     color: cat.color,
                     suggested: cat.suggested || false,
                     is_owner: deriveCategoryIsOwner(cat),
-                    can_add_story: cat.can_add_story
+                    can_add_story: cat.can_add_story,
+                    can_pick_color: canPickCategoryColor(cat)
                   }))}
                   labels={sidebarData?.labels?.items?.filter((label: any) => label != null).map((label: any) => ({
                     id: label.id?.toString(),
