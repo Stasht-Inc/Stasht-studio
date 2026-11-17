@@ -65,7 +65,7 @@ function world(over = {}) {
 }
 const statusOf = (w) => ({
   pilot: w.pilot, available: w.pilot && !w.reason, reason: w.pilot ? w.reason : 'not_available', can_create: w.canCreate,
-  counts: { total: w.products.length, manual: w.products.filter((p) => p.origin === 'manual').length, website: w.products.filter((p) => p.origin === 'website').length },
+  counts: { total: w.products.length, manual: w.products.filter((p) => p.origin === 'manual').length, website: w.products.filter((p) => p.origin === 'website').length, shopify: w.products.filter((p) => p.origin === 'shopify').length },
   default_currency: w.defaultCurrency || 'USD',
 });
 
@@ -1416,6 +1416,44 @@ try {
       expect(await photos.count() === 1, `${tag}: on again: the photo is back`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       expect(!overflow, `${tag}: no horizontal page scroll`);
+      await context.close();
+    }
+  }
+  if (run('c17import')) {
+    // Chris, 17 Nov: (1) after connecting Shopify, land on Products, not back on Connectors; (2) once products came in
+    // from a website or Shopify, the Import button says "Import active".
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `c17import-${width}`;
+      const label = async (page) => (await page.getByTestId('products-import').filter({ visible: true }).first().innerText()).trim();
+
+      const manualOnly = world({ products: [product(611, 'Oak Bench')] });
+      let { page, context } = await open(manualOnly, { width, height });
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      expect(await label(page) === 'Import from your website', `${tag}: no website/Shopify products: "Import from your website" (${await label(page)})`);
+      await context.close();
+
+      const withWebsite = world(); // Harbour Sofa comes from the website
+      ({ page, context } = await open(withWebsite, { width, height }));
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      expect(await label(page) === 'Import active', `${tag}: website products: "Import active" (${await label(page)})`);
+      await context.close();
+
+      const withShopify = world({ products: [product(612, 'Linen Shirt', { origin: 'shopify', read_only: false })] });
+      ({ page, context } = await open(withShopify, { width, height }));
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      expect(await label(page) === 'Import active', `${tag}: Shopify products: "Import active" (${await label(page)})`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-import-active.png` });
+      await page.getByTestId('products-import').filter({ visible: true }).first().click();
+      await page.getByRole('heading', { name: 'Connectors' }).filter({ visible: true }).first().waitFor({ timeout: 20000 });
+      expect(true, `${tag}: "Import active" still opens Connectors`);
+      await context.close();
+
+      // Back from Shopify's approval page: the web API's callback now sends people to /products?shopify=connected.
+      ({ page, context } = await open(withShopify, { width, height, path: '/products?shopify=connected' }));
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      expect(await page.locator('[data-sonner-toast]').getByText('Shopify connected. Your products are below.').count() === 1, `${tag}: after connecting: Products page + toast`);
+      expect(!(await page.evaluate(() => location.search)).includes('shopify=connected'), `${tag}: … and the marker is gone from the address`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-after-connect.png` });
       await context.close();
     }
   }
