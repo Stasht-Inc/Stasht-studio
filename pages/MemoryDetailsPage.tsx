@@ -75,6 +75,9 @@ import RequestMomentModal from "../components/RequestMomentModal";
 import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
 import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI";
 import { shopifyItemsAPI, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
+import { productsAPI, type ProductDetail } from "../services/productsAPI";
+import { priceLine, productPageDescription, productPageIdOf, productPageLinks, productPageNotes, productPagePhotos, productPagePills, productPageSpecs, productPhotosShown, productSpecSummary } from "../utils/products";
+import { ProductPageActions, ProductPageDetails, useProductPageControls } from "../components/products/ProductPageControls";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
@@ -275,6 +278,8 @@ interface MemoryDetailsProps {
   setAiProcessing?: (value: any) => void;
   onNavigate?: (page: string) => void;
   onMemorySelect?: (memoryId: string) => void;
+  /** A product page (`product:<id>`, Chris 17 Nov 2026): show another product's page in place of this one (Duplicate's copy). */
+  onOpenProduct?: (productId: number) => void;
   initialProperties?: { id: number; name: string; image?: string | null }[];
 }
 
@@ -910,7 +915,7 @@ function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick,
   );
 }
 
-export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = false, categories = [], onRefresh, onRefreshMedia, shouldOpenAddMoments, setShouldOpenAddMoments, shouldOpenEdit, setShouldOpenEdit, shouldOpenAIResults, setShouldOpenAIResults, shouldOpenComments, setShouldOpenComments, commentId, shouldOpenImageModal, setShouldOpenImageModal, imageId, shouldOpenModerationTab, setShouldOpenModerationTab, shouldOpenCollaboratorsTab, setShouldOpenCollaboratorsTab, aiProcessingData, setAiProcessing, onNavigate, onMemorySelect, initialProperties = [] }: MemoryDetailsProps) {
+export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = false, categories = [], onRefresh, onRefreshMedia, shouldOpenAddMoments, setShouldOpenAddMoments, shouldOpenEdit, setShouldOpenEdit, shouldOpenAIResults, setShouldOpenAIResults, shouldOpenComments, setShouldOpenComments, commentId, shouldOpenImageModal, setShouldOpenImageModal, imageId, shouldOpenModerationTab, setShouldOpenModerationTab, shouldOpenCollaboratorsTab, setShouldOpenCollaboratorsTab, aiProcessingData, setAiProcessing, onNavigate, onMemorySelect, onOpenProduct, initialProperties = [] }: MemoryDetailsProps) {
   console.log('🔔 MemoryDetailsPage props:', {
     memoryId,
     memoryIdType: typeof memoryId,
@@ -1202,10 +1207,22 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // same item shape — so it counts as a catalogue item detail and gets every behaviour keyed on it.
   const CATALOG_ITEM_MARKER = 'catalog_item:';
   const isShopifyProductDetail = typeof memoryId === 'string' && memoryId.startsWith(SHOPIFY_PRODUCT_MARKER);
-  const isCatalogItemDetail = isShopifyProductDetail || (typeof memoryId === 'string' && memoryId.startsWith(CATALOG_ITEM_MARKER));
-  const catalogItemId = isCatalogItemDetail
+  // A product from the Products page (`product:<id>`, Chris 17 Nov 2026: "replicate [the Serpa car details] UI"): the
+  // same page again, for every source (manual, website, Shopify) and status, read from GET /products/{id}. It counts as
+  // a catalogue item detail, so every catalogue treatment below applies; the owner's Edit / ⋯ and the product's status,
+  // source, tags, links and details are added where this page shows such things (utils/products productPage*).
+  const productPageProductId = productPageIdOf(memoryId);
+  const isProductPage = productPageProductId !== null;
+  const isCatalogItemDetail = isProductPage || isShopifyProductDetail || (typeof memoryId === 'string' && memoryId.startsWith(CATALOG_ITEM_MARKER));
+  const catalogItemId = isProductPage
+    ? productPageProductId
+    : isCatalogItemDetail
     ? Number(memoryId.slice((isShopifyProductDetail ? SHOPIFY_PRODUCT_MARKER : CATALOG_ITEM_MARKER).length))
     : null;
+  // The product behind a `product:<id>` page (null on every other page).
+  const [productDetail, setProductDetail] = useState<ProductDetail | null>(null);
+  // "Show photos" off (Chris 17 Nov 2026): no photo area — no timeline, no media column; the details take the width.
+  const productPhotosHidden = isProductPage && productDetail !== null && !productPhotosShown(productDetail);
   // The item detail — read by handleTimelineImageView for the viewer's description and details grid.
   const [catalogItemData, setCatalogItemData] = useState<CatalogueItemDetail | null>(null);
   // Cars and catalogue products share every read-only page treatment below.
@@ -3262,8 +3279,29 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (!skipLoadingState) setIsLoadingMemory(true);
       setApiError(null);
       try {
-        const itemsAPI = isShopifyProductDetail ? shopifyItemsAPI : catalogueAPI;
-        const res = Number.isFinite(catalogItemId) ? await itemsAPI.getItem(catalogItemId!) : null;
+        let res: { ok: boolean; data?: CatalogueItemDetail; error?: string } | null;
+        let productTags: string[] | null = null;
+        if (isProductPage) {
+          // A Products page product: GET /products/{id}, in the catalogue item's shape. Its details grid (productPageSpecs)
+          // goes in as the attributes (the SKU is one of them), its description is the short + full description.
+          const r = await productsAPI.get(catalogItemId!);
+          const d = r.ok ? r.data : undefined;
+          if (d) { setProductDetail(d); productTags = d.tags.length ? d.tags : null; }
+          res = d ? { ok: true, data: {
+            id: d.id, title: d.title, price: d.price, currency: d.currency,
+            price_label: priceLine(d).main, // "Price on request" / "Price hidden" as the old screen said
+            category: d.categories[0]?.name || d.category || null,
+            url: productPageLinks(d).find((l) => l.label !== 'Buy link')?.href || null,
+            main_image: productPhotosShown(d) ? d.main_image : null, images_count: d.images_count,
+            spec_summary: productSpecSummary(d), user_id: d.user_id, read_only: d.read_only, ...(d.owner ? { owner: d.owner } : {}),
+            description: productPageDescription(d) || null, sku: null, brand: d.brand, availability: d.availability,
+            attributes: productPageSpecs(d),
+            images: productPagePhotos(d).map((m, i) => ({ id: m.id as number, url: m.url, sort_order: i })),
+          } } : { ok: false, error: r.error || 'This product could not be opened. Please try again.' };
+        } else {
+          const itemsAPI = isShopifyProductDetail ? shopifyItemsAPI : catalogueAPI;
+          res = Number.isFinite(catalogItemId) ? await itemsAPI.getItem(catalogItemId!) : null;
+        }
         const item = res?.ok ? res.data : undefined;
         if (item && item.id != null) {
           setCatalogItemData(item);
@@ -3286,8 +3324,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             const captureDate = new Date(now - i * 1000).toISOString();
             return {
               // Prefixed so it can never equal a real memory_images id (see the car branch).
-              // Shopify photos get their own prefix (separate table, overlapping ids).
-              id: isShopifyProductDetail
+              // Shopify photos and a product's photos (product media rows) get their own prefixes (other tables, overlapping ids).
+              id: isProductPage
+                ? (img.id != null ? `product_image_${img.id}` : `product_photo_${i}`)
+                : isShopifyProductDetail
                 ? (img.id != null ? `shopify_image_${img.id}` : `shopify_photo_${i}`)
                 : (img.id != null ? `catalog_image_${img.id}` : `catalog_photo_${i}`),
               image_link: img.url,
@@ -3313,6 +3353,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             spec_summary: item.spec_summary || null,
             // The product's page on the customer's own website ("View on website" in the header).
             website_url: item.url || null,
+            // A product page: its tags show beside the category and price badges, as a campaign's do.
+            ...(productTags ? { tags: productTags } : {}),
             last_update_img: posts[0]?.image_link || null,
             linked_memories: [],
             new_images: 0,
@@ -4303,6 +4345,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     openAddWidgetRef.current(intent.kind, intent.afterPostId === null ? null : String(intent.afterPostId));
   }, [memoryId, apiMemoryData, isOwner, isLoadingMemory]);
 
+  // A product page's Edit / ⋯ (Edit settings, Duplicate, Archive / Unarchive, Delete) and its editor + delete confirm.
+  // Hooks: before the early returns below. Nothing on any other page (detail null → no actions, no layers).
+  const productControls = useProductPageControls({
+    detail: isProductPage ? productDetail : null,
+    onReload: () => { void fetchMemoryDetails(true); },
+    onBack,
+    onOpenProduct,
+  });
+  const productLinks = isProductPage && productDetail ? productPageLinks(productDetail) : [];
+  const productNotes = isProductPage && productDetail ? productPageNotes(productDetail) : [];
+  const productPills = isProductPage && productDetail ? productPagePills(productDetail) : [];
+
   // Show loading state
   if (isLoadingMemory) {
     return (
@@ -4385,7 +4439,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // A catalogue product's page on the customer's website — the header's "View on website" link.
   // http(s) only, so a stored javascript:/data: URL can never become a link.
-  const catalogItemWebsiteUrl = isCatalogItemDetail && typeof apiMemoryData?.website_url === 'string' && /^https?:\/\//i.test(apiMemoryData.website_url)
+  const catalogItemWebsiteUrl = isCatalogItemDetail && !isProductPage && typeof apiMemoryData?.website_url === 'string' && /^https?:\/\//i.test(apiMemoryData.website_url)
     ? apiMemoryData.website_url
     : null;
 
@@ -10529,6 +10583,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   return (
     <div
       className="relative h-full pb-20 lg:pb-0"
+      data-testid={isProductPage ? 'product-page' : undefined}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -11158,7 +11213,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </Dialog>
 
       {/* Main Content */}
-      <div className="space-y-4 md:space-y-8 lg:pr-80 2xl:pr-[28rem] bg-white lg:bg-transparent pb-24 md:pb-0" style={{ paddingTop: isPublishing ? '120px' : '0' }}>
+      <div className={`space-y-4 md:space-y-8 ${productPhotosHidden ? '' : 'lg:pr-80 2xl:pr-[28rem]'} bg-white lg:bg-transparent pb-24 md:pb-0`} style={{ paddingTop: isPublishing ? '120px' : '0' }}>
         {/* Header */}
         <div className="sticky top-20 relative bg-gray-50 z-10">
           {/* Tab Toggle - Desktop only. Inventory pages (cars, catalogue products) are a timeline only:
@@ -11380,6 +11435,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               </>
             )}
 
+            {/* A product page: the product's Edit and ⋯ (Edit settings, Duplicate, Archive, Delete), as the old product screen had */}
+            {isProductPage && <ProductPageActions controls={productControls} variant="desktop" />}
+
             {/* Hide Add a Moment button for Suggested category, for viewers and on read-only inventory */}
             {!isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
               <Button
@@ -11584,6 +11642,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M15 18l-6-6 6-6"/></svg>
                                 Back
                               </Button>
+                              {/* A product page: Back · Edit · ⋯, in these pills (a campaign's Back · Edit Cover · ⋯) */}
+                              {isProductPage && <ProductPageActions controls={productControls} variant="phone" />}
                               {/* Edit Cover: none on read-only inventory (cars, catalogue products) */}
                               {!isInventoryDetail && (
                               <div className="flex items-center gap-1">
@@ -11898,6 +11958,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                               )}
 
+                              {/* A product page: its status and source, in the same pills */}
+                              {productPills.map((pill) => (
+                                <div key={pill.label} className={`flex items-center justify-center px-4 py-1.5 md:px-3 md:py-1.5 lg:px-4 lg:py-2 rounded-full md:rounded-md lg:rounded-lg shadow-lg backdrop-blur-sm ${pill.className || 'text-white'}`} style={pill.color ? { backgroundColor: pill.color } : undefined}>
+                                  <span className="text-sm md:text-xs lg:text-sm font-semibold md:font-medium">{pill.label}</span>
+                                </div>
+                              ))}
+
                               {/* Tags */}
                               {Array.isArray(apiMemoryData?.tags) && (() => {
                                 const allTags: string[] = apiMemoryData.tags;
@@ -12010,6 +12077,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                               </a>
                             )}
+                            {/* A product page: its links and notes, light here on the cover */}
+                            {productLinks.length > 0 && (
+                              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                {productLinks.map((l) => (
+                                  <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-gray-200 underline-offset-2 hover:underline">
+                                    {l.label}
+                                    <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                            {productNotes.map((note) => <p key={note} className="text-sm text-gray-200">{note}</p>)}
                             {/* Author - mobile only (on cover) */}
                             <div className="flex items-center gap-2.5 md:hidden pt-1">
                               <Avatar className="w-8 h-8">
@@ -12024,12 +12103,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           {/* Timeline + Continue - mobile only (on cover) */}
                           <div className="flex items-center justify-between md:hidden pt-4">
                             <div className="text-lg">
+                              {productPhotosHidden ? <span className="font-bold text-white">Details</span> : <>
                               <span className="font-bold text-white">Timeline</span>
                               <span className="mx-2 text-white/70">&#8226;</span>
                               <span className="text-white/90">{totalMomentsCount} moments</span>
+                              </>}
                             </div>
                             <div className="flex items-center gap-2">
-                              {!isSuggestedCategory && (
+                              {/* A product page has its Edit in the pills at the top (Back · Edit · ⋯) */}
+                              {!isSuggestedCategory && !isProductPage && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -12237,7 +12319,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               {/* DESKTOP: Two-column layout - Left metadata+timeline, Center scrollable memory cards */}
               <div className="hidden lg:flex gap-2 h-[73vh] justify-start" data-timeline-list>
                 {/* LEFT PANEL - Metadata + Timeline List */}
-                <div className="flex-[0_1_400px] min-w-[240px] flex flex-col h-full overflow-hidden p-4">
+                <div className={`${productPhotosHidden ? 'flex-1 max-w-4xl' : 'flex-[0_1_400px]'} min-w-[240px] flex flex-col h-full overflow-hidden p-4`}>
                   {/* Tags Row */}
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     <Badge className="text-white border-0 px-3 py-1.5 text-sm rounded-2xl" style={{ backgroundColor: categoryColorHex || '#6C60FF' }}>
@@ -12248,6 +12330,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         {apiMemoryData?.sub_category?.name}
                       </Badge>
                     )}
+                    {/* A product page: its status and source, in the same badges */}
+                    {productPills.map((pill) => (
+                      <Badge key={pill.label} className={`border-0 px-3 py-1.5 text-sm rounded-2xl ${pill.className || 'text-white'}`} style={pill.color ? { backgroundColor: pill.color } : undefined}>
+                        {pill.label}
+                      </Badge>
+                    ))}
                     {Array.isArray(apiMemoryData?.tags) && (() => {
                       const allTags: string[] = apiMemoryData.tags;
                       const maxVisible = 2;
@@ -12330,6 +12418,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                     </a>
                   )}
+                  {/* A product page: View on website / View in your store and Buy link, the same small grey links */}
+                  {productLinks.length > 0 && (
+                    <div className="flex flex-wrap gap-x-4 mb-2">
+                      {productLinks.map((l) => (
+                        <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-gray-500 underline-offset-2 hover:underline">
+                          {l.label}
+                          <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {productNotes.map((note) => <p key={note} className="mb-2 text-sm text-gray-500">{note}</p>)}
 
                   {/* Author Info */}
                   <div className="flex items-center justify-between gap-3 mb-3">
@@ -12405,8 +12505,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     )}
                   </div>
 
+                  {/* A product with its photos hidden: its details in place of the (empty) timeline */}
+                  {productPhotosHidden && productDetail && (
+                    <div className="flex-1 overflow-y-auto pr-2"><ProductPageDetails detail={productDetail} /></div>
+                  )}
+
                   {/* Timeline Header */}
-                  <div className="flex items-center justify-between pb-4 mb-4 border-b" style={{ borderColor: '#BFBFBF' }}>
+                  <div className={`${productPhotosHidden ? 'hidden' : 'flex'} items-center justify-between pb-4 mb-4 border-b`} style={{ borderColor: '#BFBFBF' }}>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-900 text-lg">Timeline</h3>
                       <span className="text-base text-gray-500">{totalMomentsCount} moments</span>
@@ -12485,7 +12590,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </div>
 
                   {/* Timeline Items - Scrollable */}
-                  <div ref={timelineScrollRef} className="space-y-0 flex-1 overflow-y-auto overflow-x-visible pr-2 pl-4">
+                  <div ref={timelineScrollRef} className={`space-y-0 flex-1 overflow-y-auto overflow-x-visible pr-2 pl-4 ${productPhotosHidden ? 'hidden' : ''}`}>
                     {/* Introduction Item */}
                     <div
                       className="relative pl-10 pb-4 transition-all duration-200"
@@ -13269,7 +13374,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 </div>
 
                 {/* CENTER PANEL - Header Image + Scrollable Memory Cards */}
-                <div className="flex-[0_1_394px] min-w-[300px] flex flex-col overflow-hidden bg-[#F8F8FA]">
+                <div className={`${productPhotosHidden ? 'hidden' : 'flex'} flex-[0_1_394px] min-w-[300px] flex-col overflow-hidden bg-[#F8F8FA]`}>
                   <div className="flex-1 overflow-y-auto" ref={rightScrollContainerRef}>
                     <div className="relative">
                       {/* Header Image/Video */}
@@ -13827,7 +13932,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               </div>
 
               {/* Media Section - Hidden on desktop (shown in sidebar) */}
-              <div className="hidden md:block lg:hidden pb-0 md:pb-6 px-2 md:px-0">
+              <div className={`hidden ${productPhotosHidden ? '' : 'md:block'} lg:hidden pb-0 md:pb-6 px-2 md:px-0`}>
                 {/* Bulk Actions - Moved outside Card for sticky to work */}
                 {selectedItems.length > 0 && !isSuggestedCategory && (
                   <div className="sticky top-20 z-50 mb-4">
@@ -13982,8 +14087,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               )}
             </TabsContent>
 
+            {/* A product with its photos hidden (phone, tablet): its details in place of the timeline */}
+            {productPhotosHidden && productDetail && activeTab === "overview" && (
+              <div className="lg:hidden relative -mt-[100px] md:mt-6 rounded-t-3xl md:rounded-none bg-white px-0 md:px-0 pb-6">
+                <ProductPageDetails detail={productDetail} />
+              </div>
+            )}
+
             {/* Mobile Timeline Section - Only visible on mobile when Timeline tab is active */}
-            <div className={`md:hidden -mt-[100px] md:mt-0 ${activeTab === "overview" ? "block" : "hidden"}`}>
+            <div className={`md:hidden -mt-[100px] md:mt-0 ${activeTab === "overview" && !productPhotosHidden ? "block" : "hidden"}`}>
               <div className="bg-white">
                 {/* Timeline Content */}
                 <div className="p-0 lg:p-4 space-y-4 bg-white lg:bg-gray-50">
@@ -15859,7 +15971,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </div>
 
       {/* Media Sidebar - Fixed Right Position */}
-      <aside className="hidden lg:block fixed right-0 top-20 bottom-0 w-80 2xl:w-[28rem] bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
+      <aside className={`hidden ${productPhotosHidden ? '' : 'lg:block'} fixed right-0 top-20 bottom-0 w-80 2xl:w-[28rem] bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto`}>
         <div className="flex flex-col h-full">
           {/* Sidebar Tab Toggle */}
           <div className="flex-shrink-0 border-b border-gray-200">
@@ -18823,6 +18935,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         );
       })()}
 
+      {/* A product page: the product editor and the delete confirm */}
+      {productControls.layers}
     </div>
   );
 }

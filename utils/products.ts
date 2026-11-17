@@ -683,3 +683,108 @@ export function pickerCategoryOf(p: Pick<ProductSummary, 'category' | 'categorie
 export function visibleCategoryNames(items: ReadonlyArray<{ category?: string | null; category_hidden?: boolean }>): string[] {
   return [...new Set(items.filter((i) => !i.category_hidden).map((i) => (i.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
+
+// ── Chris 17 Nov 2026 (workstream D): one product page for every source ─────────────────────────────────────────────
+// "Why didn't you replicate [the Serpa car details] UI … when creating the new products screen?" A product on the
+// Products page now opens the SAME page as a Serpa car and a catalogue item (pages/MemoryDetailsPage, its catalogue
+// treatment), keyed `product:<id>` and read from GET /products/{id} (every source: manual, website, Shopify, any status).
+// These helpers turn that product into what that page shows: its header (badges, title, spec line, links) and its
+// details/specs block (the photo viewer's Description + spec grid, or the page itself when "Show photos" is off).
+
+/** The product page's memoryId marker (like `catalog_item:<id>` and `cars_detail:<id>`). */
+export const PRODUCT_PAGE_MARKER = 'product:';
+export const productPageId = (id: number): string => `${PRODUCT_PAGE_MARKER}${id}`;
+/** The product id of a `product:<id>` marker, else null (any other memoryId: a campaign, a car, a catalogue item). */
+export function productPageIdOf(memoryId: unknown): number | null {
+  if (typeof memoryId !== 'string' || !memoryId.startsWith(PRODUCT_PAGE_MARKER)) return null;
+  const id = Number(memoryId.slice(PRODUCT_PAGE_MARKER.length));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+/** "Show photos" off (Chris 17 Nov): the page has no photo area. Missing (older web API) = shown. */
+export const productPhotosShown = (d: { show_photos?: boolean | null } | null | undefined): boolean => d?.show_photos !== false;
+
+/** The page's spec line under the title, as the catalogue's (web API CatalogSpecSummary): up to three attribute values
+ *  joined with " / ", skipping category / tag attributes and a value that only repeats the category. '' when none. */
+export function productSpecSummary(d: Pick<ProductDetail, 'attributes' | 'categories' | 'category'>): string {
+  const category = ((d.categories?.[0]?.name || d.category || '') + '').trim().toLowerCase();
+  const values: string[] = [];
+  for (const a of d.attributes || []) {
+    const v = String(a?.value ?? '').trim();
+    if (!v || /categor|tag/i.test(String(a?.label ?? '')) || (category && v.toLowerCase() === category)) continue;
+    values.push(v);
+    if (values.length === 3) break;
+  }
+  return values.join(' / ');
+}
+
+/** The header's links, in the page's "View on website" style: the product's page on the website / in the Shopify store
+ *  (imported products only) and its Buy link. http(s) only, so a stored javascript:/data: URL never becomes a link. */
+export function productPageLinks(d: Pick<ProductDetail, 'origin' | 'url' | 'buy_url'>): Array<{ label: string; href: string }> {
+  const web = (u: string | null | undefined): u is string => Boolean(u && /^https?:\/\//i.test(u));
+  const imported = d.origin === 'website' || d.origin === 'shopify';
+  return [
+    ...(imported && web(d.url) ? [{ label: d.origin === 'shopify' ? 'View in your store' : 'View on website', href: d.url }] : []),
+    ...(web(d.buy_url) ? [{ label: 'Buy link', href: d.buy_url }] : []),
+  ];
+}
+
+/** The header's notes: where an imported product comes from; whose product a salesperson is looking at. */
+export function productPageNotes(d: Pick<ProductDetail, 'origin' | 'read_only' | 'owner'>): string[] {
+  return [
+    ...(d.origin === 'shopify' ? [SHOPIFY_SYNC_NOTE] : d.origin === 'website' ? [WEBSITE_SYNC_NOTE] : []),
+    ...(d.read_only ? [`Shared by ${d.owner?.name || 'your main account'}. You can view it here.`] : []),
+  ];
+}
+
+/** The page's Description: the short description, then the description (plain text; the API keeps one beside the HTML). */
+export function productPageDescription(d: Pick<ProductDetail, 'short_description' | 'description'>): string {
+  return [d.short_description, d.description].map((s) => (s || '').trim()).filter(Boolean).join('\n\n');
+}
+
+/**
+ * The page's details/specs grid (the block a Serpa car shows its mileage, stock # and engine in): everything the old
+ * product details screen listed — its facts (SKU, brand, type, barcode, quantity, weight, dimensions), the compare-at
+ * price, the Enquire button and Photos lines, every category, the specifications, and one row per variant (price,
+ * SKU, stock, quantity). Only what the product has.
+ */
+export function productPageSpecs(d: ProductDetail): Array<{ label: string; value: string }> {
+  const price = priceLine(d);
+  const hidesPrice = d.price_on_request || !d.show_price;
+  const out: Array<{ label: string; value: string }> = [
+    ...detailFacts(d),
+    ...(price.was ? [{ label: 'Compare-at price', value: price.was }] : []),
+    enquireFact(d),
+    ...photosFacts(d),
+    ...(d.categories?.length ? [{ label: d.categories.length === 1 ? 'Category' : 'Categories', value: d.categories.map((c) => c.name).join(', ') }] : []),
+    ...(d.attributes || []).map((a) => ({ label: String(a.label ?? '').trim(), value: String(a.value ?? '').trim() })),
+    ...(d.variants || []).map((v) => ({
+      label: variantLabel(v.options || {}) || v.title || 'Variant',
+      value: [
+        hidesPrice ? price.main : v.price_label || v.price || '',
+        v.sku ? `SKU ${v.sku}` : '',
+        v.stock_status === 'out_of_stock' ? 'Out of stock' : 'In stock',
+        v.quantity != null ? `Qty ${v.quantity}` : '',
+      ].filter(Boolean).join(' · '),
+    })),
+  ];
+  return out.filter((s) => s.label && s.value);
+}
+
+/** The page's photos (videos are not page photos, as on the catalogue item page); none with "Show photos" off. */
+export function productPagePhotos(d: Pick<ProductDetail, 'media' | 'main_image' | 'show_photos'>): Array<{ id?: number; url: string }> {
+  if (!productPhotosShown(d)) return [];
+  const photos = [...(d.media || [])].filter((m) => m.type !== 'video' && m.url).sort((a, b) => a.sort_order - b.sort_order);
+  if (photos.length) return photos.map((m) => ({ id: m.id, url: m.url }));
+  return d.main_image ? [{ url: d.main_image }] : [];
+}
+
+/** The status / source pills beside the category and price badges: the product's status (plus "Out of stock" when an
+ *  active product has none left) and where it comes from. */
+export function productPagePills(d: Pick<ProductDetail, 'badge' | 'stock_status' | 'origin'>): Array<{ label: string; className?: string; color?: string }> {
+  return [
+    { label: BADGE_LABEL[d.badge], className: BADGE_CLASS[d.badge] },
+    ...(d.stock_status === 'out_of_stock' && d.badge !== 'out_of_stock' ? [{ label: BADGE_LABEL.out_of_stock, className: BADGE_CLASS.out_of_stock }] : []),
+    { label: sourceLabel(d), color: sourceColor(d) },
+  ];
+}

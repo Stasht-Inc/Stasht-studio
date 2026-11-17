@@ -115,6 +115,22 @@ export function useAppNavigation() {
     }
   }, [currentPage]);
 
+  // A product's page from the Products page (`product:<id>`, Chris 17 Nov 2026): shown in place of the Products page
+  // WITHOUT leaving it (no switch to Campaigns), so Back lands on Products as it was. Starts a fresh Back history.
+  const handleProductSelect = useCallback((productMemoryId: string) => {
+    setMemoryHistory([]);
+    setSelectedMemoryId(productMemoryId);
+    setShouldOpenAddMoments(false);
+    setShouldOpenEdit(false);
+    setShouldOpenComments(false);
+    setCommentId(undefined);
+    setShouldOpenImageModal(false);
+    setImageId(undefined);
+    setShouldOpenModerationTab(false);
+    setShouldOpenCollaboratorsTab(false);
+    setForceSharedView(false);
+  }, []);
+
   const handleLinkedMemorySelect = useCallback((newMemoryId: string) => {
     setSelectedMemoryId(prev => {
       if (prev) setMemoryHistory(h => [...h, prev]);
@@ -192,6 +208,7 @@ export function useAppNavigation() {
     handleNavigation,
     handleMemorySelect,
     handleLinkedMemorySelect,
+    handleProductSelect,
     handleBackFromMemory,
     toggleSubSidebarExpansion,
   };
