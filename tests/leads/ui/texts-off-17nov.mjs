@@ -86,8 +86,8 @@ try {
     await page.waitForTimeout(500);
 
     const tags = vis(page.locator('[data-texts-off]'));
-    expect(await tags.count() === 1, `${tag}: one "Texts off" tag in the list (${await tags.count()})`);
-    expect((await tags.first().innerText()).trim() === 'Texts off', `${tag}: it says "Texts off"`);
+    expect(await tags.count() === 1, `${tag}: one "Opted out" tag in the list (${await tags.count()})`);
+    expect((await tags.first().innerText()).trim() === 'Opted out', `${tag}: it says "Opted out"`);
     const title = await tags.first().getAttribute('title');
     expect(title === 'Replied STOP on Nov 15, 2026. Texts and emails are off until they reply START.', `${tag}: title says when and how to undo (${title})`);
     const color = await tags.first().evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -101,7 +101,7 @@ try {
     await vis(page.getByPlaceholder('Type a message to Robert...')).first().waitFor({ state: 'visible', timeout: 15000 });
     await page.waitForTimeout(500);
     const header = vis(page.locator('#lead-drawer-title').locator('xpath=..').locator('[data-texts-off]'));
-    expect(await header.count() === 1, `${tag}: header shows "Texts off" (${await header.count()})`);
+    expect(await header.count() === 1, `${tag}: header shows "Opted out" (${await header.count()})`);
     await shot(page, `to17-${tag}2-conversation`);
 
     // Sending to them: the API's reason shows.
@@ -118,7 +118,7 @@ try {
       await vis(page.getByTestId('lead-name-details-trigger')).first().click();
       await page.waitForTimeout(600);
     }
-    const details = vis(page.getByText('Texts off'));
+    const details = vis(page.getByText('Opted out'));
     expect(await details.count() >= (tag === 'd' ? 2 : 1), `${tag}: Contact Details shows it too (${await details.count()} visible)`);
     await shot(page, `to17-${tag}4-details`);
 
