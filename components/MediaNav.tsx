@@ -21,7 +21,7 @@ import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
 import { updateCategoryColor } from "../utils/categoryColorManager";
 import AddMediaToMemoryModal from "./AddMediaToMemoryModal";
 import { mapLimit, uploadLimit } from "../utils/requestLimit";
-import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
+import { campaignsWillAppear, categoryDisplayName, isEmptyCatalogueCategory, noCampaignsTitle } from "../utils/products";
 
 interface MediaImage {
   id: string;
@@ -1201,7 +1201,7 @@ function CategoryCard({
               <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             )}
             {/* Edit button for user-created categories only - visible on hover only */}
-            {onEdit && !isEditing && name !== 'Published' && name !== 'Shared With' && name !== 'Unassigned' && (
+            {onEdit && !isEditing && name !== 'Published' && name !== 'Shared With' && name !== 'Invites' && name !== 'Unassigned' && (
               <button
                 onClick={handleEditClick}
                 className="ml-1 p-1 rounded hover:bg-gray-200 transition-all opacity-0 group-hover:opacity-100"
@@ -2263,9 +2263,10 @@ export default function MediaNav({
     : [...processedMediaCategories, ...processedMemoryCategories];
 
   // Filter sidebar list by selected category — dropdown always keeps all options
-  const finalCategories = selectedCategory
+  // Chris 18 Nov 2026: an empty leftover "Website Catalogue" category is no separate section (utils/products).
+  const finalCategories = (selectedCategory
     ? allFinalCategories.filter(cat => cat.name === selectedCategory)
-    : allFinalCategories;
+    : allFinalCategories).filter((cat: any) => !isEmptyCatalogueCategory(cat.name, Math.max(Number(cat.count) || 0, cat.memories?.length || 0)));
 
   // Debug final categories
   console.log('🎯 Category Processing Debug:');

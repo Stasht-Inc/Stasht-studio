@@ -35,13 +35,27 @@ const isYoutubeUrl = (url?: string): boolean => {
   return !!getYoutubeVideoId(url);
 };
 
-function VideoThumbnail({ src, className }: { src: string; className?: string }) {
+/**
+ * A video cover's first frame (Chris 18 Nov 2026: "It is a video. So it should show vid thumbnail"). With
+ * preload="metadata" a browser may load the metadata and never the first frame (Safari never fires loadeddata
+ * then), which left the card grey for good. Seeking once the metadata is in fetches the frame and fires `seeked`
+ * (as the campaign page's cover video and PublishMemoriesModal do); a video that can't load at all calls onFail,
+ * so the card shows its brand / initials instead of a grey box.
+ */
+function VideoThumbnail({ src, className, onFail }: { src: string; className?: string; onFail?: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frameReady, setFrameReady] = useState(false);
 
   useEffect(() => {
     setFrameReady(false);
   }, [src]);
+
+  const seekToFrame = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const at = Number.isFinite(v.duration) && v.duration > 0 ? Math.min(0.1, v.duration / 2) : 0.1;
+    try { v.currentTime = at; } catch { /* not seekable yet: loadeddata / seeked still mark it ready */ }
+  };
 
   return (
     <div className="relative w-full h-full">
@@ -52,11 +66,10 @@ function VideoThumbnail({ src, className }: { src: string; className?: string })
         preload="metadata"
         muted
         playsInline
-        onLoadedData={() => {
-          if (videoRef.current && videoRef.current.currentTime === 0) videoRef.current.currentTime = 0.1;
-          setFrameReady(true);
-        }}
+        onLoadedMetadata={seekToFrame}
+        onLoadedData={() => setFrameReady(true)}
         onSeeked={() => setFrameReady(true)}
+        onError={() => onFail?.()}
       />
       {!frameReady && (
         <div className="absolute inset-0 bg-gray-200" />
@@ -553,7 +566,7 @@ export default function MemoryCard({
               className="w-full h-full object-cover"
             />
           ) : isVideoUrl(image) ? (
-            <VideoThumbnail src={image} className="w-full h-full object-cover" />
+            <VideoThumbnail src={image} className="w-full h-full object-cover" onFail={handleCoverError} />
           ) : (
             <CampaignCover
               src={image}

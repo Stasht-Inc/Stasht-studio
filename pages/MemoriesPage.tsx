@@ -57,6 +57,7 @@ import useCanSelfUpgrade from "../hooks/useCanSelfUpgrade";
 import { CONTACT_SALES_URL } from "../utils/effectivePlan";
 import { cameraRollSession } from "../utils/cameraRoll";
 import { categoryDisplayName } from "../utils/products";
+import { invitesFirst, isPendingInvite, parseInviteRevealMarker } from "../utils/campaignInvites";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -305,6 +306,7 @@ interface MemoriesPageProps {
   onRequestCreateCategory?: () => void; // Ask the sidebar to open its "New Category" popover
   createCategorySignal?: number; // Forwarded to the mobile-drawer CategoryNav to open its popover
   openPublishedEntrySignal?: { entry: any; nonce: number } | null; // Desktop sidebar asks to open a published-author entry
+  revealInviteSignal?: { memoryId: string; nonce: number } | null; // Desktop sidebar clicked a pending invite: show its card
 }
 
 function MemoriesPageContent({
@@ -327,6 +329,7 @@ function MemoriesPageContent({
   onRequestCreateCategory,
   createCategorySignal,
   openPublishedEntrySignal,
+  revealInviteSignal,
 }: MemoriesPageProps) {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { viewType, currentProperty, switchToProperty, cancelPendingPropertySwitch } = useProperty();
@@ -438,6 +441,33 @@ function MemoriesPageContent({
     return () => window.removeEventListener(OPEN_NEWSLETTER_DRAFT_EVENT, takeRequest);
   }, [setCampaignsView]);
   const [editNewsletterId, setEditNewsletterId] = useState<number | null>(null);
+  // Chris 18 Nov 2026: a pending invite clicked in the sidebar shows its card (Accept / Deny) on the All Campaigns grid,
+  // scrolled to and highlighted for a moment. That one card shows whatever the search / filters / collapsed rows say.
+  const [revealedInviteId, setRevealedInviteId] = useState<string | null>(null);
+  const revealInvite = useCallback((memoryId: string) => {
+    setCampaignsView('storeels');
+    setViewMode('grid');
+    setRevealedInviteId(String(memoryId));
+  }, [setCampaignsView]);
+  const lastRevealInviteNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!revealInviteSignal || lastRevealInviteNonce.current === revealInviteSignal.nonce) return;
+    lastRevealInviteNonce.current = revealInviteSignal.nonce;
+    revealInvite(revealInviteSignal.memoryId);
+  }, [revealInviteSignal, revealInvite]);
+  useEffect(() => {
+    if (!revealedInviteId) return undefined;
+    let tries = 0;
+    let scrolled = false;
+    const find = () => document.querySelector(`[data-campaign-card-id="${CSS.escape(revealedInviteId)}"]`);
+    const poll = window.setInterval(() => {
+      const el = find();
+      if (el && !scrolled) { scrolled = true; el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+      if (scrolled || ++tries > 20) window.clearInterval(poll);
+    }, 100);
+    const done = window.setTimeout(() => setRevealedInviteId(null), 4000);
+    return () => { window.clearInterval(poll); window.clearTimeout(done); };
+  }, [revealedInviteId]);
   // "View" on the newsletter sent / scheduled toast: Newsletters view, with that newsletter's results open.
   const [newsletterResultsRequest, setNewsletterResultsRequest] = useState<{ id: number; nonce: number } | null>(null);
   useEffect(() => {
@@ -1783,7 +1813,8 @@ function MemoriesPageContent({
     : filteredCategoryMemories;
 
   // Sorted version of searchFilteredMemories for the table/list view
-  const sortedSearchMemories = [...searchFilteredMemories].sort((a, b) => {
+  // Pending invites (Accept / Deny) first whatever the column sort (Chris 18 Nov 2026: utils/campaignInvites).
+  const sortedSearchMemories = invitesFirst(searchFilteredMemories, (a: any, b: any) => {
     if (!sortConfig.key) return 0;
     const aValue = a[sortConfig.key];
     const bValue = b[sortConfig.key];
@@ -2586,7 +2617,7 @@ function MemoriesPageContent({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No memories {sidebarData?.categories?.items?.some((cat: any) => cat?.name === selectedCategory) || categories.some(cat => cat?.name === selectedCategory) ? 'in' : 'with'} {selectedCategory}</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No memories {sidebarData?.categories?.items?.some((cat: any) => cat?.name === selectedCategory) || categories.some(cat => cat?.name === selectedCategory) ? 'in' : 'with'} {categoryDisplayName(selectedCategory)}</h3>
                 <p className="text-gray-600 mb-4">{isPropertyOwner ? 'Start creating campaigns' : 'No campaigns available'} {sidebarData?.categories?.items?.some((cat: any) => cat?.name === selectedCategory) || categories.some(cat => cat?.name === selectedCategory) ? 'in this category' : 'with this label'}</p>
                 {isPropertyOwner && (
                   <div className="flex gap-3 justify-center">
@@ -2828,10 +2859,10 @@ function MemoriesPageContent({
                     <SelectTrigger className="flex-1 sm:flex-none sm:w-[100px] md:w-[140px] bg-gray-50 border-gray-200 hover:border-gray-300 focus:bg-gray-50 focus:border-gray-300 focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 outline-none transition-colors">
                       <SelectValue>
                         <span className="md:hidden">
-                          {filterCategory === "All Categories" ? "Categories" : filterCategory}
+                          {filterCategory === "All Categories" ? "Categories" : categoryDisplayName(filterCategory)}
                         </span>
                         <span className="hidden md:inline">
-                          {filterCategory}
+                          {categoryDisplayName(filterCategory)}
                         </span>
                       </SelectValue>
                     </SelectTrigger>
@@ -2966,6 +2997,8 @@ function MemoriesPageContent({
                           // For Invites category, use invited_at; for own/shared memories, use updated_at (not last_updated which is "X minutes ago")
                           const isAInvite = a.category?.name === 'Invites' || a.category === 'Invites';
                           const isBInvite = b.category?.name === 'Invites' || b.category === 'Invites';
+                          // Chris 18 Nov 2026: cards waiting for Accept / Deny always come first.
+                          if (isAInvite !== isBInvite) return isAInvite ? -1 : 1;
 
                           // Get date string with fallbacks
                           // Note: last_updated contains "2 minutes ago" format, so we use updated_at or created_at instead
@@ -2992,6 +3025,7 @@ function MemoriesPageContent({
 
 
                         const filtered = sorted.filter((memory) => {
+                          if (revealedInviteId && isPendingInvite(memory) && String(memory.id) === revealedInviteId) return true;
                           // Include all memories in sorted list (removed Invites exclusion)
                           // const isInvitesCategory = memory.category?.name === 'Invites' || memory.category === 'Invites';
                           // if (isInvitesCategory) return false;
@@ -3055,6 +3089,7 @@ function MemoriesPageContent({
                           return !hiddenByCollapsedCategory(memory, expandedCategories, sidebarCategoryNames);
                         }).filter(memory => {
                           if (!searchQuery.trim()) return true;
+                          if (revealedInviteId && isPendingInvite(memory) && String(memory.id) === revealedInviteId) return true;
                           const q = searchQuery.toLowerCase();
                           return (
                             memory.title?.toLowerCase().includes(q) ||
@@ -3107,7 +3142,11 @@ function MemoriesPageContent({
                         : (memory.category?.badge_style?.hex_color || memory.category?.color);
 
                       return (
-                        <div key={memory.isShared ? `shared-${memory.id}` : memory.id} className="relative z-0">
+                        <div
+                          key={memory.isShared ? `shared-${memory.id}` : memory.id}
+                          data-campaign-card-id={isInvitesCategory ? String(memory.id) : undefined}
+                          className={`relative z-0 rounded-lg transition-shadow ${isInvitesCategory && revealedInviteId === String(memory.id) ? 'ring-2 ring-[#6C60FF]/40 ring-offset-2' : ''}`}
+                        >
                           <MemoryCard
                             image={thumbnailUrl}
                             coverIsBrand={cardCover.isBrand}
@@ -3597,7 +3636,11 @@ function MemoriesPageContent({
                   memories={apiMemoriesData ? allMemories : []}
                   apiMemoriesData={apiMemoriesData}
                   onMemorySelect={(memoryId, options) => {
-                    if (memoryId.startsWith('pa-')) {
+                    const inviteId = parseInviteRevealMarker(memoryId);
+                    if (inviteId) {
+                      if (selectedCategory && onCategorySelect) onCategorySelect(null);
+                      revealInvite(inviteId);
+                    } else if (memoryId.startsWith('pa-')) {
                       const idx = parseInt(memoryId.replace('pa-', ''), 10);
                       const entry = publishedEntries[idx];
                       if (entry?.short_url) handlePublishedEntryClick(entry.short_url, entry);
@@ -3741,7 +3784,7 @@ function MemoriesPageContent({
                   <SelectItem value="All Categories">All Categories</SelectItem>
                   {mediaLibraryCategories.map((category) => (
                     <SelectItem key={category} value={category}>
-                      {category}
+                      {categoryDisplayName(category)}
                     </SelectItem>
                   ))}
                 </SelectContent>

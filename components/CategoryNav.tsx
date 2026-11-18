@@ -25,7 +25,13 @@ import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { CATEGORY_PICKER_COLORS, getCustomCategoryColor, setCustomCategoryColor, updateCategoryColor } from "../utils/categoryColorManager";
 import { SwatchGroup } from "./newsletters/ColorSwatches";
-import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
+import { campaignsWillAppear, categoryDisplayName, isEmptyCatalogueCategory, noCampaignsTitle } from "../utils/products";
+import { inviteRevealMarker } from "../utils/campaignInvites";
+
+/** Sections the web API builds itself (pending invites, shared campaigns, published pages): no rename, colour or delete
+ *  (Chris 18 Nov 2026: "Invites should not be editable"). */
+const SYSTEM_SECTIONS = ['Invites', 'Shared With', 'Published'];
+const isSystemSection = (name: string | null | undefined): boolean => SYSTEM_SECTIONS.includes(String(name ?? ''));
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 
 // ── Video / YouTube thumbnail helpers ─────────────────────────────────────────
@@ -71,10 +77,10 @@ function SidebarVideoThumbnail({ src, className }: { src: string; className?: st
         preload="metadata"
         muted
         playsInline
-        onLoadedData={() => {
-          if (videoRef.current && videoRef.current.currentTime === 0) videoRef.current.currentTime = 0.1;
-          setFrameReady(true);
-        }}
+        // Seek once the metadata is in so the first frame loads even where preload="metadata" stops there (Safari):
+        // the same fix as MemoryCard's VideoThumbnail (Chris 18 Nov 2026).
+        onLoadedMetadata={() => { try { if (videoRef.current) videoRef.current.currentTime = 0.1; } catch { /* not seekable yet */ } }}
+        onLoadedData={() => setFrameReady(true)}
         onSeeked={() => setFrameReady(true)}
       />
       {!frameReady && <div className="absolute inset-0 bg-gray-200" />}
@@ -266,7 +272,7 @@ function CategoryCard({ name, count, isActive = false, onClick, hasMemories = fa
             )}
             <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             {/* Edit button for user-created categories only - visible on hover only */}
-            {onEdit && name !== 'Published' && name !== 'Shared With' && (
+            {onEdit && !isSystemSection(name) && (
               <button
                 onClick={(e) => {
                   console.log('🖊️ Pencil clicked for:', name, 'onEdit:', !!onEdit);
@@ -384,8 +390,9 @@ function EditableCategoryCard({
   
   // Debug logging for delete button visibility
   // Suggested categories cannot be deleted or edited
-  const canDelete = onDelete && count === 0 && !suggested;
-  const canEdit = onEdit && !suggested;
+  // Chris 18 Nov 2026: "Invites should not be editable" — nor Published / Shared With (system sections, utils below).
+  const canDelete = onDelete && count === 0 && !suggested && !isSystemSection(name);
+  const canEdit = onEdit && !suggested && !isSystemSection(name);
   console.log(`EditableCategoryCard "${name}": admin_id=${admin_id} (${typeof admin_id}), suggested=${suggested}, onDelete=${!!onDelete}, count=${count}, canDelete=${canDelete}`);
 
   // Focus input when editing starts
@@ -581,7 +588,7 @@ function EditableCategoryCard({
             )}
             {/* Edit button for user-created categories only - visible on hover only, not for suggested categories */}
             {/* Hidden when the category is locked (not owner / cannot add story) */}
-            {onEdit && !isEditing && !suggested && name !== 'Published' && name !== 'Shared With' && !cannotAddCampaign && (
+            {onEdit && !isEditing && !suggested && !isSystemSection(name) && !cannotAddCampaign && (
               <button
                 onClick={handleEditClick}
                 className="ml-1 p-1 rounded hover:bg-gray-200 transition-all opacity-0 group-hover:opacity-100"
@@ -591,7 +598,7 @@ function EditableCategoryCard({
               </button>
             )}
             {/* The colour picker sits next to the pencil, on hover, wherever the pencil is offered (Chris, 17 Nov 2026). */}
-            {!isLabel && !isEditing && !suggested && name !== 'Published' && name !== 'Shared With' && !cannotAddCampaign && pickerCategory?.id && (
+            {!isLabel && !isEditing && !suggested && !isSystemSection(name) && !cannotAddCampaign && pickerCategory?.id && (
               <CategoryColorPicker categoryId={pickerCategory.id} name={name} color={categoryColor} />
             )}
           </div>
@@ -1007,8 +1014,9 @@ function MemoryTreeItem({
     e.preventDefault();
     e.stopPropagation();
     
-    // Prevent clicking for Invites category memories
+    // A pending invite can't be opened before it's accepted: show its card (Accept / Deny) on All Campaigns (Chris 18 Nov).
     if (categoryName === 'Invites') {
+      onMemorySelect?.(inviteRevealMarker(memory.id));
       return;
     }
     
@@ -1051,8 +1059,9 @@ function MemoryTreeItem({
               e.preventDefault();
               e.stopPropagation();
 
-              // Prevent clicking for Invites category memories
+              // A pending invite: show its card on All Campaigns (Chris 18 Nov).
               if (categoryName === 'Invites') {
+                onMemorySelect?.(inviteRevealMarker(memory.id));
                 return;
               }
 
@@ -1070,7 +1079,7 @@ function MemoryTreeItem({
                 }
               }
             }}
-            title={`Open ${memory.title}`}
+            title={categoryName === 'Invites' ? `Show ${memory.title}` : `Open ${memory.title}`}
           >
             {memory.thumbnail ? (
               <SidebarMemoryThumbnail
@@ -1101,7 +1110,7 @@ function MemoryTreeItem({
                   onMouseLeave={(e) => {
                     e.currentTarget.style.color = '';
                   }}
-                  title={`${memory.isExpanded ? 'Collapse' : 'Expand'} ${memory.title}`}
+                  title={categoryName === 'Invites' ? `Show ${memory.title}` : `${memory.isExpanded ? 'Collapse' : 'Expand'} ${memory.title}`}
                 >
                   {memory.title}
                 </button>
@@ -1209,8 +1218,9 @@ function MemoryTreeView({
             e.preventDefault();
             e.stopPropagation();
             
-            // Prevent clicking for Invites category memories
+            // A pending invite: show its card on All Campaigns (Chris 18 Nov).
             if (categoryName === 'Invites') {
+              onMemorySelect?.(inviteRevealMarker(memory.id));
               return;
             }
             
@@ -1895,6 +1905,10 @@ export default function CategoryNav({
     });
   }
   
+  // Chris 18 Nov 2026: no separate "Product campaigns" section — an empty leftover "Website Catalogue" category is left
+  // out; one that still holds campaigns shows them until the web API's SQL moves them to the default category.
+  const visibleCategories = categories.filter((c) => !isEmptyCatalogueCategory(c.name, Math.max(Number(c.count) || 0, organizedMemories[c.name]?.length || 0)));
+
   // Use API data for labels if available
   if (apiMemoriesData && apiMemoriesData.data?.sidebar?.labels?.items) {
     // Use API labels with their embedded memories
@@ -2148,6 +2162,7 @@ export default function CategoryNav({
 
   const handleEditCategoryClick = (categoryName: string) => {
     console.log('🖊️ Edit category clicked:', categoryName);
+    if (isSystemSection(categoryName)) return; // Invites / Shared With / Published are never renamed (Chris 18 Nov)
     const category = categories.find(cat => cat.name === categoryName);
     console.log('Found category:', category);
     
@@ -2618,7 +2633,7 @@ export default function CategoryNav({
             className={`flex flex-col items-center py-2 px-1 transition-all duration-200 rounded-lg group ${
               activeSection === "categories" ? 'bg-[#6C60FF]/10' : ''
             }`}
-            title={`Categories (${categories.length} items)`}
+            title={`Categories (${visibleCategories.length} items)`}
           >
             <div className={`w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200 ${
               activeSection === "categories" ? 'bg-[#6C60FF]/20' : 'bg-gray-100'
@@ -2628,7 +2643,7 @@ export default function CategoryNav({
             <span className={`text-xs mt-1 text-center leading-tight transition-colors font-medium ${
               activeSection === "categories" ? 'text-[#6C60FF]' : 'text-gray-600'
             }`}>
-              {categories.length}
+              {visibleCategories.length}
             </span>
           </button>
           
@@ -2658,7 +2673,7 @@ export default function CategoryNav({
         {activeSection === "categories" && (
           <div className="space-y-2">
             
-            {categories
+            {visibleCategories
               .filter(category => selectedFilter === "all" || category.name === selectedFilter)
               .map((category) => {
                 // Check if category should be expanded based on user's manual toggle state
@@ -2715,7 +2730,7 @@ export default function CategoryNav({
                       </span>
                       {/* Edit button for user-created categories - Only show for property owners */}
                       {/* Hidden when the category is locked (not owner / cannot add story) */}
-                      {(category.admin_id !== null && category.admin_id !== undefined && isPropertyOwner) && !(category.is_owner === false || category.can_add_story === false) && (
+                      {(category.admin_id !== null && category.admin_id !== undefined && isPropertyOwner) && !isSystemSection(category.name) && !(category.is_owner === false || category.can_add_story === false) && (
                         <button
                           onClick={(e) => {
                             console.log('🖊️ Stacked view pencil clicked for:', category.name);
@@ -2939,7 +2954,7 @@ export default function CategoryNav({
             <span className={`text-xs px-1 py-0.5 rounded-full transition-all duration-200 text-black flex-shrink-0 ${
               activeSection === "categories" ? 'bg-[#6C60FF]/20' : 'bg-gray-200'
             }`}>
-              {categories.length}
+              {visibleCategories.length}
             </span>
           </button>
           
@@ -2992,7 +3007,7 @@ export default function CategoryNav({
                         Unassigned
                       </SelectItem>
                     )}
-                    {categories.map((category) => (
+                    {visibleCategories.map((category) => (
                       <SelectItem key={category.name} value={category.name} className="cursor-pointer hover:bg-gray-100 focus:bg-gray-100 focus:text-gray-900 focus:outline-none">
                         {categoryDisplayName(category.name)}
                       </SelectItem>
@@ -3078,7 +3093,7 @@ export default function CategoryNav({
               {selectedFilter === "all" && <ShopifyProductsNav onMemorySelect={onMemorySelect} />}
 
               {/* Regular Categories */}
-              {categories
+              {visibleCategories
                 .filter(category => selectedFilter === "all" || category.name === selectedFilter)
                 .map((category) => {
                   // Check if category should be expanded based on user's manual toggle state
