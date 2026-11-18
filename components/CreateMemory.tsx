@@ -44,6 +44,7 @@ import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
 import { createPreviewMoments, SHOPIFY_PRODUCT_KEY, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
+import { toUploadableImage } from '../utils/uploadFiles';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
 import StepCard from './newsletters/StepCard';
 import StoreelSendStep, { SEND_STEP_ID } from './storeel/StoreelSendStep';
@@ -1553,7 +1554,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   // Cover photo: uploaded like the Media photos (same endpoint), sent as last_update_img. Replaces an intro video.
-  const handleCoverPhotoPicked = async (file: File) => {
+  const handleCoverPhotoPicked = async (picked: File) => {
+    // An iPhone / Mac HEIC photo becomes a JPEG first (Chris 19 Nov 2026).
+    const file = await toUploadableImage(picked, (m) => toast.error(m));
+    if (!file) return;
     const problem = coverPhotoFileError(file);
     if (problem) { toast.error(problem); return; }
     const seq = nextCoverSeq();
@@ -3376,7 +3380,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               <input
                 ref={introVideoInputRef}
                 type="file"
-                accept="video/*"
+                accept="video/*,video/quicktime,.mov,.mp4,.m4v"
                 className="hidden"
                 data-testid="intro-video-input"
                 onChange={(e) => {

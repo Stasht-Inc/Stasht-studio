@@ -3,6 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Checkbox } from "../components/ui/checkbox";
 import { toast } from 'sonner';
+import { IMAGE_ACCEPT, toUploadableImage } from '../utils/uploadFiles';
 import { dashboardAPI, authAPI } from "../utils/authUtils";
 import GooglePlacesInput from "../components/ui/google-places-input";
 import CountrySelect from "../components/CountrySelect";
@@ -198,8 +199,8 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
     ? "text-white text-2xl font-medium flex items-center justify-center w-full h-full"
     : "bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white text-2xl font-medium flex items-center justify-center w-full h-full";
 
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleImageSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = await toUploadableImage(event.target.files?.[0], (m) => toast.error(m)); // HEIC → JPEG (Chris 19 Nov 2026)
     if (file) {
       setSelectedImage(file);
 
@@ -531,7 +532,7 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept={IMAGE_ACCEPT}
               onChange={handleImageSelect}
               className="hidden"
             />

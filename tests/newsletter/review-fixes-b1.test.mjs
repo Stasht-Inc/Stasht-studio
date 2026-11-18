@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { backupKey, readBackup, writeBackup, clearBackup, staleBackupToOffer } from '../../components/newsletters/lib/draftBackup.ts';
 import { NL_BACKUP_PREFIX, clearNewsletterBackups } from '../../utils/newsletterBackups.ts';
 import { emptyDraft } from '../../components/newsletters/lib/draft.ts';
-import { PICK_ACCEPT, planImage } from '../../components/newsletters/lib/images.ts';
+import { PICK_ACCEPT, pickAcceptFor, planImage } from '../../components/newsletters/lib/images.ts';
 import { pastedTextNodes, serializeTextNodes } from '../../components/newsletters/lib/textHtml.ts';
 import { toResult, retryableSaveFailure } from '../../components/newsletters/lib/apiResult.ts';
 
@@ -56,9 +56,17 @@ test('fix 6: after a stale reload, this tab’s edits on the older version are s
   assert.equal(staleBackupToOffer(null, n), null);
 });
 
-test('fix 3: the picker does not ask for HEIC (iPhone hands over a JPEG instead)', () => {
-  assert.ok(!/heic|heif/i.test(PICK_ACCEPT));
-  assert.equal(PICK_ACCEPT, 'image/jpeg,image/png,image/gif,image/webp');
+test('fix 3: on an iPhone/iPad the picker does not ask for HEIC (iOS hands over a JPEG instead)', () => {
+  const iphone = pickAcceptFor({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5 });
+  const ipad = pickAcceptFor({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', platform: 'MacIntel', maxTouchPoints: 5 });
+  assert.equal(iphone, 'image/jpeg,image/png,image/gif,image/webp');
+  assert.equal(ipad, 'image/jpeg,image/png,image/gif,image/webp');
+});
+
+test('Chris 19 Nov: on a Mac / PC the picker offers HEIC/HEIF (converted to JPEG before upload)', () => {
+  const mac = pickAcceptFor({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/131', platform: 'MacIntel', maxTouchPoints: 0 });
+  for (const t of ['image/heic', 'image/heif', '.heic', '.heif', 'image/jpeg']) assert.ok(mac.split(',').includes(t), t);
+  assert.ok(/heic/.test(PICK_ACCEPT), 'Node is not iOS');
 });
 
 test('fix 4: a WebP with see-through parts stays WebP; one without becomes JPEG', () => {

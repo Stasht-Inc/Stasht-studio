@@ -6,6 +6,7 @@ import GooglePlacesInput from './ui/google-places-input';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
 import { PROPERTY_IMAGE_ACCEPT, PROPERTY_IMAGE_TYPE_ERROR, propertyImageFileError } from '../utils/propertyImage';
+import { toUploadableImage } from '../utils/uploadFiles';
 
 interface CreatePropertyModalProps {
   isOpen: boolean;
@@ -212,9 +213,10 @@ export default function CreatePropertyModal({
     }
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
     e.target.value = ''; // the same file can be picked again after removing it
+    const file = await toUploadableImage(picked, (m) => toast.error(m)); // HEIC → JPEG (Chris 19 Nov 2026)
     if (!file) return;
     const problem = propertyImageFileError(file);
     if (problem) { toast.error(problem); return; }

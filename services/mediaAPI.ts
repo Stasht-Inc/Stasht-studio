@@ -1,6 +1,7 @@
 // Media API service functions
 import { apiRequest, fetchWithRateLimitRetry } from '../utils/authUtils';
 import { localDateISO } from '../utils/localDate';
+import { prepareImageForUpload } from '../utils/uploadFiles';
 
 // Cache buster for media API to prevent stale data
 let mediaCacheBuster = Date.now();
@@ -477,8 +478,11 @@ export const mediaAPI = {
 
       let currentIndex = 0;
 
+      // iPhone / Mac HEIC → JPEG for any file sent from here (one already on S3 goes by its URL) — Chris 19 Nov 2026
+      const files = (await Promise.all(params.files.map((f, i) => (params.s3Urls?.[i] ? f : prepareImageForUpload(f))))) as File[];
+
       // Process desktop files according to API specification
-      params.files.forEach((file, index) => {
+      files.forEach((file, index) => {
         const imageDetail = params.imageDetails[index];
 
         if (currentIndex === 0) {

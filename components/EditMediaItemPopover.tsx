@@ -14,6 +14,7 @@ import GooglePlacesInput from "./ui/google-places-input";
 import ToneSelectionModal from "./ToneSelectionModal";
 import { useAuth } from "../contexts/AuthContext";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { IMAGE_ACCEPT, isImageFile, toUploadableImage } from "../utils/uploadFiles";
 
 interface MediaItem {
   id: string;
@@ -348,14 +349,17 @@ export function EditMediaItemPopover({
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const picked = e.target.files?.[0];
+    if (!picked) return;
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
+    // Validate file type (a HEIC can come with an empty type: its extension counts)
+    if (!isImageFile(picked)) {
       alert('Please select a valid image file.');
       return;
     }
+    // iPhone / Mac HEIC → JPEG, so the preview shows and the upload works (Chris 19 Nov 2026)
+    const file = await toUploadableImage(picked, (m) => alert(m));
+    if (!file) return;
 
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
@@ -546,7 +550,7 @@ export function EditMediaItemPopover({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept={IMAGE_ACCEPT}
                   onChange={handleFileChange}
                   className="hidden"
                 />

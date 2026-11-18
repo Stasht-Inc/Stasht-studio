@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
 import { categoryDisplayName } from '../utils/products';
+import { MEDIA_ACCEPT } from '../utils/uploadFiles';
 
 interface Memory {
   id: string;
@@ -106,7 +107,7 @@ export default function AddMediaToMemoryModal({
                 multiple
                 onChange={handleFileSelect}
                 className="hidden"
-                accept="image/*,video/*"
+                accept={MEDIA_ACCEPT}
               />
               <Upload className="w-8 h-8 text-[#6C60FF] mx-auto mb-1.5" />
               <p className="text-xs text-gray-600 mb-2">Drop files or click to browse</p>

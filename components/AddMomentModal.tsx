@@ -22,6 +22,7 @@ import SegmentedSwitch from './newsletters/SegmentedSwitch';
 import InventoryMomentPicker, { useInventorySources, type MomentInventory, type MomentSource } from './storeel/InventoryMomentPicker';
 import CampaignsMultiSelect from './storeel/CampaignsMultiSelect';
 import type { CampaignPick } from './storeel/lib/momentCampaigns';
+import { IMAGE_ACCEPT } from '../utils/uploadFiles';
 
 interface UploadProgressItem {
   id: string;
@@ -1307,7 +1308,7 @@ export function AddMomentModal({
                 <input
                   type="file"
                   multiple
-                  accept="image/*"
+                  accept={IMAGE_ACCEPT}
                   onChange={handleFileSelect}
                   className="hidden"
                   id="file-upload"
@@ -1517,7 +1518,7 @@ export function AddMomentModal({
                     <input
                       type="file"
                       multiple
-                      accept="image/*"
+                      accept={IMAGE_ACCEPT}
                       onChange={handleFileSelect}
                       className="hidden"
                       id="file-upload-more"
@@ -1601,7 +1602,7 @@ export function AddMomentModal({
                         onClick={() => setSelectedImageIndex(index)}
                         className={boxClass}
                       >
-                        {previewSrc && !isHeicIndexed ? (
+                        {previewSrc && (!isHeicIndexed || uploadedS3Urls[index]) ? (
                           <img
                             src={previewSrc}
                             alt={`Preview ${index + 1}`}
