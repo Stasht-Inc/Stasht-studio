@@ -469,6 +469,20 @@ export function filterStatusesFor(canCreate: boolean): ProductBadge[] {
 }
 
 /**
+ * The Products page's Source filter choices besides All (Chris 18 Nov: "we shouldn't show shopify if it isn't connected").
+ * GET /products/status already counts the account's products per source: Shopify (and, the same way, Website) is offered
+ * only while there are products from it. Manual is always offered. An unknown status keeps every choice.
+ */
+export function sourceOptionsFor(s: Pick<ProductsStatus, 'counts'> | null | undefined): Array<'website' | 'shopify' | 'manual'> {
+  if (!s?.counts) return ['website', 'shopify', 'manual'];
+  return [
+    ...((s.counts.website ?? 0) > 0 ? ['website' as const] : []),
+    ...((s.counts.shopify ?? 0) > 0 ? ['shopify' as const] : []),
+    'manual' as const,
+  ];
+}
+
+/**
  * The campaign page's Refresh banner and its dialog (pre-merge D3, 15 Nov). `manual_pending` = how many of the changed
  * and retired items are manual products (Products pilot). Missing or 0 → website items only, worded exactly as before.
  */

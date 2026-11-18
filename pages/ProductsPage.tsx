@@ -15,7 +15,7 @@ import AllMemoriesEmptyState from '../components/AllMemoriesEmptyState';
 import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
-import { categoryChooserChoices, DEFAULT_CURRENCY, filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
+import { categoryChooserChoices, DEFAULT_CURRENCY, filterStatusesFor, pageToClampTo, productsGate, sourceOptionsFor, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
@@ -95,6 +95,12 @@ function ProductsReady({ onNavigate, onOpenProduct, detailOpen = false, onCloseD
     toast.success('Shopify connected. Your products are below.');
   }, []);
   const [filters, setFilters] = useState<Filters>(() => ({ ...DEFAULT_FILTERS }));
+  // Chris 18 Nov: Shopify (and Website) show in Source only while the account has products from it; a source that
+  // disappears while picked falls back to All.
+  const sourceOptions = useMemo(() => sourceOptionsFor(status), [status]);
+  useEffect(() => {
+    if (filters.source && !sourceOptions.includes(filters.source)) setFilters((f) => ({ ...f, source: '', page: 1 }));
+  }, [filters.source, sourceOptions]);
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<PageData | null>(null);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -244,7 +250,7 @@ function ProductsReady({ onNavigate, onOpenProduct, detailOpen = false, onCloseD
             <input type="search" aria-label="Search products" placeholder="Search by title, SKU or brand" value={search} onChange={(e) => setSearch(e.target.value)} className={`${FIELD} w-full pl-10 pr-3 placeholder:text-gray-400`} />
           </label>
           <button type="button" className={`${BUTTON_SECONDARY} flex-1 sm:flex-none md:hidden`} onClick={() => setCategorySheet(true)}><Folder className="h-4 w-4" aria-hidden="true" />Categories</button>
-          <div className="flex-1 sm:flex-none [&>button]:w-full"><ProductFilters value={filters} statuses={filterStatusesFor(canCreate)} onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))} /></div>
+          <div className="flex-1 sm:flex-none [&>button]:w-full"><ProductFilters value={filters} statuses={filterStatusesFor(canCreate)} sources={sourceOptions} onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))} /></div>
           {/* Campaigns' filter dropdown (MemoriesPage "All Categories" / authors / labels). */}
           <div className="w-full sm:w-48"><ProductSelect label="Sort" value={filters.sort || 'updated'} className={`h-10 w-full text-sm ${FILTER_TRIGGER}`}
             options={SORTS.map(([value, label]) => ({ value, label }))} onChange={(v) => setFilters((f) => ({ ...f, sort: v as ProductSort, page: 1 }))} /></div>

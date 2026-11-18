@@ -8,8 +8,12 @@ import { BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL, inputClass } from '../newslett
 
 const BADGES: ProductBadge[] = ['active', 'draft', 'out_of_stock', 'archived'];
 
-/** `statuses`: the status choices to offer (a salesperson's External view lists active products only: utils/products filterStatusesFor). */
-export default function ProductFilters({ value, onChange, statuses = BADGES }: { value: Filters; onChange(patch: Partial<Filters>): void; statuses?: ProductBadge[] }) {
+const SOURCES = [['website', 'Website'], ['shopify', 'Shopify'], ['manual', 'Manual']] as const;
+export type ProductSourceOption = (typeof SOURCES)[number][0];
+
+/** `statuses`: the status choices to offer (a salesperson's External view lists active products only: utils/products filterStatusesFor).
+ *  `sources`: the Source choices besides All (Chris 18 Nov: no Shopify unless a store is connected — utils/products sourceOptionsFor). */
+export default function ProductFilters({ value, onChange, statuses = BADGES, sources }: { value: Filters; onChange(patch: Partial<Filters>): void; statuses?: ProductBadge[]; sources?: ProductSourceOption[] }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Filters>(value);
   useEffect(() => { if (open) setDraft(value); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -34,7 +38,7 @@ export default function ProductFilters({ value, onChange, statuses = BADGES }: {
           </fieldset>
           <fieldset>
             <legend className={LABEL}>Source</legend>
-            {([['', 'All'], ['website', 'Website'], ['shopify', 'Shopify'], ['manual', 'Manual']] as const).map(([v, label]) => (
+            {([['', 'All'] as const, ...SOURCES.filter(([v]) => !sources || sources.includes(v))]).map(([v, label]) => (
               <label key={label} className="flex items-center gap-2 py-1 text-sm text-gray-800">
                 <input type="radio" name="product-source" checked={(draft.source || '') === v} onChange={() => setDraft((d) => ({ ...d, source: v }))} className="h-4 w-4 accent-[#6C60FF]" />{label}
               </label>
