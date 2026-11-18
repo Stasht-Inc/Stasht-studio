@@ -1547,6 +1547,34 @@ try {
       await context.close();
     }
   }
+  if (run('c18photos')) {
+    // Chris, 18 Nov: "where is image counter?" — each product card shows how many photos it has, like campaign cards.
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `c18photos-${width}`;
+      const w = world();
+      w.products[0].images_count = 3;            // Walnut Chair
+      w.products[1].images_count = 1;            // Draft Stool
+      w.products[2].images_count = 0; w.products[2].main_image = null; // Harbour Sofa: no photos
+      const { page, context } = await open(w, { width, height });
+      const cards = page.getByTestId('product-card');
+      await cards.first().waitFor({ timeout: 15000 });
+      const badge = (title) => cards.filter({ hasText: title }).getByTestId('product-card-photos');
+      const text = async (title) => (await badge(title).innerText()).replace(/\s+/g, ' ').trim();
+      if (width >= 768) {
+        expect(await text('Walnut Chair') === '3 photos', `${tag}: "3 photos" (${await text('Walnut Chair')})`);
+        expect(await text('Draft Stool') === '1 photo', `${tag}: "1 photo" (${await text('Draft Stool')})`);
+      } else {
+        expect(await text('Walnut Chair') === '3', `${tag}: phone shows the number with a camera (${await text('Walnut Chair')})`);
+        expect(await badge('Walnut Chair').getAttribute('aria-label') === '3 photos', `${tag}: … read out as "3 photos"`);
+      }
+      expect(await badge('Harbour Sofa').count() === 0, `${tag}: no badge without photos`);
+      expect((await cards.filter({ hasText: 'Walnut Chair' }).getByTestId('product-card-category').textContent())?.trim() === 'Chairs', `${tag}: the category pill is still there`);
+      const bg = await badge('Walnut Chair').evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(bg === 'rgb(255, 255, 255)', `${tag}: white like the campaign cards' count (${bg})`);
+      await page.screenshot({ path: `${OUT}/${tag}-01.png` });
+      await context.close();
+    }
+  }
   if (run('campaigns')) {
     for (const [width, height] of [[1280, 900], [390, 844]]) {
       const tag = `campaigns-${width}`;
