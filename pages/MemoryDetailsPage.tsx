@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Helmet } from 'react-helmet-async';
-import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Grid2x2, Grid3x3, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useProperty } from "../contexts/PropertyContext";
 import WeeklyEngCard from "../imports/WeeklyEngCard";
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
 import { campaignCover } from "../utils/campaignCover";
+import { formatStoredSize, momentInsertAtStart, readMediaColumns, saveMediaColumns, type MediaColumns } from "../utils/campaignMoments";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
@@ -770,7 +771,7 @@ function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick,
                   thumbnail: cur?.src || '',
                   image: cur?.src || '',
                   type: 'image',
-                  size: post.file_size || post.size || '0',
+                  size: formatStoredSize(post.file_size || post.size),
                   date: post.capture_date || post.uploaded_at || '',
                   location: typeof post.location === 'string' ? { displayName: post.location } : post.location,
                   author: { name: post.user?.name || '', avatar: post.user?.profile_image || '', id: post.user?.id?.toString() },
@@ -2015,6 +2016,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [insertAfterPostId, setInsertAfterPostId] = useState<string | null>(null);
   // Ref to persist insertAfterPostId across re-renders (state can reset before modal submits)
   const insertAfterPostIdRef = useRef<string | null>(null);
+  // The "+" at the very top of the timeline: the new moment goes first (Chris, 19 Nov 2026, point 10).
+  const insertMomentAtStartRef = useRef(false);
+  // Media panel: 2 or 3 photos across, remembered per viewer (Chris, 19 Nov 2026, point 12).
+  const [mediaColumns, setMediaColumns] = useState<MediaColumns>(() => readMediaColumns());
   // Plus divider mini-modal state (key = "sectionName-index")
   const [activePlusDivider, setActivePlusDivider] = useState<string | null>(null);
   // Voice to Text modal state
@@ -2027,9 +2032,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     if (!pendingScrollPostIdRef.current || !apiMemoryData) return;
     const postId = pendingScrollPostIdRef.current;
     const timer = setTimeout(() => {
-      const el = document.querySelector(`[data-post-id="${postId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // The card that is actually drawn (Chris, 19 Nov 2026, 10c): the desktop card, or on the phone the moment's own
+      // "+" just below its card (the hidden desktop copy can't be scrolled to).
+      const shown = (sel: string) => Array.from(document.querySelectorAll(sel)).find((e) => e.getBoundingClientRect().height > 0);
+      const card = shown(`[data-post-id="${postId}"]`);
+      const phonePlus = card ? undefined : shown(`[data-testid="phone-add-plus"][data-after-post-id="${postId}"][data-after-widget-id=""]`);
+      if (card || phonePlus) {
+        (card || phonePlus)!.scrollIntoView({ behavior: 'smooth', block: card ? 'center' : 'end' });
         pendingScrollPostIdRef.current = null;
       }
     }, 400);
@@ -4416,6 +4425,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     );
   }
 
+  // The campaign row of "Choose a Moment" pickers (Chris, 19 Nov 2026, point 13c): the cover the page shows (not
+  // the letter), and the campaign's dates (not when it was created).
+  const campaignPickerCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image }).src;
+  const campaignPickerDate: string | undefined = apiMemoryData?.min_uploaded_img_date || apiMemoryData?.created_at || undefined;
+  const campaignPickerDateLabel: string | undefined = localMemoryUpdates?.dateRange || apiMemoryData?.dates?.formatted_range || undefined;
+
   // Map API data to UI-expected format with local updates applied
   const uiMemory = apiMemoryData ? {
     id: apiMemoryData.id,
@@ -4932,17 +4947,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return `Text_Post_${post.id}.txt`;
   };
 
-  // Helper function to format file size
-  const formatFileSize = (bytes: number | string): string => {
-    const size = typeof bytes === 'string' ? parseInt(bytes) || 0 : bytes;
-    if (size === 0) return '2.4 MB'; // Default size if not provided
-    
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(size) / Math.log(k));
-    return parseFloat((size / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
   // Helper function to extract or estimate image dimensions
   const getImageDimensions = (post: any): string => {
     // Check if dimensions are provided in the API
@@ -5007,7 +5011,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         thumbnail: imageUrl,
         image: imageUrl,
         type: mediaType,
-        size: formatFileSize(post.size || (imageUrl ? 2515456 : 1024)),
+        size: formatStoredSize(post.size), // stored in MB (Chris, 19 Nov 2026: read as bytes, "3 B")
         date: post.capture_date || post.timestamp || post.date || new Date().toISOString(),
         location: post.location ? {
           displayName: post.location,
@@ -7568,9 +7572,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         // Remember this post ID so we scroll back to it after data refreshes
         scrollToPostIdAfterRefresh.current = String(id);
 
-        // Force re-fetch memory details to get updated data
-        setApiMemoryData(null); // Clear current data to force re-render
-        await fetchMemoryDetails(false); // Fetch fresh data with loading state
+        // Re-fetch in place (Chris, 19 Nov 2026): moving a photo into another moment updates the Media count and the
+        // timeline without the full-page "Loading campaign…" that lost the viewer's place.
+        await fetchMemoryDetails(true);
       } else {
         console.error('❌ Failed to update item:', response.error);
         toast.error(response.error || "Failed to update photo");
@@ -7872,7 +7876,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Storeel page's "+" (Chris, 8 Nov 2026, point 1) both come here, so each option opens its existing editor.
   const openAddWidget = (kind: AddWidgetKind, afterPostId: string | null, place?: { atStart: true } | { afterWidgetId: string }) => {
     insertPlaceRef.current = place ? { ...place, afterPostId } : null;
-    if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
+    if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; insertMomentAtStartRef.current = momentInsertAtStart(afterPostId, place); setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
     else if (kind === 'html') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
     else if (kind === 'youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
     else if (kind === 'quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
@@ -7990,7 +7994,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             <button
               type="button"
               className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
-              onClick={() => { setActivePlusDivider(null); insertAfterPostIdRef.current = afterPostId || null; setInsertAfterPostId(afterPostId || null); setIsAddMomentModalOpen(true); }}
+              onClick={() => { setActivePlusDivider(null); insertAfterPostIdRef.current = afterPostId || null; insertMomentAtStartRef.current = momentInsertAtStart(afterPostId, place); setInsertAfterPostId(afterPostId || null); setIsAddMomentModalOpen(true); }}
             >
               <div className="w-[32px] h-[32px] flex-shrink-0">
                 <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -9832,17 +9836,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           isOpen={isAddMomentModalOpen && !isInventoryDetail} // never on read-only inventory (cars, catalogue products)
           onClose={() => {
             setIsAddMomentModalOpen(false);
-            insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+            insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
             setSelectedMediaLibraryImagesForMoment([]);
             setParentImageIdForSubImage(undefined); // Clear parent image ID
             setCapturedFiles(null); // Clear captured files
-            // Refresh memory data
-            fetchMemoryDetails();
+            // Refresh memory data in place (Chris, 19 Nov 2026: no "Loading campaign…", the page keeps its place)
+            fetchMemoryDetails(true);
           }}
           memoryId={memoryId}
           memoryTitle={apiMemoryData?.title || 'Memory'}
-          memoryThumbnail={apiMemoryData?.last_update_img || apiMemoryData?.thumbnail}
-          memoryCreatedDate={apiMemoryData?.created_at}
+          memoryThumbnail={campaignPickerCover || undefined}
+          memoryCreatedDate={campaignPickerDate}
           userRole={currentUserRole}
           parentImageId={parentImageIdForSubImage}
           capturedFiles={capturedFiles}
@@ -9860,6 +9864,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           selectedMediaLibraryImages={selectedMediaLibraryImagesForMoment}
           insertAfterPostId={insertAfterPostId}
           getInsertAfterPostId={() => insertAfterPostIdRef.current}
+          getInsertAtStart={() => insertMomentAtStartRef.current}
           onAddMoment={(momentData) => {
             console.log('Moment added:', momentData);
             // Scroll the Timeline to the newly added moment once the refreshed
@@ -9867,12 +9872,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             // the Voice-to-Text modal's onMomentsCreated already relies on.
             const newPostId = Array.isArray(momentData) ? momentData[momentData.length - 1]?.image?.id : undefined;
             if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
-            // Close modal and refresh
+            // Close modal and refresh in place (no full-page "Loading campaign…")
             setIsAddMomentModalOpen(false);
-            insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+            insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
             setSelectedMediaLibraryImagesForMoment([]);
             setCapturedFiles(null); // Clear captured files
-            fetchMemoryDetails();
+            fetchMemoryDetails(true);
 
             // Refresh memories list on parent page
             if (onRefresh) {
@@ -13749,8 +13754,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       subImageCount={subImageCount}
                                       subImages={postSubImages}
                                       memoryTitle={apiMemoryData?.title}
-                                      memoryThumbnail={apiMemoryData?.last_update_img}
-                                      memoryCreatedDate={apiMemoryData?.created_at}
+                                      memoryThumbnail={campaignPickerCover || undefined}
+                                      memoryCreatedDate={campaignPickerDate}
+                                      memoryDateLabel={campaignPickerDateLabel}
                                       memoryImages={memoryImagesWithSubImages}
                                       memoryPublished={apiMemoryData?.published}
                                       memoryId={memoryId}
@@ -13998,8 +14004,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               onDeleteItem={isSuggestedCategory || isCatalogItemDetail || mediaItemLocked(item.id) ? undefined : () => handleDeleteItem(item.id, isCarPhotoId(item.id))}
                               memoryOwnerId={memoryOwnerId}
                               memoryTitle={apiMemoryData?.title}
-                              memoryThumbnail={apiMemoryData?.last_update_img}
-                              memoryCreatedDate={apiMemoryData?.created_at}
+                              memoryThumbnail={campaignPickerCover || undefined}
+                              memoryCreatedDate={campaignPickerDate}
+                              memoryDateLabel={campaignPickerDateLabel}
                               memoryImages={memoryImagesWithSubImages}
                               index={idx + 1}
                               isHidden={hiddenImageUrls.has(item.image) || hiddenImageUrls.has(item.thumbnail)}
@@ -14382,8 +14389,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               subImageCount={subImageCount}
                               subImages={postSubImages}
                               memoryTitle={apiMemoryData?.title}
-                              memoryThumbnail={apiMemoryData?.last_update_img}
-                              memoryCreatedDate={apiMemoryData?.created_at}
+                              memoryThumbnail={campaignPickerCover || undefined}
+                              memoryCreatedDate={campaignPickerDate}
+                              memoryDateLabel={campaignPickerDateLabel}
                               memoryImages={memoryImagesWithSubImages}
                               memoryPublished={apiMemoryData?.published}
                               memoryId={memoryId}
@@ -16032,6 +16040,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               >
                 {mediaSortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
               </Button>
+              {/* 2 or 3 photos across (Chris, 19 Nov 2026, point 12): smaller thumbnails, easier to drag in order. */}
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="media-columns-toggle"
+                aria-label={mediaColumns === 3 ? 'Show 2 per row' : 'Show 3 per row'}
+                title={mediaColumns === 3 ? 'Show 2 per row' : 'Show 3 per row'}
+                onClick={() => { const next: MediaColumns = mediaColumns === 3 ? 2 : 3; setMediaColumns(next); saveMediaColumns(next); }}
+                className="h-9 w-9 p-0 border-gray-200 flex-shrink-0"
+              >
+                {mediaColumns === 3 ? <Grid2x2 className="w-4 h-4" /> : <Grid3x3 className="w-4 h-4" />}
+              </Button>
               <button
                 onClick={() => {
                   const newVal = !isMediaSelectAll;
@@ -16226,7 +16246,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           setShowAddMomentModal(false);
                           setSelectedItems([]);
                           setAddMomentSelectedParentId(null);
-                          await fetchMemoryDetails();
+                          // In place, fresh (raw fetch: the GET cache isn't cleared for us) — Chris, 19 Nov 2026
+                          clearApiCache();
+                          await fetchMemoryDetails(true);
                         } else {
                           toast.error(data.error || 'Failed to add moment');
                         }
@@ -16301,7 +16323,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {displayMediaItems.length > 0 ? (
               <>
               <div
-                className="grid grid-cols-2 gap-3 relative [&_*]:!cursor-none [&_button]:!cursor-pointer [&_a]:!cursor-pointer [&_[role=button]]:!cursor-pointer cursor-none"
+                data-testid="media-panel-grid"
+                data-columns={mediaColumns}
+                className={`grid ${mediaColumns === 3 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-3'} relative [&_*]:!cursor-none [&_button]:!cursor-pointer [&_a]:!cursor-pointer [&_[role=button]]:!cursor-pointer cursor-none`}
                 onMouseMove={(e) => {
                   const target = e.target as HTMLElement;
                   const isOverButton = !!(target.closest('button') || target.closest('a') || target.closest('[role="button"]'));
@@ -16342,12 +16366,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       onDeleteItem={isSuggestedCategory || isCatalogItemDetail || mediaItemLocked(item.id) ? undefined : () => handleDeleteItem(item.id, isCarPhotoId(item.id))}
                       memoryOwnerId={memoryOwnerId}
                       memoryTitle={apiMemoryData?.title}
-                      memoryThumbnail={apiMemoryData?.last_update_img}
-                      memoryCreatedDate={apiMemoryData?.created_at}
+                      memoryThumbnail={campaignPickerCover || undefined}
+                      memoryCreatedDate={campaignPickerDate}
+                      memoryDateLabel={campaignPickerDateLabel}
                       memoryImages={memoryImagesWithSubImages}
                       index={idx + 1}
                       isHidden={isItemHidden}
                       isCar={isInventoryDetail}
+                      compact={mediaColumns === 3}
                     />
                     </div>
                   );
@@ -17236,20 +17262,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         isOpen={isAddMomentModalOpen && !isInventoryDetail} // never on read-only inventory (cars, catalogue products)
         onClose={() => {
           setIsAddMomentModalOpen(false);
-          insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+          insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
           setSelectedMediaLibraryImagesForMoment([]);
           setParentImageIdForSubImage(undefined); // Clear parent image ID
           setCapturedFiles(null); // Clear captured files
-          // Refresh page data when modal closes
-          fetchMemoryDetails();
+          // Refresh page data in place when the modal closes (Chris, 19 Nov 2026: no "Loading campaign…")
+          fetchMemoryDetails(true);
           fetchMemoryActivity();
           // NOTE: We do NOT call onRefreshMedia() here to avoid heavy reload
           // The media page will refresh when the user navigates to it
         }}
         memoryId={memoryId}
         memoryTitle={uiMemory.title}
-        memoryThumbnail={apiMemoryData?.last_update_img || apiMemoryData?.thumbnail}
-        memoryCreatedDate={apiMemoryData?.created_at}
+        memoryThumbnail={campaignPickerCover || undefined}
+        memoryCreatedDate={campaignPickerDate}
         memoryLocation={apiMemoryData?.location}
         userRole={currentUserRole}
         parentImageId={parentImageIdForSubImage}
@@ -17259,11 +17285,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         buttonRef={addMomentButtonRef}
         insertAfterPostId={insertAfterPostId}
         getInsertAfterPostId={() => insertAfterPostIdRef.current}
+        getInsertAtStart={() => insertMomentAtStartRef.current}
         // Chris, 7 Nov 2026: the owner can add Website Catalogue products / vehicles here too (saved at once).
         inventory={memoryId && !isCollaboratorView ? campaignPageInventory({
           memoryId,
           afterPostId: () => insertAfterPostIdRef.current,
-          onAdded: () => { clearApiCache(); fetchMemoryDetails(); },
+          onAdded: () => { clearApiCache(); fetchMemoryDetails(true); },
           linkedVehicleIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => lm?.is_car === true || Number(lm?.is_car) === 1).map((lm: any) => String(lm.id)),
           linkedCampaignIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => !(lm?.is_car === true || Number(lm?.is_car) === 1)).map((lm: any) => String(lm.id)),
         }) : undefined}
@@ -17286,11 +17313,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
           // Close modal immediately
           setIsAddMomentModalOpen(false);
-          insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+          insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
           setSelectedMediaLibraryImagesForMoment([]);
           setCapturedFiles(null); // Clear captured files
-          // Refresh memory data instead of page reload
-          fetchMemoryDetails();
+          // Refresh memory data in place: no "Loading campaign…", the scroll position stays (Chris, 19 Nov 2026)
+          fetchMemoryDetails(true);
 
           // Refresh memories list on parent page
           if (onRefresh) {

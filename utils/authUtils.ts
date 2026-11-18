@@ -2596,6 +2596,8 @@ export const dashboardAPI = {
         };
       }
 
+      // A raw fetch skips apiRequest's write → clear-cache: clear it here so the campaign re-read shows the change.
+      clearApiCache();
       devLog('dashboardAPI.updateMemoryImages: Full API Response:', { success: true, data });
       return {
         success: true,
