@@ -2352,13 +2352,13 @@ export default function MediaPage({
     if (selectedCategory) {
       return (
         <span className="ml-2 text-lg font-normal text-gray-600">
-          • {selectedCategory}
+          • {categoryDisplayName(selectedCategory)}
         </span>
       );
     } else if (expandedCategoryNames.length > 0 && expandedCategoryNames.length < 4) {
       return (
         <span className="ml-2 text-lg font-normal text-gray-600">
-          • {expandedCategoryNames.join(', ')}
+          • {expandedCategoryNames.map((n) => categoryDisplayName(n)).join(', ')}
         </span>
       );
     }
@@ -2371,7 +2371,7 @@ export default function MediaPage({
     } else if (expandedCategoryNames.length === 0) {
       return 'No categories expanded. Expand categories in the sidebar to view media.';
     } else if (expandedCategoryNames.length < 4) {
-      return `Showing media from ${expandedCategoryNames.length === 1 ? expandedCategoryNames[0] + ' category' : expandedCategoryNames.length + ' categories'}`;
+      return `Showing media from ${expandedCategoryNames.length === 1 ? categoryDisplayName(expandedCategoryNames[0]) + ' category' : expandedCategoryNames.length + ' categories'}`;
     } else {
       return 'Upload, organize, and manage your photos and videos';
     }

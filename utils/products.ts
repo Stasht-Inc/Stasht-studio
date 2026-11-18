@@ -469,6 +469,20 @@ export function filterStatusesFor(canCreate: boolean): ProductBadge[] {
 }
 
 /**
+ * The Products page's Source filter choices besides All (Chris 18 Nov: "we shouldn't show shopify if it isn't connected").
+ * GET /products/status already counts the account's products per source: Shopify (and, the same way, Website) is offered
+ * only while there are products from it. Manual is always offered. An unknown status keeps every choice.
+ */
+export function sourceOptionsFor(s: Pick<ProductsStatus, 'counts'> | null | undefined): Array<'website' | 'shopify' | 'manual'> {
+  if (!s?.counts) return ['website', 'shopify', 'manual'];
+  return [
+    ...((s.counts.website ?? 0) > 0 ? ['website' as const] : []),
+    ...((s.counts.shopify ?? 0) > 0 ? ['shopify' as const] : []),
+    'manual' as const,
+  ];
+}
+
+/**
  * The campaign page's Refresh banner and its dialog (pre-merge D3, 15 Nov). `manual_pending` = how many of the changed
  * and retired items are manual products (Products pilot). Missing or 0 → website items only, worded exactly as before.
  */
@@ -568,8 +582,27 @@ export const PRODUCTS_LABEL = 'Products';
 /** Deepak, 16 Nov (review I2, option A): the stored category is shown as "Product campaigns" wherever a category name
  *  shows, so it never reads like the "Products" items box beside it. Display only: stored name, lookups, filters unchanged. */
 export const CATALOGUE_CATEGORY_LABEL = 'Product campaigns';
+/** Every account's default category is stored as 'Personal' (user_categories.is_defualt = 1); the installed app and both
+ *  web APIs match that exact name, so it stays stored as is. */
+export const DEFAULT_CATEGORY_NAME = 'Personal';
+/** Chris 18 Nov 2026: "It should say 'Campaigns'" — the default category's name on screen. Display only. (An account that
+ *  also made its own category called "Campaigns" sees two rows with that name; the stored names still differ.) */
+export const DEFAULT_CATEGORY_LABEL = 'Campaigns';
 export function categoryDisplayName<T>(name: T): T | string {
-  return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? CATALOGUE_CATEGORY_LABEL : name;
+  if (typeof name !== 'string') return name;
+  const key = name.trim().toLowerCase();
+  if (key === CATALOGUE_CATEGORY_NAME.toLowerCase()) return CATALOGUE_CATEGORY_LABEL;
+  if (key === DEFAULT_CATEGORY_NAME.toLowerCase()) return DEFAULT_CATEGORY_LABEL;
+  return name;
+}
+
+/**
+ * Chris 18 Nov 2026: "we don't need a product campaigns section. They just go to Campaigns." The web API now files new
+ * product campaigns under the default category and an SQL moves the old ones; until then a leftover "Website Catalogue"
+ * category still shows while it holds campaigns (so they stay reachable), and is left out of the sidebar once empty.
+ */
+export function isEmptyCatalogueCategory(name: unknown, count: number | null | undefined): boolean {
+  return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() && !(Number(count) > 0);
 }
 
 /**

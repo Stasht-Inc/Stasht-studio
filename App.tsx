@@ -64,6 +64,7 @@ import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, Sc
 import ProductsPage from "./pages/ProductsPage";
 import { useProductsStatus } from './hooks/useProductsStatus';
 import { productPageId, productPageIdOf, showsProductsNav } from './utils/products';
+import { parseInviteRevealMarker } from './utils/campaignInvites';
 import { inventoryViewPropertyId } from './utils/inventoryView';
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
@@ -1306,6 +1307,7 @@ function MainApp() {
   const [createMemoryTrigger, setCreateMemoryTrigger] = useState<{ category?: string; timestamp: number; photos?: File[] } | null>(null);
   const [createCategorySignal, setCreateCategorySignal] = useState(0); // bump to open the sidebar's "New Category" popover
   const [openPublishedEntrySignal, setOpenPublishedEntrySignal] = useState<{ entry: any; nonce: number } | null>(null); // set to open a published-author entry from the desktop sidebar
+  const [revealInviteSignal, setRevealInviteSignal] = useState<{ memoryId: string; nonce: number } | null>(null); // a pending invite clicked in the desktop sidebar (Chris 18 Nov)
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showAddMomentModal, setShowAddMomentModal] = useState(false);
   const [showBottomNavCamera, setShowBottomNavCamera] = useState(false);
@@ -4049,6 +4051,7 @@ function MainApp() {
           createCategorySignal={createCategorySignal}
           onRequestCreateCategory={() => setCreateCategorySignal((c) => c + 1)}
           openPublishedEntrySignal={openPublishedEntrySignal}
+          revealInviteSignal={revealInviteSignal}
         />
       );
     }
@@ -4559,6 +4562,14 @@ function MainApp() {
                     ) : mediaMemories}
                     apiMemoriesData={apiMemoriesData}
                     onMemorySelect={(memoryId, options) => {
+                      // A pending invite (Chris 18 Nov 2026): All Campaigns, scrolled to its card with Accept / Deny.
+                      const inviteId = parseInviteRevealMarker(memoryId);
+                      if (inviteId) {
+                        if (selectedMemoryId) handleBackFromMemory(); // from a campaign page: back to the grid first
+                        setSelectedMemoryCategory(null);
+                        setRevealInviteSignal({ memoryId: inviteId, nonce: Date.now() });
+                        return;
+                      }
                       // Published-author entries carry a `pa-<index>` id — route them to the
                       // MemoriesPage published-entry viewer (same as the main-grid card) instead
                       // of the normal memory open. Resolve the entry here and pass it through so

@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { Check, X, Folder, MapPin } from 'lucide-react';
 import { triggerMemoriesRefresh } from '../hooks/useMemoriesRefresh';
-import { categoryCampaignsPhrase, categoryDisplayName } from '../utils/products';
+import { CATALOGUE_CATEGORY_NAME, DEFAULT_CATEGORY_NAME, categoryCampaignsPhrase, categoryDisplayName } from '../utils/products';
 
 interface MemoryCreatedDialogProps {
   isOpen: boolean;
@@ -15,9 +15,11 @@ export function MemoryCreatedDialog({
   isOpen,
   onClose,
   memoryTitle,
-  categoryName,
+  categoryName: givenCategoryName,
   location
 }: MemoryCreatedDialogProps) {
+  // Chris 18 Nov 2026: product campaigns go to Campaigns (the default category), never a "Product campaigns" section.
+  const categoryName = givenCategoryName?.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? DEFAULT_CATEGORY_NAME : givenCategoryName;
   const [countdown, setCountdown] = useState(3);
 
   // Auto-close after 3 seconds and refresh memories
@@ -113,7 +115,7 @@ export function MemoryCreatedDialog({
                 "{memoryTitle}"
               </div>
               <div className="text-sm text-gray-600">
-                {/* "your Cars campaigns." as before; "your Product campaigns." for the stored catalogue category (no "campaigns campaigns"). */}
+                {/* "your Cars campaigns." as before; "your Campaigns." for the default category (no "campaigns campaigns"). */}
                 has been added to your <span className="text-green-600 font-medium">{categoryDisplayName(categoryName)}</span>{categoryCampaignsPhrase(categoryName).slice(String(categoryDisplayName(categoryName) ?? '').length)}.
               </div>
             </div>

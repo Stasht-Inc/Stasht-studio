@@ -14,6 +14,7 @@ import { billedByStasht, coveredByNote, MANAGED_BY_STASHT, offersUpgrade, packag
 import { Switch } from "../components/ui/switch";
 import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
+import { categoryDisplayName } from "../utils/products";
 
 // Types
 interface SettingsSection {
@@ -2004,7 +2005,7 @@ function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDi
             <div key={cat.id || cat.name} className="flex items-center justify-between py-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || getCategoryColor(cat.name) }} />
-                <span className="text-base font-medium text-gray-900">{cat.name}</span>
+                <span className="text-base font-medium text-gray-900">{categoryDisplayName(cat.name)}</span>
               </div>
               <Switch
                 className="h-6 w-11 [&>span]:size-5"

@@ -3105,7 +3105,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                             className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: category.__isShopify ? SHOPIFY_COLOR : getCategoryColor(category.name) }}
                           />
-                          {categoryDisplayName(category.name)}
+                          {/* Chris 18 Nov: the catalogue entry is the product picker, not a category of its own. */}
+                          {category.id === CATALOG_CATEGORY_ID ? PRODUCTS_LABEL : categoryDisplayName(category.name)}
                         </div>
                       </SelectItem>
                     ))
