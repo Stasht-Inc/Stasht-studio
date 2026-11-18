@@ -147,6 +147,7 @@ interface PostCardProps {
   memoryTitle?: string;
   memoryThumbnail?: string;
   memoryCreatedDate?: string;
+  memoryDateLabel?: string; // "Choose a Moment": the campaign's dates (Chris, 19 Nov 2026)
   memoryImages?: MemoryImage[];
   onRefresh?: () => void; // Callback to refresh memory data after description updates
   memoryPublished?: number; // Memory published status: 1 = public, 2 = view only, 3 = private
@@ -169,7 +170,7 @@ interface PostCardProps {
   };
 }
 
-export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec, editCaptionRequest, cardButton }: PostCardProps) {
+export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryDateLabel, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec, editCaptionRequest, cardButton }: PostCardProps) {
   // Debug log to check title in PostCard
   console.log(`📝 PostCard received post ${post.id}: title="${post.title}", name="${post.name}"`);
 
@@ -2449,6 +2450,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
               memoryTitle={memoryTitle}
               memoryThumbnail={memoryThumbnail}
               memoryCreatedDate={memoryCreatedDate}
+              memoryDateLabel={memoryDateLabel}
               memoryImages={memoryImages}
               storyTags={storyTags}
             />

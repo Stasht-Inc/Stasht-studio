@@ -14,6 +14,7 @@ import GooglePlacesInput from "./ui/google-places-input";
 import ToneSelectionModal from "./ToneSelectionModal";
 import { useAuth } from "../contexts/AuthContext";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { chooseMomentTargets } from "../utils/campaignMoments";
 
 interface MediaItem {
   id: string;
@@ -62,9 +63,13 @@ interface EditMediaItemPopoverProps {
   memoryTitle?: string;
   memoryThumbnail?: string;
   memoryCreatedDate?: string;
+  memoryDateLabel?: string; // the campaign's dates as the page header shows them (Chris, 19 Nov 2026)
   memoryImages?: MemoryImage[];
   storyTags?: string[];
 }
+
+// A video campaign cover (.mp4 / .mov …) shows its first frame instead of failing as an <img> (Chris, 19 Nov 2026).
+const isVideoUrl = (url?: string): boolean => !!url && /\.(mp4|mov|m4v|webm|3gp|quicktime)(\?|#|$)/i.test(url);
 
 export function EditMediaItemPopover({
   item,
@@ -78,9 +83,12 @@ export function EditMediaItemPopover({
   memoryTitle,
   memoryThumbnail,
   memoryCreatedDate,
-  memoryImages = [],
+  memoryDateLabel,
+  memoryImages: allMemoryImages = [],
   storyTags = []
 }: EditMediaItemPopoverProps) {
+  // "Choose a Moment" never offers the photo's own moment (Chris, 19 Nov 2026, point 13a).
+  const memoryImages = chooseMomentTargets(allMemoryImages, item.id);
   const { user } = useAuth();
   const [isMobile, setIsMobile] = useState(false);
 
@@ -587,8 +595,11 @@ export function EditMediaItemPopover({
                                   </div>
                                 }
                               />
+                            ) : memoryThumbnail && isVideoUrl(memoryThumbnail) ? (
+                              <video src={memoryThumbnail} muted playsInline preload="metadata" className="w-full h-full object-cover" data-testid="choose-moment-cover" />
                             ) : memoryThumbnail ? (
                               <ImageWithFallback
+                                data-testid="choose-moment-cover"
                                 src={memoryThumbnail}
                                 alt={memoryTitle}
                                 className="w-full h-full object-cover"
@@ -621,14 +632,14 @@ export function EditMediaItemPopover({
                                 </h3>
                                 <div className="flex items-center gap-2 mt-0.5">
                                   <p className="text-xs text-gray-500">
-                                    {memoryCreatedDate ? new Date(memoryCreatedDate).toLocaleDateString('en-US', {
+                                    {memoryDateLabel || (memoryCreatedDate ? new Date(memoryCreatedDate).toLocaleDateString('en-US', {
                                       month: 'short',
                                       year: 'numeric'
-                                    }) : 'No date'}
+                                    }) : 'No date')}
                                   </p>
                                   <span className="text-xs text-gray-400">•</span>
                                   <span className="text-xs text-gray-500">
-                                    {memoryImages.reduce((total, img) => total + 1 + (img.subImages?.length || 0), 0)} images
+                                    {allMemoryImages.reduce((total, img) => total + 1 + (img.subImages?.length || 0), 0)} images
                                   </span>
                                 </div>
                               </>

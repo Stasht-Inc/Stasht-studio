@@ -1,5 +1,5 @@
 // Media API service functions
-import { apiRequest, fetchWithRateLimitRetry } from '../utils/authUtils';
+import { apiRequest, fetchWithRateLimitRetry, clearApiCache } from '../utils/authUtils';
 import { localDateISO } from '../utils/localDate';
 
 // Cache buster for media API to prevent stale data
@@ -433,6 +433,8 @@ export const mediaAPI = {
     mediaLibraryImages?: Array<{
       image_url: string;
       media_id: string;
+      /** The library photo's own name (the API keeps the source row's name anyway). */
+      name?: string;
       title: string;
       description: string;
       capture_date: string;
@@ -442,6 +444,8 @@ export const mediaAPI = {
     userRole?: 'contributor' | 'viewer' | 'admin' | undefined;
     parentImageId?: string;
     afterPostId?: string;
+    /** The "+" at the very top of the timeline (Chris, 19 Nov 2026): the new moment goes first. */
+    insertAtStart?: boolean;
     s3Urls?: { [index: number]: string };
     sizes?: { [index: number]: number };
     isProperty?: boolean;
@@ -468,6 +472,8 @@ export const mediaAPI = {
       if (params.afterPostId != null && params.afterPostId !== '') {
         formData.append('after_post_id', String(params.afterPostId));
         console.log('🎯 mediaAPI.addMoment: Inserting after post_id:', params.afterPostId);
+      } else if (params.insertAtStart && !params.parentImageId) {
+        formData.append('insert_at_start', '1');
       }
 
       // Add user role if provided (for contributor review flow)
@@ -551,7 +557,7 @@ export const mediaAPI = {
             // First image uses base keys
             formData.append('media_id', mlImage.media_id);
             formData.append('image_url', mlImage.image_url);
-            formData.append('name', 'Media Library Image'); // Default name
+            formData.append('name', mlImage.name || 'Media Library Image');
             formData.append('location', mlImage.location || '');
             formData.append('capture_date', mlImage.capture_date || localDateISO());
             formData.append('description', mlImage.description || '');
@@ -570,7 +576,7 @@ export const mediaAPI = {
             // Subsequent images use indexed keys
             formData.append(`media_id_${currentIndex}`, mlImage.media_id);
             formData.append(`image_url_${currentIndex}`, mlImage.image_url);
-            formData.append(`name_${currentIndex}`, `Media Library Image ${currentIndex + 1}`); // Default name
+            formData.append(`name_${currentIndex}`, mlImage.name || `Media Library Image ${currentIndex + 1}`);
             formData.append(`location_${currentIndex}`, mlImage.location || '');
             formData.append(`capture_date_${currentIndex}`, mlImage.capture_date || localDateISO());
             formData.append(`description_${currentIndex}`, mlImage.description || '');
@@ -629,6 +635,9 @@ export const mediaAPI = {
       console.log('🚀 mediaAPI.addMoment: Response received:', data);
 
       if (response.ok && (data.success || data.status)) {
+        // A raw fetch (multipart) skips apiRequest's "every write clears the GET cache": without this the campaign
+        // re-read right after Add served the 15-second cached copy, without the new moment (Chris, 19 Nov 2026).
+        clearApiCache();
         return {
           success: true,
           data: data.data,

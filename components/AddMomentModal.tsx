@@ -68,6 +68,7 @@ interface AddMomentModalProps {
   storyTags?: string[];
   insertAfterPostId?: string | null; // ID of the post this moment should be inserted after
   getInsertAfterPostId?: () => string | null; // Ref-based getter to always get fresh value
+  getInsertAtStart?: () => boolean; // the "+" at the top of the timeline: the new moment goes first (Chris, 19 Nov 2026)
   libraryMode?: boolean; // When true, saves directly to media library (no story required)
   editPhotoData?: {
     index: number;
@@ -112,6 +113,7 @@ export function AddMomentModal({
   storyTags = [],
   insertAfterPostId,
   getInsertAfterPostId,
+  getInsertAtStart,
   libraryMode = false,
   editPhotoData,
   inventory
@@ -1058,7 +1060,9 @@ export function AddMomentModal({
         return {
           image_url: img.image,
           media_id: img.id,
-          title: details.title || img.title, // Use custom title if provided, otherwise use default
+          name: img.title, // the library photo's own name
+          // Only a title the user typed (Chris, 19 Nov 2026): the library photo's file name used to be sent as the title.
+          title: details.title || '',
           description: details.description,
           capture_date: details.date,
           location: details.location,
@@ -1091,6 +1095,7 @@ export function AddMomentModal({
         userRole,
         parentImageId: finalParentImageId,
         afterPostId: finalAfterPostId,
+        insertAtStart: finalAfterPostId === undefined && !!getInsertAtStart?.(),
         s3Urls: uploadedS3Urls,
         isProperty: viewType === 'property',
         sizes: uploadedSizes
