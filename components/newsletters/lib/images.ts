@@ -1,9 +1,15 @@
 // Same rules as POST /newsletters/images (spec §8): jpg/png/gif/webp, at most 5 MB. Checked before uploading.
 export const IMAGE_ACCEPT = 'image/jpeg,image/png,image/gif,image/webp';
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** What the picker offers. HEIC is left out on purpose: iPhones then hand over a JPEG. A HEIC dropped from a desktop
- *  is still turned into JPEG where the browser can open it (prepareImage). */
-export const PICK_ACCEPT = IMAGE_ACCEPT;
+/** What the picker offers. On an iPhone/iPad HEIC is left out on purpose: iOS then hands over a JPEG. Everywhere else
+ *  (Chris 19 Nov 2026: a Mac greys out HEIC photos otherwise) HEIC/HEIF are offered and prepareImage turns them into
+ *  JPEG in the browser (natively where it can, else with heic-to — utils/uploadFiles). */
+export function pickAcceptFor(device: { userAgent?: string; platform?: string; maxTouchPoints?: number } | undefined): string {
+  const ua = device?.userAgent ?? '';
+  const ios = /iPad|iPhone|iPod/.test(ua) || (device?.platform === 'MacIntel' && (device?.maxTouchPoints ?? 0) > 1);
+  return ios ? IMAGE_ACCEPT : `${IMAGE_ACCEPT},image/heic,image/heif,.heic,.heif`;
+}
+export const PICK_ACCEPT = pickAcceptFor(typeof navigator !== 'undefined' ? navigator : undefined);
 /** The email is 600 px wide; 1600 px stays sharp on high-density screens and keeps emails light. */
 export const MAX_IMAGE_SIDE = 1600;
 /** Photos heavier than this are saved again as JPEG even when they are small enough on screen. */
@@ -76,7 +82,14 @@ export async function prepareImage(file: File): Promise<{ file: File } | { error
   try {
     source = await decode(file);
   } catch {
-    return heic ? { error: HEIC_UNSUPPORTED } : { file };
+    if (!heic) return { file };
+    // This browser can't open HEIC itself (Chrome, Firefox): convert it, then shrink the JPEG as usual.
+    try {
+      const { convertHeicToJpeg } = await import('../../../utils/uploadFiles');
+      return prepareImage(await convertHeicToJpeg(file));
+    } catch {
+      return { error: HEIC_UNSUPPORTED };
+    }
   }
   let scaled: ImageBitmap | null = null;
   try {

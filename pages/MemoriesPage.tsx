@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import { ChevronDown, ChevronUp, MoreHorizontal, MoreVertical, Search, Filter, ArrowUpDown, Plus, Grid3X3, List, X, Image as ImageIcon, Globe, Pencil, Tag, Copy, GitMerge, Trash2, Calendar, ChevronLeft, BookOpen, ArrowLeft, Share2, QrCode, Mail, Facebook, Linkedin, Instagram, Code } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast as sonnerToast } from "sonner";
+import { IMAGE_ACCEPT, isImageFile, toUploadableImage } from "../utils/uploadFiles";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -534,6 +535,8 @@ function MemoriesPageContent({
 
   // Loading states for accept/reject actions
   const [loadingMemoryActions, setLoadingMemoryActions] = useState<Record<string, boolean>>({});
+  // Invites just denied: their cards go at once, before the refresh answers (Chris 19 Nov 2026: Deny "doesn't work").
+  const [deniedInviteIds, setDeniedInviteIds] = useState<Set<string>>(() => new Set());
 
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -1312,6 +1315,9 @@ function MemoriesPageContent({
 
   const handleAcceptInvite = async (memoryId: string, notificationId?: string | number) => {
     console.log('🤝 Accepting invite for memory:', memoryId, 'notification_id:', notificationId);
+    const key = memoryId.toString();
+    if (loadingMemoryActions[key]) return;
+    setLoadingMemoryActions(prev => ({ ...prev, [key]: true }));
 
     try {
       // Call API to accept invitation (status: 1) with notification_id
@@ -1330,6 +1336,7 @@ function MemoriesPageContent({
         onMemorySelect(memoryId.toString());
       } else {
         console.error('❌ Failed to accept invitation:', response.error);
+        setToast({ message: response.message || response.error || 'The invitation could not be accepted. Please try again.', type: 'error' });
         // Still refresh to check if there were changes
         if (onRefreshMemories) {
           await onRefreshMemories();
@@ -1339,15 +1346,21 @@ function MemoriesPageContent({
       }
     } catch (error) {
       console.error('❌ Error accepting invitation:', error);
+      setToast({ message: 'The invitation could not be accepted. Please try again.', type: 'error' });
       // Still refresh to check if there were changes
       if (onRefreshMemories) {
         await onRefreshMemories();
       }
+    } finally {
+      setLoadingMemoryActions(prev => ({ ...prev, [key]: false }));
     }
   };
 
   const handleRejectInvite = async (memoryId: string, notificationId?: string | number) => {
     console.log('❌ Rejecting invite for memory:', memoryId, 'notification_id:', notificationId);
+    const key = memoryId.toString();
+    if (loadingMemoryActions[key]) return;
+    setLoadingMemoryActions(prev => ({ ...prev, [key]: true }));
 
     try {
       // Call API to reject invitation (status: 0) with notification_id
@@ -1355,6 +1368,7 @@ function MemoriesPageContent({
 
       if (response.success) {
         console.log('✅ Invitation rejected successfully');
+        setDeniedInviteIds(prev => new Set(prev).add(key));
         // Refresh memories to update the UI
         if (onRefreshMemories) {
           await onRefreshMemories();
@@ -1363,6 +1377,7 @@ function MemoriesPageContent({
         triggerNotificationsRefresh();
       } else {
         console.error('❌ Failed to reject invitation:', response.error);
+        setToast({ message: response.message || response.error || 'The invitation could not be denied. Please try again.', type: 'error' });
         // Still refresh to check if there were changes
         if (onRefreshMemories) {
           await onRefreshMemories();
@@ -1372,10 +1387,13 @@ function MemoriesPageContent({
       }
     } catch (error) {
       console.error('❌ Error rejecting invitation:', error);
+      setToast({ message: 'The invitation could not be denied. Please try again.', type: 'error' });
       // Still refresh to check if there were changes
       if (onRefreshMemories) {
         await onRefreshMemories();
       }
+    } finally {
+      setLoadingMemoryActions(prev => ({ ...prev, [key]: false }));
     }
   };
 
@@ -1637,8 +1655,10 @@ function MemoriesPageContent({
 
   // Update the cover (wallpaper) photo of the currently-open published-author page.
   // Shows an instant local preview, then persists via the published-wallpaper API.
-  const handleUpdatePublishedCover = (file: File | null | undefined) => {
-    if (!file || !file.type.startsWith('image/')) return;
+  const handleUpdatePublishedCover = async (picked: File | null | undefined) => {
+    if (!picked || !isImageFile(picked)) return;
+    const file = await toUploadableImage(picked, (m) => sonnerToast.error(m)); // HEIC → JPEG (Chris 19 Nov 2026)
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result as string;
@@ -1895,7 +1915,7 @@ function MemoriesPageContent({
           <input
             ref={publishedCoverInputRef}
             type="file"
-            accept="image/*"
+            accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               handleUpdatePublishedCover(e.target.files?.[0]);
@@ -3125,6 +3145,7 @@ function MemoriesPageContent({
                       const isSuggestedCategory = memoryCategoryName === 'Suggested';
                       const isSharedWithCategory = memory.isShared || memoryCategoryName === 'Shared With';
                       const isInvitesCategory = memoryCategoryName === 'Invites';
+                      if (isInvitesCategory && deniedInviteIds.has(String(memory.id))) return null;
 
                       if (isSuggestedCategory) {
                         console.log('📋 Memory with Suggested category:', {

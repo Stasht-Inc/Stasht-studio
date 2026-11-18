@@ -8,7 +8,8 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 const DOC_EXT = ['pdf', 'docx', 'csv', 'txt', 'md'];
 
-export const ACCEPT = [...IMAGE_EXT, ...DOC_EXT].map((e) => `.${e}`).join(',');
+// .heic/.heif are offered too: AlvinPanel turns them into JPEG before they're checked or sent (Chris 19 Nov 2026).
+export const ACCEPT = [...IMAGE_EXT, 'heic', 'heif', ...DOC_EXT].map((e) => `.${e}`).join(',');
 export const SUPPORTED = 'Alvin can read images (JPG, PNG, GIF, WebP), PDF, Word (.docx), CSV and text files.';
 
 const ext = (name: string) => (name.split('.').pop() || '').toLowerCase();

@@ -194,6 +194,10 @@ export default defineConfig(({ mode }) => {
           if (id.includes('node_modules/jszip')) {
             return 'vendor-jszip';
           }
+          // HEIC → JPEG decoder (~3 MB, utils/uploadFiles): its own chunk, loaded only when a HEIC photo is picked.
+          if (id.includes('node_modules/heic-to')) {
+            return 'vendor-heic';
+          }
           if (id.includes('node_modules')) {
             return 'vendor-misc';
           }

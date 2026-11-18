@@ -96,6 +96,7 @@ import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../com
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
 import { addSlotAfter, applyInsertPlace, collaboratorAddWidgetOptions, slotWidgetRanks, type InsertPlace, type SlotWidget } from "../utils/timelineAddSlots";
 import { categoryDisplayName } from "../utils/products";
+import { convertHeicToJpeg, coverVideoTooLongMessage, HEIC_CONVERT_FAILED, IMAGE_ACCEPT, isHeicFile, isImageFile, isVideoFile, MEDIA_ACCEPT, prepareImageForUpload, readVideoDuration, UploadFileError } from "../utils/uploadFiles";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -5750,29 +5751,56 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
-  // Helper function to get video duration
-  const getVideoDuration = (file: File): Promise<number> => {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
+  // The picked cover, ready to send (Chris 19 Nov 2026): a HEIC/HEIF photo becomes a JPEG; a video's length is checked
+  // when the browser can read it (an iPhone HEVC .mov often can't be read in Chrome — the web API checks it then).
+  // null = refused (the toast says why); nothing about the current cover has changed.
+  const prepareCoverFile = async (picked: File): Promise<{ file: File; isVideo: boolean } | null> => {
+    const isVideo = isVideoFile(picked);
+    if (!isVideo && !isImageFile(picked)) {
+      toast.error('Please select an image or video file');
+      return null;
+    }
+    if (!isVideo) {
+      if (picked.size > 10 * 1024 * 1024) {
+        toast.error('Image size must be less than 10MB');
+        return null;
+      }
+      if (!isHeicFile(picked)) return { file: picked, isVideo: false };
+      const preparing = toast.loading('Preparing photo...');
+      try {
+        return { file: await convertHeicToJpeg(picked), isVideo: false };
+      } catch (error) {
+        toast.error(error instanceof UploadFileError ? error.message : HEIC_CONVERT_FAILED);
+        return null;
+      } finally {
+        toast.dismiss(preparing);
+      }
+    }
+    const tooLong = coverVideoTooLongMessage(await readVideoDuration(picked));
+    if (tooLong) {
+      toast.error(tooLong);
+      return null;
+    }
+    return { file: picked, isVideo: true };
+  };
 
-      video.onloadedmetadata = () => {
-        window.URL.revokeObjectURL(video.src);
-        const duration = video.duration;
-        if (isNaN(duration) || !isFinite(duration)) {
-          reject(new Error('Invalid video duration'));
-        } else {
-          resolve(duration);
-        }
-      };
+  // A photo picked into a form (preview now, upload later): HEIC/HEIF → JPEG so the preview shows and the upload works.
+  const preparePickedImage = async (picked: File | null | undefined): Promise<File | null> => {
+    if (!picked) return null;
+    try {
+      return (await prepareImageForUpload(picked)) as File;
+    } catch (error) {
+      toast.error(error instanceof UploadFileError ? error.message : HEIC_CONVERT_FAILED);
+      return null;
+    }
+  };
 
-      video.onerror = () => {
-        window.URL.revokeObjectURL(video.src);
-        reject(new Error('Failed to load video'));
-      };
-
-      video.src = URL.createObjectURL(file);
-    });
+  // What a refused cover upload says: the web API's own message (e.g. "too long"), else by status.
+  const coverUploadFailureMessage = (status: number, body: any, isVideo: boolean): string => {
+    const fromServer = body?.message || body?.error;
+    if (typeof fromServer === 'string' && fromServer.trim()) return fromServer;
+    if (status === 413) return isVideo ? 'This video is too large to upload.' : 'This photo is too large to upload.';
+    return isVideo ? 'Failed to update cover video' : 'Failed to update cover photo';
   };
 
   const handleUploadFromDesktop = () => {
@@ -5783,13 +5811,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     // Use explicit extensions on mobile to bypass iOS/Android native action sheet
-    fileInput.accept = isMobile ? MOBILE_ALL_EXTENSIONS : 'image/*,video/*';
+    fileInput.accept = isMobile ? MOBILE_ALL_EXTENSIONS : MEDIA_ACCEPT;
     fileInput.style.display = 'none';
 
     fileInput.onchange = async (e: Event) => {
       console.log('📁 File input changed');
       const target = e.target as HTMLInputElement;
-      const file = target.files?.[0];
+      let file = target.files?.[0];
 
       if (!file) {
         console.log('❌ No file selected');
@@ -5798,42 +5826,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       console.log('✅ File selected:', file.name, file.size, file.type);
 
-      const isImage = file.type.startsWith('image/');
-      const isVideo = file.type.startsWith('video/');
-
-      // Validate file type
-      if (!isImage && !isVideo) {
-        toast.error('Please select an image or video file');
-        return;
-      }
-
-      // Validate file size based on type
-      if (isImage) {
-        const maxImageSize = 10 * 1024 * 1024; // 10MB for images
-        if (file.size > maxImageSize) {
-          toast.error('Image size must be less than 10MB');
-          return;
-        }
-      } else if (isVideo) {
-        
-
-        // Validate video duration (must be <= 2 minutes)
-        try {
-          const duration = await getVideoDuration(file);
-          console.log('🎬 Video duration:', duration, 'seconds');
-
-          if (duration > 120) {
-            const minutes = Math.floor(duration / 60);
-            const seconds = Math.floor(duration % 60);
-            toast.error(`Video is too long (${minutes}m ${seconds}s). Maximum duration is 2 minutes.`);
-            return;
-          }
-        } catch (error) {
-          console.error('❌ Error checking video duration:', error);
-          toast.error('Unable to validate video duration. Please try again.');
-          return;
-        }
-      }
+      // HEIC → JPEG, .mov length check that never blocks on an unreadable length (Chris 19 Nov 2026).
+      const prepared = await prepareCoverFile(file);
+      if (!prepared) return;
+      const { isVideo } = prepared;
+      file = prepared.file;
 
       try {
         console.log('🚀 Starting cover photo upload...');
@@ -5917,7 +5914,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             try {
               resolve({ status: xhr.status, body: JSON.parse(xhr.responseText) });
             } catch {
-              reject(new Error('Invalid JSON response'));
+              resolve({ status: xhr.status, body: null });
             }
           };
 
@@ -5935,11 +5932,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           toast.dismiss();
           toast.success(isVideo ? 'Cover video updated successfully!' : 'Cover photo updated successfully!');
           console.log('🔄 Refreshing memory details...');
+          clearApiCache(); // the upload went by XHR, not apiRequest: drop the cached campaign so the new cover shows now
           await fetchMemoryDetails(true);
           if (onRefresh) await onRefresh();
         } else {
           toast.dismiss();
-          toast.error(data.body?.message || data.body?.error || (isVideo ? 'Failed to update cover video' : 'Failed to update cover photo'));
+          toast.error(coverUploadFailureMessage(data.status, data.body, isVideo));
         }
       } catch (error) {
         console.error('❌ Error uploading cover:', error);
@@ -5995,35 +5993,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
     console.log('✅ Cover file selected:', file.name, file.size, file.type);
 
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/');
-
-    if (!isImage && !isVideo) {
-      toast.error('Please select an image or video file');
-      return;
-    }
-
-    if (isImage) {
-      const maxImageSize = 10 * 1024 * 1024;
-      if (file.size > maxImageSize) {
-        toast.error('Image size must be less than 10MB');
-        return;
-      }
-    } else if (isVideo) {
-      try {
-        const duration = await getVideoDuration(file);
-        if (duration > 120) {
-          const minutes = Math.floor(duration / 60);
-          const seconds = Math.floor(duration % 60);
-          toast.error(`Video is too long (${minutes}m ${seconds}s). Maximum duration is 2 minutes.`);
-          return;
-        }
-      } catch (error) {
-        console.error('❌ Error checking video duration:', error);
-        toast.error('Unable to validate video duration. Please try again.');
-        return;
-      }
-    }
+    const prepared = await prepareCoverFile(file);
+    if (!prepared) return;
+    const { isVideo, file: coverFile } = prepared;
 
     try {
       setCoverUploadType(isVideo ? 'video' : 'photo');
@@ -6033,7 +6005,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       const formData = new FormData();
       formData.append('_method', 'PUT');
-      formData.append('last_update_img', file);
+      formData.append('last_update_img', coverFile);
 
       const token = tokenUtils.getToken();
       const getApiBaseUrl = () => {
@@ -6082,7 +6054,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           try {
             resolve({ status: xhr.status, body: JSON.parse(xhr.responseText) });
           } catch {
-            reject(new Error('Invalid JSON response'));
+            resolve({ status: xhr.status, body: null });
           }
         };
         xhr.onerror = () => { clearInterval_(); reject(new Error('Network error')); };
@@ -6095,11 +6067,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (data.status >= 200 && data.status < 300 && data.body?.success) {
         toast.dismiss();
         toast.success(isVideo ? 'Cover video updated successfully!' : 'Cover photo updated successfully!');
+        clearApiCache();
         await fetchMemoryDetails(true);
         if (onRefresh) await onRefresh();
       } else {
         toast.dismiss();
-        toast.error(data.body?.message || data.body?.error || (isVideo ? 'Failed to update cover video' : 'Failed to update cover photo'));
+        toast.error(coverUploadFailureMessage(data.status, data.body, isVideo));
       }
     } catch (error) {
       console.error('❌ Error uploading cover:', error);
@@ -6174,6 +6147,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         setIsCoverPhotoSelectionMode(false);
 
         console.log('🔄 Refreshing memory details...');
+        clearApiCache();
         await fetchMemoryDetails(true);
 
         // Refresh memories list on parent page
@@ -6232,13 +6206,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const handleSidebarUpdatePostImage = (postId: string) => {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/*';
+    fileInput.accept = IMAGE_ACCEPT;
     fileInput.style.display = 'none';
     fileInput.onchange = async () => {
       const file = fileInput.files?.[0];
       fileInput.remove();
       if (!file) return;
-      if (!file.type.startsWith('image/')) {
+      if (!isImageFile(file)) {
         toast.error('Please select an image file');
         return;
       }
@@ -8629,10 +8603,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <label className="mt-1.5 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:border-[#6C60FF]/50 hover:bg-[#6C60FF]/5 transition-colors cursor-pointer">
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_ACCEPT}
                       className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
+                      onChange={async (e) => {
+                        const file = await preparePickedImage(e.target.files?.[0]);
                         if (!file) return;
                         const url = URL.createObjectURL(file);
                         setAiCreatorReferenceImage(file);
@@ -9944,7 +9918,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         <input
           ref={mediaLibraryInputRef}
           type="file"
-          accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+          accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
           className="hidden"
           onChange={handleMediaLibrarySelection}
         />
@@ -10759,10 +10733,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 )}
                 <input
                   type="file"
-                  accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+                  accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
                   className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
+                  onChange={async (e) => {
+                    const file = await preparePickedImage(e.target.files?.[0]);
                     if (file) {
                       setAddPersonPhoto(file);
                       setAddPersonPhotoPreview(URL.createObjectURL(file));
@@ -16613,10 +16587,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       <input
                         id="person-thumb-input"
                         type="file"
-                        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+                        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
                         className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
+                        onChange={async (e) => {
+                          const input = e.target;
+                          const file = await preparePickedImage(input.files?.[0]);
                           if (file) {
                             const url = URL.createObjectURL(file);
                             setCropImageSrc(url);
@@ -16624,7 +16599,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             setCropZoom(1);
                             setCroppedAreaPixels(null);
                           }
-                          e.target.value = '';
+                          input.value = '';
                         }}
                       />
                     </div>
@@ -17363,7 +17338,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       <input
         ref={mediaLibraryInputRef}
         type="file"
-        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
         className="hidden"
         onChange={handleMediaLibrarySelection}
       />

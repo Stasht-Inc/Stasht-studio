@@ -8,13 +8,15 @@ import { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductMediaItem } from '../../services/productsAPI';
 import { acceptPickedMedia, moveItem } from '../../utils/products';
+import { HEIC_CONVERT_FAILED, prepareImageForUpload } from '../../utils/uploadFiles';
 import { BUTTON_SECONDARY } from '../newsletters/lib/ui';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 
 /** A photo or video picked on a new product, not uploaded yet. `url` is an object URL (the editor revokes it). */
 export interface PendingMedia { key: string; file: File; url: string; type: 'photo' | 'video' }
 
-const ACCEPT = 'image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm';
+// HEIC/HEIF (iPhone / Mac Photos) are offered too and go up as JPEG (Chris 19 Nov 2026).
+const ACCEPT = 'image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif,video/mp4,video/quicktime,.mov,video/webm';
 let pendingSeq = 0;
 
 /** onChange: every answer (the product's new detail). onSettled: once per finished action (an upload batch, a reorder,
@@ -34,14 +36,20 @@ export default function ProductMediaField({ productId, media, disabled, onChange
   if (local && !onPendingChange) return <p className="text-sm text-gray-500">Save the product to add photos and a video.</p>;
 
   const upload = async (files: FileList | null) => {
-    const list = files ? Array.from(files) : [];
+    const picked = files ? Array.from(files) : [];
     if (input.current) input.current.value = '';
-    if (!list.length) return;
+    if (!picked.length) return;
     setErrors([]);
+    const list: File[] = [];
+    const unreadable: string[] = [];
+    for (const file of picked) {
+      try { list.push((await prepareImageForUpload(file)) as File); } catch { unreadable.push(`${file.name}: ${HEIC_CONVERT_FAILED}`); }
+    }
+    if (!list.length) { setErrors(unreadable); return; }
     if (local) {
       const { accepted, errors: refused } = acceptPickedMedia({ photos: pending.filter((m) => m.type === 'photo').length, videos: pending.filter((m) => m.type === 'video').length }, list);
       if (accepted.length) onPendingChange?.([...pending, ...accepted.map(({ file, type }) => ({ key: `pending-${++pendingSeq}`, file, type, url: URL.createObjectURL(file) }))]);
-      setErrors(refused);
+      setErrors([...unreadable, ...refused]);
       return;
     }
     setUploading(list.length);
@@ -52,7 +60,7 @@ export default function ProductMediaField({ productId, media, disabled, onChange
       if (r.ok && r.data) { onChange(r.data); saved += 1; } else failed.push(`${file.name}: ${r.error || 'The file could not be uploaded. Please try again.'}`);
       setUploading((n) => n - 1);
     }
-    setErrors(failed);
+    setErrors([...unreadable, ...failed]);
     if (saved) onSettled?.();
   };
   const locked = busy || uploading > 0 || uploadingPending > 0; // one change at a time: no reorder or removal while files upload

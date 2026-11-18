@@ -5,6 +5,7 @@ import AlvinMessageText from './AlvinMessageText';
 import AlvinActionCard from './AlvinActionCard';
 import { refreshAlvinStatus, type AlvinSetupStep } from './useAlvinEnabled';
 import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile, shrinkImage } from './alvinFiles';
+import { HEIC_CONVERT_FAILED, prepareImagesForUpload } from '../../utils/uploadFiles';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
 // The user bubble, typing dots and error notes are not in the Figma frame; they follow Chris's
@@ -240,6 +241,14 @@ export default function AlvinPanel({
     async (raw: string, files: File[] = [], fromOutside = false) => {
       const text = raw.trim();
       if ((!text && files.length === 0) || sending) return;
+      if (files.length) {
+        try {
+          files = await prepareImagesForUpload(files);
+        } catch {
+          note(HEIC_CONVERT_FAILED);
+          return;
+        }
+      }
       const problem = files.length ? fileProblem(files) : null;
       if (problem) {
         note(problem);
@@ -302,7 +311,15 @@ export default function AlvinPanel({
     }
   }, [open, loaded, ask, sending, send, onAsked]);
 
-  const addFiles = (files: File[]) => {
+  const addFiles = async (picked: File[]) => {
+    // An iPhone / Mac HEIC photo is sent as a JPEG (Chris 19 Nov 2026).
+    let files: File[];
+    try {
+      files = await prepareImagesForUpload(picked);
+    } catch {
+      note(HEIC_CONVERT_FAILED);
+      return;
+    }
     const problem = fileProblem(files, pending.length);
     if (problem) {
       note(problem);
