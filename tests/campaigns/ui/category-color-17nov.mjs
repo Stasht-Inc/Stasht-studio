@@ -1,5 +1,5 @@
 // Chris 17 Nov 2026: "We need to offer a color selector next to pencil icon on hover … 5 or 6 colors."
-// Mocked API, 1280: Personal and Travel (own categories, the web API sends custom_color) get a palette button next to
+// Mocked API, 1280: Personal (shown as "Campaigns" since Chris 18 Nov) and Travel (own categories, the web API sends custom_color) get a palette button next to
 // the pencil; a category without custom_color (an older web API) gets none. Picking a colour posts it once, recolours
 // the card at once, survives a reload (the web API now answers with it), and a failed save puts the old colour back.
 // node tests/campaigns/ui/category-color-17nov.mjs   (dev server: CC_BASE, default http://localhost:5402; CC_SHOTS = screenshot dir)
@@ -73,28 +73,28 @@ try {
   await page.getByText('Travel', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 180000 });
   await page.waitForTimeout(800);
 
-  const personalBtn = page.getByRole('button', { name: 'Colour of Personal' });
+  const personalBtn = page.getByRole('button', { name: 'Colour of Campaigns' });
   const travelBtn = page.getByRole('button', { name: 'Colour of Travel' });
   expect(await personalBtn.count() === 1, 'Personal has a colour button');
   expect(await travelBtn.count() === 1, 'Travel has a colour button');
   expect(await page.getByRole('button', { name: 'Colour of Old Web' }).count() === 0, 'no colour button without custom_color');
   expect(await personalBtn.evaluate((el) => getComputedStyle(el).opacity) === '0', 'hidden until hover');
-  await card('Personal').hover();
+  await card('Campaigns').hover();
   await page.waitForTimeout(250);
   expect(await personalBtn.evaluate((el) => getComputedStyle(el).opacity) === '1', 'shows on hover');
 
-  const before = await cardBg('Personal');
+  const before = await cardBg('Campaigns');
   await personalBtn.click();
   const picker = page.getByTestId('category-color-picker');
   await picker.waitFor({ state: 'visible' });
   const swatches = picker.getByRole('radio');
   expect(await swatches.count() === 6, `six colours (${await swatches.count()})`);
-  await card('Personal').hover();
+  await card('Campaigns').hover();
   await shot('cc17-1-picker');
   await picker.getByRole('radio', { name: 'Red' }).click();
   await page.waitForTimeout(600);
   expect(state.posts.length === 1 && state.posts[0].id === 1 && state.posts[0].color === '#EF4444', `one POST with Red for Personal (${JSON.stringify(state.posts)})`);
-  const after = await cardBg('Personal');
+  const after = await cardBg('Campaigns');
   expect(after !== before && /239, 68, 68/.test(after), `Personal card turns red (${before} → ${after})`);
   expect(await picker.count() === 0 || !(await picker.isVisible()), 'picker closes after a pick');
   await shot('cc17-2-red');
@@ -103,7 +103,7 @@ try {
   await page.reload();
   await page.getByText('Travel', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible' });
   await page.waitForTimeout(800);
-  expect(/239, 68, 68/.test(await cardBg('Personal')), 'still red after a reload');
+  expect(/239, 68, 68/.test(await cardBg('Campaigns')), 'still red after a reload');
 
   // A failed save puts the old colour back.
   await page.mouse.move(1200, 880);
