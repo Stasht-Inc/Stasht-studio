@@ -54,19 +54,22 @@ test('a HEIC is converted to a JPEG File (type image/jpeg, .jpg name, quality 0.
   }
 });
 
-test('non-HEIC files (JPEG, PNG, video) and empty values pass through untouched — no converter call', async () => {
+test('non-HEIC files (JPEG, PNG, video) and empty values are not converted — no converter call (photos are copied into memory, 19 Nov Mac Photos fix)', async () => {
   let called = 0;
   setHeicConverterForTests(async () => { called++; return new Blob([1]); });
   try {
     const jpg = file('a.jpg', 'image/jpeg');
     const mov = file('a.mov', 'video/quicktime');
-    assert.equal(await prepareImageForUpload(jpg), jpg);
+    const jpgOut = await prepareImageForUpload(jpg);
+    assert.equal(jpgOut.name, jpg.name);
+    assert.equal(jpgOut.type, jpg.type);
+    assert.deepEqual([...new Uint8Array(await jpgOut.arrayBuffer())], [...new Uint8Array(await jpg.arrayBuffer())]);
     assert.equal(await prepareImageForUpload(mov), mov);
     assert.equal(await prepareImageForUpload(null), null);
     assert.equal(await prepareImageForUpload(undefined), undefined);
     const list = await prepareImagesForUpload([jpg, file('b.heic', 'image/heic'), mov]);
     assert.equal(list.length, 3);
-    assert.equal(list[0], jpg);
+    assert.equal(list[0].name, jpg.name);
     assert.equal(list[1].name, 'b.jpg');
     assert.equal(list[2], mov);
     assert.equal(called, 1);

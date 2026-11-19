@@ -98,7 +98,7 @@ import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../com
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
 import { addSlotAfter, applyInsertPlace, collaboratorAddWidgetOptions, slotWidgetRanks, type InsertPlace, type SlotWidget } from "../utils/timelineAddSlots";
 import { categoryDisplayName } from "../utils/products";
-import { convertHeicToJpeg, coverVideoTooLongMessage, HEIC_CONVERT_FAILED, IMAGE_ACCEPT, isHeicFile, isImageFile, isVideoFile, MEDIA_ACCEPT, prepareImageForUpload, readVideoDuration, UploadFileError } from "../utils/uploadFiles";
+import { canUseHandlePicker, convertHeicToJpeg, coverVideoTooLongMessage, ensureInMemory, HEIC_CONVERT_FAILED, IMAGE_ACCEPT, isHeicFile, isImageFile, isVideoFile, MEDIA_ACCEPT, PHOTO_READ_FAILED, pickFiles, prepareImageForUpload, readVideoDuration, UploadFileError } from "../utils/uploadFiles";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -5778,7 +5778,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // The picked cover, ready to send (Chris 19 Nov 2026): a HEIC/HEIF photo becomes a JPEG; a video's length is checked
   // when the browser can read it (an iPhone HEVC .mov often can't be read in Chrome — the web API checks it then).
   // null = refused (the toast says why); nothing about the current cover has changed.
-  const prepareCoverFile = async (picked: File): Promise<{ file: File; isVideo: boolean } | null> => {
+  const prepareCoverFile = async (pickedFile: File): Promise<{ file: File; isVideo: boolean } | null> => {
+    // Read into memory now: a Mac Photos pick can change after the pick and Chrome then won't send it.
+    let picked: File;
+    try {
+      picked = await ensureInMemory(pickedFile);
+    } catch (error) {
+      toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED);
+      return null;
+    }
     const isVideo = isVideoFile(picked);
     if (!isVideo && !isImageFile(picked)) {
       toast.error('Please select an image or video file');
@@ -5831,6 +5839,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     console.log('🖼️ Upload from Desktop clicked');
     setIsCoverPhotoMenuOpen(false);
 
+    // Chrome / Edge on a computer: the file window whose picks can be re-read, each read into memory at once — a photo
+    // picked from Mac Photos is written by macOS at that moment and Chrome refused to send it (Chris 19 Nov 2026).
+    if (!isMobile && canUseHandlePicker()) {
+      pickFiles({ kind: 'media' })
+        .then((files) => { if (files[0]) void uploadCoverFile(files[0]); })
+        .catch((error) => toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED));
+      return;
+    }
+
     // Create a hidden file input element
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
@@ -5841,7 +5858,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     fileInput.onchange = async (e: Event) => {
       console.log('📁 File input changed');
       const target = e.target as HTMLInputElement;
-      let file = target.files?.[0];
+      void uploadCoverFile(target.files?.[0]);
+    };
+
+    // Append to body temporarily to ensure it works
+    document.body.appendChild(fileInput);
+    fileInput.click();
+    setTimeout(() => {
+      if (fileInput.parentNode) fileInput.parentNode.removeChild(fileInput);
+    }, 1000);
+  };
+
+  // Edit Cover → Upload from Desktop: check / convert the pick, then send it as the cover.
+  const uploadCoverFile = async (picked: File | undefined) => {
+    {
+      let file = picked;
 
       if (!file) {
         console.log('❌ No file selected');
@@ -5971,19 +6002,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         setIsCoverUploading(false);
         setCoverUploadProgress(0);
       }
-    };
-
-    // Append to body temporarily to ensure it works
-    document.body.appendChild(fileInput);
-
-    // Trigger file selection
-    console.log('🖱️ Triggering file input click...');
-    fileInput.click();
-
-    // Remove from body after a short delay
-    setTimeout(() => {
-      document.body.removeChild(fileInput);
-    }, 1000);
+    }
   };
 
   // Mobile-friendly file extensions that bypass iOS "Photo Library / Take Photo / Choose File" action sheet
