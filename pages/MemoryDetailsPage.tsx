@@ -1079,11 +1079,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (!res.success) {
         toast.error(res.message || 'Failed to reorder');
         setCombinedTimeline(prevOrder);
+      } else {
+        // A reorder is an edit: the campaign is "recent" on the Dashboard again (Chris, 19 Nov 2026, point 18).
+        dashboardAPI.markMemoryVisited(String(memoryId)).catch(() => {});
       }
     } catch {
       toast.error('Failed to reorder');
       setCombinedTimeline(prevOrder);
     }
+  }, [memoryId]);
+  // Opening the campaign page makes it the most recent in the Dashboard's Latest Campaigns ("Last Visited": now) —
+  // Chris, 19 Nov 2026, point 18. Best effort; the API only moves the owner's own campaign.
+  useEffect(() => {
+    if (!memoryId) return;
+    dashboardAPI.markMemoryVisited(String(memoryId)).catch(() => {});
   }, [memoryId]);
   const [isHeaderImageScrolled, setIsHeaderImageScrolled] = useState(false);
   const memoryCardRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -1552,6 +1561,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [isCoverPhotoSelectionMode, setIsCoverPhotoSelectionMode] = useState(false);
   const [isAddMomentSelectionMode, setIsAddMomentSelectionMode] = useState(false);
   const [selectedMediaLibraryImagesForMoment, setSelectedMediaLibraryImagesForMoment] = useState<any[]>([]);
+  // The full-screen viewer's own Add a Moment (Chris, 19 Nov 2026, point 17) uses the same library picker; its picks
+  // go only to that modal (the page's closed Add a Moment would otherwise take them too).
+  const [viewerLibraryImages, setViewerLibraryImages] = useState<any[]>([]);
+  const libraryForViewerRef = useRef(false);
 
   // Delete progress state
   const [isDeletingItems, setIsDeletingItems] = useState(false);
@@ -9857,6 +9870,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             console.log('🔍 Current userRole:', currentUserRole);
             console.log('🔍 Setting isAddMomentSelectionMode: true');
             console.log('🔍 Setting isMediaLibraryOpen: true');
+            libraryForViewerRef.current = false;
             setIsAddMomentSelectionMode(true);
             setIsMediaLibraryOpen(true);
             console.log('🔍 States updated');
@@ -10188,6 +10202,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           onCommentCountChange={handleCommentCountChange}
           activeCollaborators={apiCollaborators.filter(c => c.status === 'active')}
           onDeleteSubImage={isInventoryDetail ? undefined : handleDeleteSubImage}
+          onOpenMediaLibrary={() => {
+            libraryForViewerRef.current = true;
+            setIsAddMomentSelectionMode(true);
+            setIsMediaLibraryOpen(true);
+          }}
+          selectedMediaLibraryImages={viewerLibraryImages}
+          onClearMediaLibraryImages={() => setViewerLibraryImages([])}
+          mediaLibraryOpen={isMediaLibraryOpen}
+          onCloseMediaLibrary={() => {
+            setIsMediaLibraryOpen(false);
+            setIsAddMomentSelectionMode(false);
+            setMediaLibrarySelectedItems([]);
+          }}
         />
 
         {/* Media Library Modal */}
@@ -10420,7 +10447,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       );
                       console.log('Passing moments to AddMomentModal:', selectedImages);
 
-                      setSelectedMediaLibraryImagesForMoment(selectedImages);
+                      if (libraryForViewerRef.current) setViewerLibraryImages(selectedImages);
+                      else setSelectedMediaLibraryImagesForMoment(selectedImages);
 
                       setIsMediaLibraryOpen(false);
                       setMediaLibrarySelectedItems([]);
@@ -17299,6 +17327,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           console.log('🔍 Current userRole:', currentUserRole);
           console.log('🔍 Setting isAddMomentSelectionMode: true');
           console.log('🔍 Setting isMediaLibraryOpen: true');
+          libraryForViewerRef.current = false;
           setIsAddMomentSelectionMode(true);
           setIsMediaLibraryOpen(true);
           console.log('🔍 States updated');
@@ -18385,6 +18414,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         onCommentCountChange={handleCommentCountChange}
         activeCollaborators={apiCollaborators.filter(c => c.status === 'active')}
         onDeleteSubImage={isInventoryDetail ? undefined : handleDeleteSubImage}
+        onOpenMediaLibrary={() => {
+          libraryForViewerRef.current = true;
+          setIsAddMomentSelectionMode(true);
+          setIsMediaLibraryOpen(true);
+        }}
+        selectedMediaLibraryImages={viewerLibraryImages}
+        onClearMediaLibraryImages={() => setViewerLibraryImages([])}
+        mediaLibraryOpen={isMediaLibraryOpen}
+        onCloseMediaLibrary={() => {
+          setIsMediaLibraryOpen(false);
+          setIsAddMomentSelectionMode(false);
+          setMediaLibrarySelectedItems([]);
+        }}
       />
 
       {/* Media Library Modal */}
@@ -18622,7 +18664,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     console.log('Passing moments to AddMomentModal:', selectedImages);
 
                     // Pass selected images to AddMomentModal
-                    setSelectedMediaLibraryImagesForMoment(selectedImages);
+                    if (libraryForViewerRef.current) setViewerLibraryImages(selectedImages);
+                    else setSelectedMediaLibraryImagesForMoment(selectedImages);
 
                     // Close media library modal
                     setIsMediaLibraryOpen(false);

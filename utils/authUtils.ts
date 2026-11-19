@@ -2317,6 +2317,12 @@ export const dashboardAPI = {
     });
   },
 
+  // The campaign page opened (Chris, 19 Nov 2026, point 18): the owner's campaign comes first in the Dashboard's
+  // Latest Campaigns ("Last Visited" now). Best effort: an older API without the route just answers 404.
+  markMemoryVisited: async (memoryId: string | number): Promise<ApiResponse<any>> => {
+    return await apiRequest(`/memories/${memoryId}/visit`, { method: 'POST' });
+  },
+
   // Update memory by ID
   updateMemory: async (memoryId: string, memoryData: any): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.updateMemory: Updating memory ID ${memoryId}`);

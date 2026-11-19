@@ -8,6 +8,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import MemoryActionMenu from "../components/MemoryActionMenu";
+import { compareLastVisited, lastVisitedTime } from "../utils/latestCampaigns";
 
 interface Memory {
   id: string;
@@ -19,6 +20,8 @@ interface Memory {
   startDate: string;
   endDate: string;
   lastVisited: string;
+  /** The time "Last Visited" shows (ms), for sorting that column (Chris, 19 Nov 2026, point 18). */
+  lastVisitedAt?: number;
   isSelected: boolean;
 }
 
@@ -108,7 +111,8 @@ export default function Frame189({ onNavigate, onMemorySelect }: Frame189Props) 
   console.log('Frame189 render - first memory:', memories[0]);
 
   const sortedMemories = [...memories].sort((a, b) => {
-    if (!sortConfig.key) return 0;
+    if (!sortConfig.key) return 0; // the API's order: most recently opened or edited first
+    if (sortConfig.key === 'lastVisited') return compareLastVisited(a, b, sortConfig.direction);
     
     const aValue = a[sortConfig.key];
     const bValue = b[sortConfig.key];
@@ -252,6 +256,7 @@ export default function Frame189({ onNavigate, onMemorySelect }: Frame189Props) 
               startDate: mem.dates?.start_date || 'Aug 11/25', 
               endDate: mem.dates?.end_date || '',     
               lastVisited: mem.last_updated || 'Never',
+              lastVisitedAt: lastVisitedTime(mem),
               isSelected: false
             };
             
