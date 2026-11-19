@@ -49,4 +49,8 @@ export const campaignMomentsAPI = {
 
   setOrder: (memoryId: string | number, order: OrderRef[]) =>
     run(apiRequest(`${path(memoryId)}/moment-order`, send('PUT', { order })), "The new order couldn't be saved. Try again."),
+
+  /** The Media panel's drag (Chris, 19 Nov 2026): one moment right before / after another (same endpoint). */
+  placeMoment: (memoryId: string | number, item: OrderRef, where: 'before' | 'after', anchor: OrderRef) =>
+    run<{ order: OrderRef[] }>(apiRequest(`${path(memoryId)}/moment-order`, send('PUT', { item, [where]: anchor })), "The new order couldn't be saved. Try again."),
 };

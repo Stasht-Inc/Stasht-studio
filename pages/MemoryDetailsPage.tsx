@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Helmet } from 'react-helmet-async';
-import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Grid2x2, Grid3x3, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, ListOrdered, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Grid2x2, Grid3x3, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useProperty } from "../contexts/PropertyContext";
 import WeeklyEngCard from "../imports/WeeklyEngCard";
@@ -14,7 +14,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
 import { campaignCover } from "../utils/campaignCover";
-import { formatStoredSize, momentInsertAtStart, readMediaColumns, saveMediaColumns, type MediaColumns } from "../utils/campaignMoments";
+import { formatStoredSize, momentInsertAtStart, readMediaColumns, saveMediaColumns, type MediaColumns, mediaInTimelineOrder, nextMediaSort, planMediaDrop, type MediaSortBy } from "../utils/campaignMoments";
+import { campaignMomentsAPI } from "../services/campaignMomentsAPI";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
@@ -2624,8 +2625,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   }, [shouldOpenImageModal, imageId, apiMemoryData, setShouldOpenImageModal]);
 
   // Media section state
-  const [mediaSortBy, setMediaSortBy] = useState("date");
-  const [mediaSortOrder, setMediaSortOrder] = useState<'asc' | 'desc'>('desc');
+  // The Media panel opens in the campaign's own order (Chris, 19 Nov 2026: he organises the campaign by dragging photos
+  // there, so the panel must show — and keep after a reload — the order the timeline has). Date / Name / Size stay.
+  const [mediaSortBy, setMediaSortBy] = useState<string>("order");
+  const [mediaSortOrder, setMediaSortOrder] = useState<'asc' | 'desc'>('asc');
   const [mediaSearchQuery, setMediaSearchQuery] = useState("");
   const [isMediaSelectAll, setIsMediaSelectAll] = useState(false);
   const [selectedSidebarMediaIds, setSelectedSidebarMediaIds] = useState<Set<string>>(new Set());
@@ -5068,6 +5071,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Sort media items
   const sortMediaItems = (items: any[], sortBy: string, order: 'asc' | 'desc') => {
+    if (sortBy === 'order') {
+      const inOrder = mediaInTimelineOrder(items, combinedTimeline);
+      return order === 'desc' ? inOrder.reverse() : inOrder;
+    }
     return [...items].sort((a, b) => {
       // Featured images always come first
       const aIsFeatured = a.is_featured === 1 || a.is_featured === true;
@@ -6871,29 +6878,67 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     setDragOverMediaId(null);
   };
 
-  const handleMediaDrop = (e: React.DragEvent<HTMLDivElement>, targetId: string) => {
-    e.preventDefault();
-    setDragOverMediaId(null);
-    if (!draggedMediaId || draggedMediaId === targetId) return;
-
+  // Dropping a photo (Chris, 19 Nov 2026): a moment's photo moves that MOMENT in the campaign — saved, and the timeline
+  // follows at once (utils/campaignMoments planMediaDrop). A photo inside a moment only shuffles among its moment's photos
+  // on screen (sub-photos have no stored order). Car / catalogue / suggested pages have no campaign order: on screen only.
+  const reorderMediaLocally = (draggedId: string, targetId: string) => {
     const currentOrder = mediaCustomOrder.length > 0
       ? [...mediaCustomOrder]
       : displayMediaItems.map(item => item.id);
 
-    const sourceIdx = currentOrder.indexOf(draggedMediaId);
+    const sourceIdx = currentOrder.indexOf(draggedId);
     const targetIdx = currentOrder.indexOf(targetId);
     if (sourceIdx === -1 || targetIdx === -1) return;
 
     currentOrder.splice(sourceIdx, 1);
-    currentOrder.splice(targetIdx, 0, draggedMediaId);
+    currentOrder.splice(targetIdx, 0, draggedId);
     setMediaCustomOrder(currentOrder);
+    return currentOrder;
+  };
 
-    // Sync timeline/cards order: filter out sub-images (only parent posts appear on timeline)
-    const parentOnlyOrder = currentOrder.filter(id => {
-      const post = memoryPosts.find(p => p.id === id);
-      return post && !post.parent_id;
-    });
-    setCustomPostOrder(parentOnlyOrder);
+  const handleMediaDrop = async (e: React.DragEvent<HTMLDivElement>, targetId: string) => {
+    e.preventDefault();
+    setDragOverMediaId(null);
+    const draggedId = draggedMediaId;
+    if (!draggedId || draggedId === targetId) return;
+
+    const campaignId = apiMemoryData?.id ?? memoryId;
+    const canSave = !!campaignId && !isCarDetail && !isSuggestedCategory && !isInventoryDetail && !isCatalogItemDetail;
+    const plan = canSave
+      ? planMediaDrop(displayMediaItems, combinedTimeline, draggedId, targetId, mediaSortBy === 'order' && mediaSortOrder === 'desc')
+      : { kind: 'local' as const };
+
+    if (plan.kind === 'none') {
+      if (plan.reason === 'other-moment') toast.info('To move a photo to another moment, use Edit → Choose a Moment.');
+      return;
+    }
+    if (plan.kind === 'local') {
+      const currentOrder = reorderMediaLocally(draggedId, targetId);
+      if (!canSave && currentOrder) {
+        // Sync timeline/cards order: filter out sub-images (only parent posts appear on timeline)
+        setCustomPostOrder(currentOrder.filter(id => {
+          const post = memoryPosts.find(p => p.id === id);
+          return post && !post.parent_id;
+        }));
+      }
+      return;
+    }
+
+    // Save it. The timeline and the panel (campaign order) show the new place right away; a date / name / size view
+    // switches to the campaign order so the move is visible.
+    const before = combinedTimeline;
+    setCombinedTimeline(plan.order);
+    setMediaCustomOrder([]);
+    if (mediaSortBy !== 'order') { setMediaSortBy('order'); setMediaSortOrder('asc'); }
+    const ref = (r: { type: 'post' | 'linked'; id: string }) => ({ type: r.type === 'linked' ? 'linked_memory' as const : 'post' as const, id: Number(r.id) });
+    const res = await campaignMomentsAPI.placeMoment(String(campaignId), ref(plan.item), plan.where, ref(plan.anchor));
+    if (!res.ok) {
+      setCombinedTimeline(before);
+      toast.error(res.error || "The new order couldn't be saved. Try again.");
+      return;
+    }
+    // In place (no "Loading campaign…"); the write already cleared the GET cache, so this reads the saved order.
+    fetchMemoryDetails(true);
   };
 
   const handleMediaDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
@@ -13974,6 +14019,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
+                              <SelectItem value="order">Order</SelectItem>
                               <SelectItem value="date">Date</SelectItem>
                               <SelectItem value="name">Name</SelectItem>
                               <SelectItem value="size">Size</SelectItem>
@@ -16060,13 +16106,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg bg-white text-base focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
                 />
               </div>
+              {/* Campaign order (what dragging changes) → newest first → oldest first (Chris, 19 Nov 2026). */}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setMediaSortOrder(mediaSortOrder === 'asc' ? 'desc' : 'asc')}
+                data-testid="media-sort-toggle"
+                data-sort={mediaSortBy === 'order' ? `order-${mediaSortOrder}` : `${mediaSortBy}-${mediaSortOrder}`}
+                aria-label={mediaSortBy === 'order' ? 'Campaign order' : mediaSortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+                title={mediaSortBy === 'order' ? 'Campaign order' : mediaSortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+                onClick={() => { const next = nextMediaSort(mediaSortBy as MediaSortBy, mediaSortOrder); setMediaSortBy(next.by); setMediaSortOrder(next.dir); }}
                 className="h-9 w-9 p-0 border-gray-200 flex-shrink-0"
               >
-                {mediaSortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
+                {mediaSortBy === 'order' ? <ListOrdered className="w-4 h-4" /> : mediaSortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
               </Button>
               {/* 2 or 3 photos across (Chris, 19 Nov 2026, point 12): smaller thumbnails, easier to drag in order. */}
               <Button
