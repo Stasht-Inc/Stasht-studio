@@ -76,3 +76,19 @@ test('pickFiles with the re-readable picker: in-memory copies, re-read when the 
   cancel.self = cancel; cancel.top = cancel;
   assert.deepEqual(await pickFiles({ kind: 'image', win: cancel }), []);
 });
+
+test('installed Studio app (its own window) never uses the re-readable picker (Deepak 19 Nov: NotReadableError there)', async () => {
+  const { isInstalledApp } = await import('../../utils/uploadFiles.ts');
+  const make = (mode) => {
+    const w = { showOpenFilePicker() {}, navigator: { userAgent: 'Mozilla/5.0 (Macintosh) Chrome/157', platform: 'MacIntel', maxTouchPoints: 0 },
+      matchMedia: (q) => ({ matches: mode ? q === `(display-mode: ${mode})` : false }) };
+    w.self = w; w.top = w;
+    return w;
+  };
+  assert.equal(isInstalledApp(make(null)), false);
+  assert.equal(canUseHandlePicker(make(null)), true); // a Chrome tab
+  for (const mode of ['standalone', 'window-controls-overlay', 'minimal-ui']) {
+    assert.equal(isInstalledApp(make(mode)), true, mode);
+    assert.equal(canUseHandlePicker(make(mode)), false, mode);
+  }
+});

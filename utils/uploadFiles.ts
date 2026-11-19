@@ -172,10 +172,26 @@ type OpenFilePicker = (options: {
   types?: { description: string; accept: Record<string, string[]> }[];
 }) => Promise<PickerHandle[]>;
 
-/** Chrome / Edge on a computer: the file window whose files can be read again (window.showOpenFilePicker). */
+/**
+ * Studio opened as the installed app (its own window, not a browser tab). Deepak 19 Nov 2026: in the installed app on a
+ * Mac, a photo from Photos picked with showOpenFilePicker could never be read (NotReadableError on every re-read),
+ * while the same photo read fine in a Chrome tab with either picker — so the installed app keeps the file input.
+ */
+export function isInstalledApp(win: any = typeof window !== 'undefined' ? window : undefined): boolean {
+  if (!win) return false;
+  if (win.navigator?.standalone === true) return true;
+  const mm = typeof win.matchMedia === 'function' ? win.matchMedia.bind(win) : null;
+  if (!mm) return false;
+  return ['standalone', 'window-controls-overlay', 'minimal-ui', 'fullscreen'].some((mode) => {
+    try { return mm(`(display-mode: ${mode})`).matches; } catch { return false; }
+  });
+}
+
+/** Chrome / Edge in a browser tab on a computer: the file window whose files can be read again. */
 export function canUseHandlePicker(win: any = typeof window !== 'undefined' ? window : undefined): boolean {
   if (!win || typeof win.showOpenFilePicker !== 'function') return false;
   if (win.self !== win.top) return false; // not allowed in iframes
+  if (isInstalledApp(win)) return false;
   return !isIosDevice(win.navigator) && !/Android/i.test(win.navigator?.userAgent ?? '');
 }
 

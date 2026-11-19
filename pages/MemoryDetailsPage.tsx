@@ -5784,7 +5784,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     try {
       picked = await ensureInMemory(pickedFile);
     } catch (error) {
-      toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED);
+      coverReadFailed(error);
       return null;
     }
     const isVideo = isVideoFile(picked);
@@ -5835,16 +5835,24 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return isVideo ? 'Failed to update cover video' : 'Failed to update cover photo';
   };
 
-  const handleUploadFromDesktop = () => {
+  // A pick that couldn't be read: say so, with "Pick again" opening the plain file window (a new pick, new file).
+  const coverReadFailed = (error: unknown) => {
+    toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED, {
+      action: { label: 'Pick again', onClick: () => handleUploadFromDesktop(true) },
+    });
+  };
+
+  const handleUploadFromDesktop = (plainPicker = false) => {
     console.log('🖼️ Upload from Desktop clicked');
     setIsCoverPhotoMenuOpen(false);
 
-    // Chrome / Edge on a computer: the file window whose picks can be re-read, each read into memory at once — a photo
-    // picked from Mac Photos is written by macOS at that moment and Chrome refused to send it (Chris 19 Nov 2026).
-    if (!isMobile && canUseHandlePicker()) {
+    // Chrome / Edge in a browser tab on a computer: the file window whose picks can be re-read, each read into memory
+    // at once — a photo picked from Mac Photos is written by macOS at that moment and Chrome refused to send it (Chris
+    // 19 Nov 2026). The installed Studio app and other browsers use the file input below.
+    if (!plainPicker && !isMobile && canUseHandlePicker()) {
       pickFiles({ kind: 'media' })
         .then((files) => { if (files[0]) void uploadCoverFile(files[0]); })
-        .catch((error) => toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED));
+        .catch(coverReadFailed);
       return;
     }
 
@@ -11925,7 +11933,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 {/* Desktop Menu Options */}
                                 <div className="flex flex-col gap-1">
                                   <button
-                                    onClick={handleUploadFromDesktop}
+                                    onClick={() => handleUploadFromDesktop()}
                                     className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
                                   >
                                     <div className="flex-shrink-0 mt-0.5">
