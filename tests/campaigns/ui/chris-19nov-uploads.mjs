@@ -73,7 +73,7 @@ const isJpeg = (b) => b && b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height, serverConvertsHeic = false }) {
+async function open({ width, height, serverConvertsHeic = false, keepHandlePicker = false }) {
   const state = {
     cover: img('photo.jpg'), coverPuts: [], coverAnswer: null, metaUploads: [], momentPosts: [], inviteActions: [], inviteAnswer: null,
     invites: [103, 105], extraPosts: [],
@@ -127,6 +127,9 @@ async function open({ width, height, serverConvertsHeic = false }) {
     const f = window.fetch;
     window.fetch = function (input, init) { record(init && init.body, typeof input === 'string' ? input : input && input.url); return f.apply(this, arguments); };
   });
+  // The classic file input path (Safari / Firefox, and what Studio used before 19 Nov evening). Chrome's re-readable
+  // picker is covered by chris-19nov-photos-pick.mjs.
+  if (!keepHandlePicker) await context.addInitScript(() => { try { delete window.showOpenFilePicker; } catch { window.showOpenFilePicker = undefined; } });
   await context.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());

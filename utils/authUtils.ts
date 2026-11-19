@@ -6,7 +6,7 @@ import { campaignAccessBody, withQr } from './qrAccess';
 import { clearAccountState } from './accountState';
 import { seedBrandPictures, setBrandPictureApiBase, setBrandPictureHeaders } from './brandPictures';
 import { friendlyCodeMessage } from './verificationCodeWording';
-import { convertHeicToJpeg, HEIC_CONVERT_FAILED, isHeicFile, prepareImageForUpload, UploadFileError } from './uploadFiles';
+import { convertHeicToJpeg, ensureInMemory, HEIC_CONVERT_FAILED, isHeicFile, isVideoFile, PHOTO_READ_FAILED, prepareImageForUpload, UploadFileError } from './uploadFiles';
 
 // Auth utility functions for API integration
 
@@ -2058,7 +2058,14 @@ async function uploadReadyImage(file: File): Promise<{ file: File; error?: undef
  * has a HEIC-capable ImageMagick. So a HEIC is sent as it is first (keeps the date/place); if the server can't take it,
  * it is converted to JPEG here and sent again — the date then comes from the HEIC's EXIF read in the browser.
  */
-async function sendWithHeicFallback(file: File, name: string, send: (file: File, name: string) => Promise<ApiResponse<any>>): Promise<ApiResponse<any>> {
+async function sendWithHeicFallback(picked: File, name: string, send: (file: File, name: string) => Promise<ApiResponse<any>>): Promise<ApiResponse<any>> {
+  // Read into memory first: a Mac Photos pick can change after the pick, and Chrome then won't send it (Chris 19 Nov 2026).
+  let file: File;
+  try {
+    file = isVideoFile(picked) ? picked : await ensureInMemory(picked);
+  } catch (error) {
+    return { success: false, data: null, error: error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED };
+  }
   if (!isHeicFile(file)) return send(file, name);
   try {
     const first = await send(file, name);

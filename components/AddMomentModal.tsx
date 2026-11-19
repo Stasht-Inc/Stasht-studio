@@ -22,7 +22,7 @@ import SegmentedSwitch from './newsletters/SegmentedSwitch';
 import InventoryMomentPicker, { useInventorySources, type MomentInventory, type MomentSource } from './storeel/InventoryMomentPicker';
 import CampaignsMultiSelect from './storeel/CampaignsMultiSelect';
 import type { CampaignPick } from './storeel/lib/momentCampaigns';
-import { IMAGE_ACCEPT } from '../utils/uploadFiles';
+import { canUseHandlePicker, IMAGE_ACCEPT, PHOTO_READ_FAILED, pickFiles, UploadFileError } from '../utils/uploadFiles';
 
 interface UploadProgressItem {
   id: string;
@@ -540,6 +540,21 @@ export function AddMomentModal({
     if (e.target === e.currentTarget) {
       handleCancel();
     }
+  };
+
+  // Upload from Desktop: Chrome / Edge on a computer use the re-readable picker, every pick read into memory at once
+  // (a Mac Photos pick is written by macOS at pick time; Chrome refused to send it — Chris 19 Nov 2026). Other browsers:
+  // the hidden file input, as before.
+  const openDesktopPicker = (inputId: string) => {
+    if (!canUseHandlePicker()) {
+      document.getElementById(inputId)?.click();
+      return;
+    }
+    pickFiles({ kind: 'image', multiple: true })
+      .then((files) => {
+        if (files.length) void handleFileSelect({ target: { files } } as unknown as React.ChangeEvent<HTMLInputElement>);
+      })
+      .catch((error) => toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED));
   };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1347,7 +1362,7 @@ export function AddMomentModal({
                       <button
                         onClick={() => {
                           setIsFileMenuOpen(false);
-                          document.getElementById('file-upload')?.click();
+                          openDesktopPicker('file-upload');
                         }}
                         className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
                       >
@@ -1554,7 +1569,7 @@ export function AddMomentModal({
                           <button
                             onClick={() => {
                               setIsAddMoreMenuOpen(false);
-                              document.getElementById('file-upload-more')?.click();
+                              openDesktopPicker('file-upload-more');
                             }}
                             className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
                           >

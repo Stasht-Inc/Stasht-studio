@@ -110,11 +110,134 @@ export async function convertHeicToJpeg(file: File): Promise<File> {
   return new File([blob], jpegFileName(file.name), { type: 'image/jpeg', lastModified: file.lastModified || Date.now() });
 }
 
-/** What every photo upload sends: a HEIC/HEIF becomes a JPEG; anything else goes as it is. */
+export const PHOTO_READ_FAILED = "This photo couldn't be read. Please pick it again.";
+
+/**
+ * The picked file copied into memory (Chris 19 Nov 2026, Mac Photos). A photo picked from the Photos section of the Mac
+ * file window is a file macOS writes at that moment (a HEIC comes out as a JPEG; an iCloud photo is downloaded first).
+ * When it changes after Chrome has looked at it, Chrome won't send it: the upload request just fails ("Failed to upload
+ * cover photo") after the web API already said OK. Reading it once, right after the pick, gives a copy that can't
+ * change; `reread` (a fresh copy from the file handle, Chrome's new picker) is tried again for up to ~5 s.
+ */
+export async function materializeFile(
+  file: File,
+  reread?: () => Promise<File>,
+  attempts = 10,
+  waitMs = 500,
+): Promise<File> {
+  let current = file;
+  for (let i = 0; i < Math.max(1, attempts); i++) {
+    try {
+      const bytes = await current.arrayBuffer();
+      if (bytes.byteLength > 0 || current.size === 0) {
+        return new File([bytes], current.name, { type: current.type, lastModified: current.lastModified || Date.now() });
+      }
+    } catch (error) {
+      console.warn('Picked file not readable yet:', current.name, error);
+    }
+    if (!reread) break;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    try { current = await reread(); } catch { break; }
+  }
+  throw new UploadFileError(PHOTO_READ_FAILED);
+}
+
+/** Copy a picked file into memory once, without any retry source (the classic file input). */
+const materialized = new WeakSet<File>();
+export async function ensureInMemory(file: File): Promise<File> {
+  if (materialized.has(file)) return file;
+  const copy = await materializeFile(file);
+  materialized.add(copy);
+  return copy;
+}
+/** Marks a File as already in memory (from pickFiles), so it isn't copied twice. */
+export function markInMemory(file: File): File {
+  materialized.add(file);
+  return file;
+}
+
+/** What every photo upload sends: a HEIC/HEIF becomes a JPEG; every photo is copied into memory first. */
 export async function prepareImageForUpload<T extends File | Blob | null | undefined>(file: T): Promise<T | File> {
   if (!file || !(file instanceof File)) return file;
-  if (!isHeicFile(file)) return file;
-  return convertHeicToJpeg(file);
+  if (isVideoFile(file)) return file;
+  const copy = await ensureInMemory(file);
+  if (!isHeicFile(copy)) return copy;
+  return convertHeicToJpeg(copy);
+}
+
+type PickerHandle = { getFile: () => Promise<File> };
+type OpenFilePicker = (options: {
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<PickerHandle[]>;
+
+/** Chrome / Edge on a computer: the file window whose files can be read again (window.showOpenFilePicker). */
+export function canUseHandlePicker(win: any = typeof window !== 'undefined' ? window : undefined): boolean {
+  if (!win || typeof win.showOpenFilePicker !== 'function') return false;
+  if (win.self !== win.top) return false; // not allowed in iframes
+  return !isIosDevice(win.navigator) && !/Android/i.test(win.navigator?.userAgent ?? '');
+}
+
+const PICKER_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'];
+const PICKER_VIDEO_EXTS = ['.mov', '.mp4', '.m4v', '.3gp', '.webm'];
+
+/**
+ * Open the file window and return the picked files, copied into memory. Chrome / Edge on a computer use the picker
+ * whose files can be re-read (so a Mac Photos pick that is still being written is read again, see materializeFile);
+ * other browsers use a normal file input. [] = cancelled. Throws UploadFileError when a pick can't be read.
+ */
+export async function pickFiles(opts: { kind: 'image' | 'media'; multiple?: boolean; win?: any; doc?: Document }): Promise<File[]> {
+  const win = opts.win ?? (typeof window !== 'undefined' ? window : undefined);
+  if (canUseHandlePicker(win)) {
+    const types = [{ description: opts.kind === 'media' ? 'Photos and videos' : 'Photos', accept: {
+      'image/*': PICKER_IMAGE_EXTS,
+      ...(opts.kind === 'media' ? { 'video/*': PICKER_VIDEO_EXTS } : {}),
+    } }];
+    let handles: PickerHandle[];
+    try {
+      handles = await (win.showOpenFilePicker as OpenFilePicker)({ multiple: !!opts.multiple, types });
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return [];
+      return pickWithInput(opts); // picker refused (policy, no user gesture…): the normal file input instead
+    }
+    const out: File[] = [];
+    for (const handle of handles) {
+      const first = await handle.getFile();
+      // Photos AND videos (a Photos video is written at pick time too) are read into memory, re-read when needed.
+      out.push(markInMemory(await materializeFile(first, () => handle.getFile())));
+    }
+    return out;
+  }
+  return pickWithInput(opts);
+}
+
+function pickWithInput(opts: { kind: 'image' | 'media'; multiple?: boolean; doc?: Document }): Promise<File[]> {
+  const doc = opts.doc ?? document;
+  return new Promise((resolve, reject) => {
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.accept = opts.kind === 'media' ? MEDIA_ACCEPT : IMAGE_ACCEPT;
+    input.multiple = !!opts.multiple;
+    input.style.display = 'none';
+    let done = false;
+    const cleanup = () => { if (input.parentNode) input.parentNode.removeChild(input); };
+    input.onchange = async () => {
+      done = true;
+      const files = Array.from(input.files ?? []);
+      cleanup();
+      try {
+        const out: File[] = [];
+        for (const f of files) out.push(isVideoFile(f) ? f : markInMemory(await materializeFile(f)));
+        resolve(out);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    input.addEventListener('cancel', () => { if (!done) { cleanup(); resolve([]); } });
+    doc.body.appendChild(input);
+    input.click();
+  });
 }
 
 /** prepareImageForUpload for a list (keeps the order; videos and other files go as they are). */

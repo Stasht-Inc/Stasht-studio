@@ -35,7 +35,7 @@ const getActivityColor = (action: string): string => {
   const actionLower = action.toLowerCase();
   
   // Memories Created - #4AD991 (green)
-  if (actionLower.includes('memory created') || actionLower.includes('memory added')) {
+  if (actionLower.includes('memory created') || actionLower.includes('memory added') || actionLower.includes('campaign created')) {
     return 'bg-[#4AD991]';
   }
   
@@ -376,8 +376,10 @@ export default function Dashboard({
         // Handle double nesting: apiRequest wraps the API response
         const actualData = response.data.data || response.data;
         // Apply consistent color mapping to API data
+        // "New memory created" from an older web API reads "New campaign created" (Chris 19 Nov 2026).
         const colorMappedData = actualData.map((activity: any) => ({
           ...activity,
+          action: typeof activity.action === 'string' ? activity.action.replace(/\bmemory created\b/i, 'campaign created') : activity.action,
           color: getActivityColor(activity.action)
         }));
         setRecentActivity(colorMappedData);
