@@ -156,6 +156,16 @@ async function open(width, height) {
       }
       return route.fulfill({ json: { success: true, message: 'Memory Image updated successfully.', data: row } });
     }
+    // The Media panel's drag (c19c): PUT moment-order { item, before | after } — MomentOrder::place.
+    if (p === '/memories/901/moment-order' && m === 'PUT') {
+      const b = JSON.parse(req.postData() || '{}');
+      const where = b.before ? 'before' : 'after';
+      const id = Number(b.item?.id); const anchor = Number((b.before || b.after)?.id);
+      if (!state.order.includes(id) || !state.order.includes(anchor)) return route.fulfill({ status: 422, json: { success: false, message: "Those aren't this campaign's moments. Reload the page and try again." } });
+      state.order = state.order.filter((x) => x !== id);
+      state.order.splice(state.order.indexOf(anchor) + (where === 'after' ? 1 : 0), 0, id);
+      return route.fulfill({ json: { success: true, data: { order: state.order.map((x) => ({ type: 'post', id: x })) } } });
+    }
     if (p === '/memories/categories-labels') return route.fulfill({ json: { success: true, data: { categories: [{ id: 1, name: 'Personal', is_owner: true, can_add_story: true }], labels: [] } } });
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: { available: false, reason: 'not_available', item_count: 0 } } });
     if (p === '/cars' && m === 'GET') return route.fulfill({ json: { success: true, data: { cars: [], pagination: { last_page: 1 }, filters: {} } } });
