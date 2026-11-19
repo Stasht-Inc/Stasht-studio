@@ -386,6 +386,8 @@ export default function MemoryCard({
   };
 
   const finalCategoryColor = getInvitesCategoryColor();
+  // A pending invite with Accept / Deny: those are the only buttons on top of the photo (Chris 19 Nov 2026).
+  const inviteActionsShown = isInvite && !!(onAcceptInvite || onRejectInvite);
 
   // Debug logging for suggested category
   useEffect(() => {
@@ -639,8 +641,9 @@ export default function MemoryCard({
           </div>
         )}
 
-        {/* Published Badge - Top Left */}
-        {published && !isEditMode && (
+        {/* Published Badge - Top Left. Not on an invite with Accept / Deny: it sat behind them as a second button
+            row (Chris 19 Nov 2026). */}
+        {published && !isEditMode && !inviteActionsShown && (
           <div ref={publishedRef} className="absolute top-3 left-3 z-10">
             <div
               className="shadow-md flex items-center gap-1.5 bg-white"
@@ -676,13 +679,15 @@ export default function MemoryCard({
         {/* Overlay: a labelled card stacks the pills and the title in one column so they can't overlap (see
             FIT_LEVELS); any other card keeps both absolutely placed as before (`contents` adds no box). */}
         <div className={fitEnabled ? 'absolute inset-0 z-10 flex flex-col' : 'contents'}>
-        {/* Right side badges column */}
+        {/* Right side badges column (hidden behind an invite's Accept / Deny — the pink "Invites" pill and the count
+            read as a second button row there, Chris 19 Nov 2026) */}
         <div
           ref={badgesRef}
           className={fitEnabled
             ? `self-end flex flex-col items-end flex-shrink-0 ${fitCompact ? 'mt-2 mr-2 gap-1' : 'mt-3 mr-3 gap-2'}`
             : 'absolute top-3 right-3 z-10 flex flex-col items-end gap-2'}
-          style={fitClearTop ? { paddingTop: fitClearTop } : undefined}
+          style={inviteActionsShown ? { display: 'none' } : fitClearTop ? { paddingTop: fitClearTop } : undefined}
+          data-testid={inviteActionsShown ? 'invite-hidden-badges' : undefined}
         >
           {/* Moments Count Badge */}
           {imagesCount > 0 && !fitHideCount && (
@@ -1056,21 +1061,22 @@ export default function MemoryCard({
       )}
 
       {/* Accept/No Buttons for Invites - overlay on image */}
-      {isInvite && (onAcceptInvite || onRejectInvite) && (
-        <div className="absolute top-14 right-3 md:top-3 md:right-auto md:left-1/2 md:-translate-x-1/2 flex gap-1 z-20">
+      {inviteActionsShown && (
+        <div className="absolute top-14 left-3 right-3 md:top-3 flex justify-end md:justify-center gap-1 z-30" data-testid="invite-actions">
           {/* Accept Button */}
           {onAcceptInvite && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onAcceptInvite?.(notificationId);
+                if (!isAcceptingOrRejecting) onAcceptInvite?.(notificationId);
               }}
-              className="flex items-center justify-center gap-1 bg-[#F9FAFB] hover:bg-white text-gray-800 text-xs font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed w-[71px] md:w-[87px]"
+              disabled={isAcceptingOrRejecting}
+              className="flex items-center justify-center gap-1 bg-[#F9FAFB] hover:bg-white text-gray-800 text-xs font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed min-w-0 flex-1 max-w-[71px] md:max-w-[87px]"
               style={{ height: '34px', padding: '4px', borderRadius: '8px' }}
               title="Accept invitation"
               aria-label="Accept invitation"
             >
-              <Check className="w-3 h-3" />
+              {isAcceptingOrRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
               <span style={{ fontSize: '12px', fontWeight: 500, lineHeight: '18px' }}>Accept</span>
             </button>
           )}
@@ -1080,14 +1086,15 @@ export default function MemoryCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onRejectInvite?.(notificationId);
+                if (!isAcceptingOrRejecting) onRejectInvite?.(notificationId);
               }}
-              className="flex items-center justify-center gap-1 bg-[#F9FAFB] hover:bg-white text-gray-800 text-xs font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed w-[71px] md:w-[87px]"
+              disabled={isAcceptingOrRejecting}
+              className="flex items-center justify-center gap-1 bg-[#F9FAFB] hover:bg-white text-gray-800 text-xs font-medium transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed min-w-0 flex-1 max-w-[71px] md:max-w-[87px]"
               style={{ height: '34px', padding: '4px', borderRadius: '8px' }}
               title="Decline invitation"
               aria-label="Decline invitation"
             >
-              <X className="w-3 h-3" />
+              {isAcceptingOrRejecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
               <span style={{ fontSize: '12px', fontWeight: 500, lineHeight: '18px' }}>Deny</span>
             </button>
           )}

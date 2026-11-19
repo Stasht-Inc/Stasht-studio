@@ -15,6 +15,7 @@ import { dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
 import { aiCreditsAPI, type CreditCheckResponse } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { toast } from 'sonner';
+import { IMAGE_ACCEPT, toUploadableImage } from '../utils/uploadFiles';
 import { mapLimit } from '../utils/requestLimit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1109,10 +1110,12 @@ function PersonDetailView({
           <input
             ref={thumbInputRef}
             type="file"
-            accept="image/*"
+            accept={IMAGE_ACCEPT}
             className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
+            onChange={async (e) => {
+              const input = e.target;
+              const file = await toUploadableImage(input.files?.[0], (m) => toast.error(m));
+              input.value = '';
               if (file) {
                 setEditThumbnailFile(file);
                 setEditThumbnailPreview(URL.createObjectURL(file));
@@ -1124,10 +1127,12 @@ function PersonDetailView({
           <input
             ref={avatarThumbInputRef}
             type="file"
-            accept="image/*"
+            accept={IMAGE_ACCEPT}
             className="hidden"
             onChange={async (e) => {
-              const file = e.target.files?.[0];
+              const input = e.target;
+              const file = await toUploadableImage(input.files?.[0], (m) => toast.error(m));
+              input.value = '';
               if (file) {
                 const dataUrl = URL.createObjectURL(file);
                 await handleSaveThumbnailOnly(file, dataUrl);
@@ -1243,10 +1248,12 @@ function PersonDetailView({
                     <input
                       ref={addPersonFileInputRef}
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_ACCEPT}
                       className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
+                      onChange={async (e) => {
+                        const input = e.target;
+                        const file = await toUploadableImage(input.files?.[0], (m) => toast.error(m));
+                        input.value = '';
                         if (file) {
                           setAddPersonPhotos(prev => [...prev, file]);
                           setAddPersonPhotoPreviews(prev => [...prev, URL.createObjectURL(file)]);

@@ -8,6 +8,7 @@ import { getAdminSwitchData, switchAccount, clearAdminSwitchData, switchIntoProp
 import { newAccountFlagged } from '../utils/accountState';
 import { opensAsFullAccount, propertyRowActions } from "../utils/propertyRows";
 import { toast } from "sonner";
+import { toUploadableImage } from "../utils/uploadFiles";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
@@ -731,9 +732,11 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
     canChangePropertyImage(currentProperty, authUser ?? user);
 
   const handlePropertyImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const picked = e.target.files?.[0];
     e.target.value = ''; // the same file can be picked again
-    if (!file || !currentProperty?.id) return;
+    if (!picked || !currentProperty?.id) return;
+    const file = await toUploadableImage(picked, (m) => toast.error(m)); // HEIC → JPEG (Chris 19 Nov 2026)
+    if (!file) return;
     const problem = propertyImageFileError(file);
     if (problem) {
       toast.error(problem);

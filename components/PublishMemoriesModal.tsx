@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
 import { userDisplayUtils } from '../utils/authUtils';
 import { categoryDisplayName } from '../utils/products';
+import { IMAGE_ACCEPT, isImageFile, toUploadableImage } from '../utils/uploadFiles';
 
 interface Memory {
   id: number;
@@ -249,8 +250,10 @@ export default function PublishMemoriesModal({
     }
   };
 
-  const handleWallpaperFile = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+  const handleWallpaperFile = async (picked: File) => {
+    if (!isImageFile(picked)) return;
+    const file = await toUploadableImage(picked); // iPhone / Mac HEIC → JPEG (Chris 19 Nov 2026)
+    if (!file) return;
     setWallpaperPreview(URL.createObjectURL(file));
     const reader = new FileReader();
     reader.onload = (e) => setWallpaperBase64(e.target?.result as string);
@@ -377,7 +380,7 @@ export default function PublishMemoriesModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={IMAGE_ACCEPT}
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];

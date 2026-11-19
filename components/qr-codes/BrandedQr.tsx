@@ -8,6 +8,7 @@ import { COLOR_PRESETS, paintQr, printSafeColor, qrDrawColor, qrSvg, svgDataUrl 
 import { loadQrLogo, loadedQrLogo, primeQrLogo, type PreparedLogo } from '../../utils/qrLogo';
 import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
 import { BUTTON_SMALL } from '../newsletters/lib/ui';
+import { HEIC_CONVERT_FAILED, prepareImageForUpload } from '../../utils/uploadFiles';
 
 // Branded QR codes (Chris, 3 Nov 2026): one look everywhere — the QR Code popover and every download are drawn by
 // utils/qrStyle from the same code, image and colour.
@@ -175,8 +176,16 @@ export function QrStyleControls({ code, propertyId, onChanged, onPreview }: {
     return () => input.removeEventListener('change', commit);
   });
 
-  const pickFile = async (file: File | undefined) => {
-    if (!file) return;
+  const pickFile = async (picked: File | undefined) => {
+    if (!picked) return;
+    // An iPhone / Mac HEIC photo goes up as a JPEG (Chris 19 Nov 2026).
+    let file: File;
+    try {
+      file = (await prepareImageForUpload(picked)) as File;
+    } catch {
+      toast.error(HEIC_CONVERT_FAILED);
+      return;
+    }
     if (!IMAGE_TYPES.includes(file.type) || file.size > MAX_IMAGE_BYTES) {
       toast.error('Choose a JPG, PNG, GIF or WebP image up to 5 MB.');
       return;
@@ -239,7 +248,7 @@ export function QrStyleControls({ code, propertyId, onChanged, onPreview }: {
               {busy === 'default' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Use profile picture
             </button>
           ) : null}
-          <input ref={fileRef} type="file" accept={IMAGE_TYPES.join(',')} className="hidden" aria-label="Image for the QR code"
+          <input ref={fileRef} type="file" accept={`${IMAGE_TYPES.join(',')},image/heic,image/heif,.heic,.heif`} className="hidden" aria-label="Image for the QR code"
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void pickFile(f); }} />
         </div>
       </div>

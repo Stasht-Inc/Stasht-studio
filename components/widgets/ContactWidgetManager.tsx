@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, Lock, MessageSquare, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { toUploadableImage } from '../../utils/uploadFiles';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
   ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, LeadRecipient, WidgetBubblePosition, WidgetStatus,
@@ -290,8 +291,9 @@ function WidgetBuilder({
   const savedSinceOpenRef = useRef(false);
 
   const onAvatarPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const picked = e.target.files?.[0];
     e.target.value = ''; // allow picking the same file again
+    const file = await toUploadableImage(picked, (m) => toast.error(m)); // HEIC → JPEG (Chris 19 Nov 2026)
     if (!file) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       toast.error('Choose a JPG, PNG or WebP image.');
@@ -732,7 +734,7 @@ function WidgetBuilder({
                   <FieldError id={id('agent-err')} message={errors.agent_name} />
                   <FieldError id={id('logo-err')} message={errors['theme.logo_url']} />
                 </div>
-                <input ref={avatarInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onAvatarPicked} />
+                <input ref={avatarInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" hidden onChange={onAvatarPicked} />
               </div>
             </div>
 

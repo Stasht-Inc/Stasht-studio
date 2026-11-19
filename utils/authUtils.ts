@@ -6,6 +6,7 @@ import { campaignAccessBody, withQr } from './qrAccess';
 import { clearAccountState } from './accountState';
 import { seedBrandPictures, setBrandPictureApiBase, setBrandPictureHeaders } from './brandPictures';
 import { friendlyCodeMessage } from './verificationCodeWording';
+import { convertHeicToJpeg, HEIC_CONVERT_FAILED, isHeicFile, prepareImageForUpload, UploadFileError } from './uploadFiles';
 
 // Auth utility functions for API integration
 
@@ -2043,6 +2044,53 @@ export const clearPartialAdminFlags = () => {
 };
 
 // Dashboard API functions
+// Chris 19 Nov 2026 — iPhone / Mac HEIC photos upload everywhere: a HEIC goes up as a JPEG (utils/uploadFiles).
+async function uploadReadyImage(file: File): Promise<{ file: File; error?: undefined } | { file?: undefined; error: string }> {
+  try {
+    return { file: (await prepareImageForUpload(file)) as File };
+  } catch (error) {
+    return { error: error instanceof UploadFileError ? error.message : HEIC_CONVERT_FAILED };
+  }
+}
+
+/**
+ * upload-image-with-metadata reads the photo's date and place from its EXIF, and converts HEIC itself when the server
+ * has a HEIC-capable ImageMagick. So a HEIC is sent as it is first (keeps the date/place); if the server can't take it,
+ * it is converted to JPEG here and sent again — the date then comes from the HEIC's EXIF read in the browser.
+ */
+async function sendWithHeicFallback(file: File, name: string, send: (file: File, name: string) => Promise<ApiResponse<any>>): Promise<ApiResponse<any>> {
+  if (!isHeicFile(file)) return send(file, name);
+  try {
+    const first = await send(file, name);
+    if (first?.success) return first;
+    devLog('HEIC upload refused by the server, retrying as JPEG:', first?.error);
+  } catch (error) {
+    if ((error as any)?.name === 'AbortError') throw error;
+    devLog('HEIC upload failed, retrying as JPEG:', error);
+  }
+  let jpeg: File;
+  try {
+    jpeg = await convertHeicToJpeg(file);
+  } catch (error) {
+    return { success: false, data: null, error: error instanceof UploadFileError ? error.message : HEIC_CONVERT_FAILED };
+  }
+  const result = await send(jpeg, /\.(heic|heif|hif)$/i.test(name) ? name.replace(/\.(heic|heif|hif)$/i, '.jpg') : name);
+  const inner = (result as any)?.data?.data;
+  if (result?.success && inner && !inner.capture_date) {
+    try {
+      const exifr = (await import('exifr')).default;
+      const exif = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate']);
+      const taken: unknown = exif?.DateTimeOriginal || exif?.CreateDate;
+      if (taken instanceof Date && !Number.isNaN(taken.getTime())) {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        inner.capture_date = `${taken.getFullYear()}-${pad(taken.getMonth() + 1)}-${pad(taken.getDate())}`;
+        inner.capture_time = `${pad(taken.getHours())}:${pad(taken.getMinutes())}:${pad(taken.getSeconds())}`;
+      }
+    } catch { /* no EXIF date — the upload still worked */ }
+  }
+  return result;
+}
+
 export const dashboardAPI = {
   // Main dashboard overview data
   getDashboard: async (type = 'weekly'): Promise<ApiResponse<any>> => {
@@ -2269,6 +2317,12 @@ export const dashboardAPI = {
     });
   },
 
+  // The campaign page opened (Chris, 19 Nov 2026, point 18): the owner's campaign comes first in the Dashboard's
+  // Latest Campaigns ("Last Visited" now). Best effort: an older API without the route just answers 404.
+  markMemoryVisited: async (memoryId: string | number): Promise<ApiResponse<any>> => {
+    return await apiRequest(`/memories/${memoryId}/visit`, { method: 'POST' });
+  },
+
   // Update memory by ID
   updateMemory: async (memoryId: string, memoryData: any): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.updateMemory: Updating memory ID ${memoryId}`);
@@ -2461,7 +2515,9 @@ export const dashboardAPI = {
     
     // Add image file if provided
     if (updateData.image) {
-      formData.append('image', updateData.image);
+      const ready = await uploadReadyImage(updateData.image);
+      if (ready.error !== undefined) return { success: false, error: ready.error };
+      formData.append('image', ready.file);
       devLog('Added image to FormData:', updateData.image.name, updateData.image.size);
     }
     
@@ -2546,6 +2602,8 @@ export const dashboardAPI = {
         };
       }
 
+      // A raw fetch skips apiRequest's write → clear-cache: clear it here so the campaign re-read shows the change.
+      clearApiCache();
       devLog('dashboardAPI.updateMemoryImages: Full API Response:', { success: true, data });
       return {
         success: true,
@@ -2863,6 +2921,9 @@ export const dashboardAPI = {
 
   // Upload photo to media without memory
   uploadPhotoToMedia: async (file: File, name: string, position: number): Promise<ApiResponse<any>> => {
+    const ready = await uploadReadyImage(file);
+    if (ready.error !== undefined) return { success: false, error: ready.error };
+    file = ready.file;
     devLog(`🔧 dashboardAPI.uploadPhotoToMedia: Starting upload for "${name}" at position ${position}`);
     devLog('🔧 File details:', {
       fileName: file.name,
@@ -3622,7 +3683,11 @@ export const dashboardAPI = {
   },
 
   // Upload image with metadata to get location and capture date
-  uploadImageWithMetadata: async (file: File, name: string, orientation?: number, signal?: AbortSignal): Promise<ApiResponse<any>> => {
+  uploadImageWithMetadata: (file: File, name: string, orientation?: number, signal?: AbortSignal): Promise<ApiResponse<any>> =>
+    sendWithHeicFallback(file, name, (f, n) => dashboardAPI.uploadImageWithMetadataDirect(f, n, orientation, signal)),
+
+  // One upload-image-with-metadata request, the file as given (uploadImageWithMetadata adds the HEIC fallback).
+  uploadImageWithMetadataDirect: async (file: File, name: string, orientation?: number, signal?: AbortSignal): Promise<ApiResponse<any>> => {
     devLog(`🔧 dashboardAPI.uploadImageWithMetadata: Starting upload for "${name}"`);
     devLog('🔧 File details:', {
       fileName: file.name,
@@ -3749,7 +3814,10 @@ export const dashboardAPI = {
   // only risk turning a valid anonymous upload into a 401.
   // Deliberately separate from uploadImageWithMetadata so the normal-memory
   // callers of that function are unaffected.
-  uploadImageWithMetadataPublic: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
+  uploadImageWithMetadataPublic: (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> =>
+    sendWithHeicFallback(file, name, (f, n) => dashboardAPI.uploadImageWithMetadataPublicDirect(f, n, orientation)),
+
+  uploadImageWithMetadataPublicDirect: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
     const formData = new FormData();
     formData.append('name', name);
     formData.append('image', file);
@@ -3794,6 +3862,9 @@ export const dashboardAPI = {
 
   // Upload photo to media without memory (using Laravel route /upload)
   uploadPhotoToMediaWithoutMemory: async (file: File, name: string): Promise<ApiResponse<any>> => {
+    const ready = await uploadReadyImage(file);
+    if (ready.error !== undefined) return { success: false, error: ready.error };
+    file = ready.file;
     devLog(`🔧 dashboardAPI.uploadPhotoToMediaWithoutMemory: Starting upload for "${name}"`);
     devLog('🔧 File details:', {
       fileName: file.name,
@@ -3915,6 +3986,9 @@ export const dashboardAPI = {
 
   // Upload photos from media without memory (second API call)
   uploadPhotosFromMediaWithOutMemory: async (file: File, name: string, location?: string, captureDate?: string, title?: string, description?: string): Promise<ApiResponse<any>> => {
+    const ready = await uploadReadyImage(file);
+    if (ready.error !== undefined) return { success: false, error: ready.error };
+    file = ready.file;
     devLog(`🔧 dashboardAPI.uploadPhotosFromMediaWithOutMemory: Starting upload for "${name}"`);
     devLog('🔧 File details:', {
       fileName: file.name,
@@ -4055,7 +4129,9 @@ export const dashboardAPI = {
       formData.append('memory_id', momentData.memory_id);
       
       if (momentData.image) {
-        formData.append('image', momentData.image);
+        const ready = await uploadReadyImage(momentData.image);
+        if (ready.error !== undefined) return { success: false, error: ready.error };
+        formData.append('image', ready.file);
       }
 
       devLog('🔍 DEBUG: FormData contents:');

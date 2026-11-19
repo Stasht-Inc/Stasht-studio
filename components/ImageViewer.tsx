@@ -10,6 +10,7 @@ import { Textarea } from "./ui/textarea";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { LocationInfoDialog } from "./LocationInfoDialog";
 import { AddMomentModal } from "./AddMomentModal";
+import { photoCounterLabel } from "../utils/photoCounter";
 import { mediaAPI, Comment } from "../services/mediaAPI";
 import { userDisplayUtils, dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
@@ -242,6 +243,15 @@ interface ImageViewerProps {
   // Photos that aren't memory images (cars, Website Catalogue products): view-only. No comments
   // are fetched or posted, and rotate (not saved), crop, tags, featured, location and add are off.
   readOnly?: boolean;
+  // "+ Add" → Add a Moment → Choose Files → Add from Media Library (Chris, 19 Nov 2026, point 17): the page's
+  // library picker. Without these the option did nothing here. `selectedMediaLibraryImages` are the photos picked in
+  // it (for this viewer's Add a Moment only); `mediaLibraryOpen` / `onCloseMediaLibrary` let Escape close the
+  // library first, then Add a Moment, then the viewer.
+  onOpenMediaLibrary?: () => void;
+  selectedMediaLibraryImages?: any[];
+  onClearMediaLibraryImages?: () => void;
+  mediaLibraryOpen?: boolean;
+  onCloseMediaLibrary?: () => void;
 }
 
 export function ImageViewer({
@@ -295,7 +305,12 @@ export function ImageViewer({
   specs = [],
   disableDescriptionEdit = false,
   positionOverride,
-  readOnly = false
+  readOnly = false,
+  onOpenMediaLibrary,
+  selectedMediaLibraryImages,
+  onClearMediaLibraryImages,
+  mediaLibraryOpen = false,
+  onCloseMediaLibrary,
 }: ImageViewerProps) {
 
   // Helper function to format profile color
@@ -411,6 +426,11 @@ export function ImageViewer({
     is_featured?: boolean;
   }>>([]);
   const [isAddMomentModalOpen, setIsAddMomentModalOpen] = useState(false);
+  /** Close the viewer's Add a Moment; library photos picked for it are dropped with it. */
+  const closeAddMoment = () => {
+    setIsAddMomentModalOpen(false);
+    onClearMediaLibraryImages?.();
+  };
   const [currentSubImageIndex, setCurrentSubImageIndex] = useState(0);
   const [featuredImageId, setFeaturedImageId] = useState<string | null>(null);
   const [manualFeaturedUpdate, setManualFeaturedUpdate] = useState(false);
@@ -1009,6 +1029,16 @@ export function ImageViewer({
       const target = e.target as HTMLElement;
       const isInputField = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true';
       
+      // A modal opened from the viewer is on top (Chris, 19 Nov 2026, point 17): Escape closes only the top one
+      // (the media library, then Add a Moment), and the viewer's shortcuts don't act behind it.
+      if (mediaLibraryOpen || isAddMomentModalOpen) {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        if (mediaLibraryOpen) onCloseMediaLibrary?.();
+        else closeAddMoment();
+        return;
+      }
+
       switch (e.key) {
         case 'Escape':
           onClose();
@@ -1071,7 +1101,7 @@ export function ImageViewer({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, onNextImage, onPrevImage, images.length, onToggleSelection, imageId]);
+  }, [isOpen, onClose, onNextImage, onPrevImage, images.length, onToggleSelection, imageId, mediaLibraryOpen, isAddMomentModalOpen, onCloseMediaLibrary]);
 
   // Prevent body scroll when modal is open (only for full screen mode)
   useEffect(() => {
@@ -2509,12 +2539,18 @@ export function ImageViewer({
                 </div>
               )}
 
-              {/* Image Counter - Desktop only (mobile shows in header) */}
-              <div className="hidden md:flex items-center justify-center text-center py-2">
-                <span className="text-sm text-white font-medium">
-                  {positionOverride ? `Image ${positionOverride.current} of ${positionOverride.total}` : `Image ${currentSubImageIndex + 1} of ${subImages.length + 1}`}
-                </span>
-              </div>
+              {/* Image Counter - Desktop only (mobile shows in header). Only for 2+ photos: no "Image 1 of 1"
+                  (Chris, 19 Nov 2026, point 19 — same rule as the app's "1 / 1"). */}
+              {(() => {
+                const label = positionOverride
+                  ? photoCounterLabel(positionOverride.current, positionOverride.total)
+                  : photoCounterLabel(currentSubImageIndex + 1, subImages.length + 1);
+                return label ? (
+                  <div data-testid="viewer-photo-counter" className="hidden md:flex items-center justify-center text-center py-2">
+                    <span className="text-sm text-white font-medium">{label}</span>
+                  </div>
+                ) : null;
+              })()}
 
               {/* Current/Main Image Thumbnail — hidden in positionOverride mode
                   (cars), where subImages is already the full ordered list
@@ -3502,7 +3538,7 @@ export function ImageViewer({
       {memoryId && imageId && (
         <AddMomentModal
           isOpen={isAddMomentModalOpen}
-          onClose={() => setIsAddMomentModalOpen(false)}
+          onClose={closeAddMoment}
           memoryId={memoryId}
           memoryTitle={memoryTitle}
           memoryThumbnail={memoryThumbnail}
@@ -3510,8 +3546,11 @@ export function ImageViewer({
           memoryImages={memoryImages}
           parentImageId={imageId}
           userRole={userRole === 'view' ? 'viewer' : userRole === 'edit' ? 'contributor' : userRole as 'contributor' | 'viewer' | 'admin' | undefined}
+          onOpenMediaLibrary={onOpenMediaLibrary}
+          selectedMediaLibraryImages={selectedMediaLibraryImages}
           onAddMoment={(momentData) => {
             console.log('Sub-image added:', momentData);
+            onClearMediaLibraryImages?.();
 
             // Don't show toast here - AddMomentModal already shows the appropriate message
             // Just refresh the sub-images list

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Helmet } from 'react-helmet-async';
-import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Grid2x2, Grid3x3, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useProperty } from "../contexts/PropertyContext";
 import WeeklyEngCard from "../imports/WeeklyEngCard";
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
 import { campaignCover } from "../utils/campaignCover";
+import { formatStoredSize, momentInsertAtStart, readMediaColumns, saveMediaColumns, type MediaColumns } from "../utils/campaignMoments";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
@@ -96,6 +97,7 @@ import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../com
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
 import { addSlotAfter, applyInsertPlace, collaboratorAddWidgetOptions, slotWidgetRanks, type InsertPlace, type SlotWidget } from "../utils/timelineAddSlots";
 import { categoryDisplayName } from "../utils/products";
+import { convertHeicToJpeg, coverVideoTooLongMessage, HEIC_CONVERT_FAILED, IMAGE_ACCEPT, isHeicFile, isImageFile, isVideoFile, MEDIA_ACCEPT, prepareImageForUpload, readVideoDuration, UploadFileError } from "../utils/uploadFiles";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -769,7 +771,7 @@ function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick,
                   thumbnail: cur?.src || '',
                   image: cur?.src || '',
                   type: 'image',
-                  size: post.file_size || post.size || '0',
+                  size: formatStoredSize(post.file_size || post.size),
                   date: post.capture_date || post.uploaded_at || '',
                   location: typeof post.location === 'string' ? { displayName: post.location } : post.location,
                   author: { name: post.user?.name || '', avatar: post.user?.profile_image || '', id: post.user?.id?.toString() },
@@ -1077,11 +1079,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (!res.success) {
         toast.error(res.message || 'Failed to reorder');
         setCombinedTimeline(prevOrder);
+      } else {
+        // A reorder is an edit: the campaign is "recent" on the Dashboard again (Chris, 19 Nov 2026, point 18).
+        dashboardAPI.markMemoryVisited(String(memoryId)).catch(() => {});
       }
     } catch {
       toast.error('Failed to reorder');
       setCombinedTimeline(prevOrder);
     }
+  }, [memoryId]);
+  // Opening the campaign page makes it the most recent in the Dashboard's Latest Campaigns ("Last Visited": now) —
+  // Chris, 19 Nov 2026, point 18. Best effort; the API only moves the owner's own campaign.
+  useEffect(() => {
+    if (!memoryId) return;
+    dashboardAPI.markMemoryVisited(String(memoryId)).catch(() => {});
   }, [memoryId]);
   const [isHeaderImageScrolled, setIsHeaderImageScrolled] = useState(false);
   const memoryCardRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -1550,6 +1561,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [isCoverPhotoSelectionMode, setIsCoverPhotoSelectionMode] = useState(false);
   const [isAddMomentSelectionMode, setIsAddMomentSelectionMode] = useState(false);
   const [selectedMediaLibraryImagesForMoment, setSelectedMediaLibraryImagesForMoment] = useState<any[]>([]);
+  // The full-screen viewer's own Add a Moment (Chris, 19 Nov 2026, point 17) uses the same library picker; its picks
+  // go only to that modal (the page's closed Add a Moment would otherwise take them too).
+  const [viewerLibraryImages, setViewerLibraryImages] = useState<any[]>([]);
+  const libraryForViewerRef = useRef(false);
 
   // Delete progress state
   const [isDeletingItems, setIsDeletingItems] = useState(false);
@@ -2014,6 +2029,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [insertAfterPostId, setInsertAfterPostId] = useState<string | null>(null);
   // Ref to persist insertAfterPostId across re-renders (state can reset before modal submits)
   const insertAfterPostIdRef = useRef<string | null>(null);
+  // The "+" at the very top of the timeline: the new moment goes first (Chris, 19 Nov 2026, point 10).
+  const insertMomentAtStartRef = useRef(false);
+  // Media panel: 2 or 3 photos across, remembered per viewer (Chris, 19 Nov 2026, point 12).
+  const [mediaColumns, setMediaColumns] = useState<MediaColumns>(() => readMediaColumns());
   // Plus divider mini-modal state (key = "sectionName-index")
   const [activePlusDivider, setActivePlusDivider] = useState<string | null>(null);
   // Voice to Text modal state
@@ -2026,9 +2045,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     if (!pendingScrollPostIdRef.current || !apiMemoryData) return;
     const postId = pendingScrollPostIdRef.current;
     const timer = setTimeout(() => {
-      const el = document.querySelector(`[data-post-id="${postId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // The card that is actually drawn (Chris, 19 Nov 2026, 10c): the desktop card, or on the phone the moment's own
+      // "+" just below its card (the hidden desktop copy can't be scrolled to).
+      const shown = (sel: string) => Array.from(document.querySelectorAll(sel)).find((e) => e.getBoundingClientRect().height > 0);
+      const card = shown(`[data-post-id="${postId}"]`);
+      const phonePlus = card ? undefined : shown(`[data-testid="phone-add-plus"][data-after-post-id="${postId}"][data-after-widget-id=""]`);
+      if (card || phonePlus) {
+        (card || phonePlus)!.scrollIntoView({ behavior: 'smooth', block: card ? 'center' : 'end' });
         pendingScrollPostIdRef.current = null;
       }
     }, 400);
@@ -4415,6 +4438,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     );
   }
 
+  // The campaign row of "Choose a Moment" pickers (Chris, 19 Nov 2026, point 13c): the cover the page shows (not
+  // the letter), and the campaign's dates (not when it was created).
+  const campaignPickerCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image }).src;
+  const campaignPickerDate: string | undefined = apiMemoryData?.min_uploaded_img_date || apiMemoryData?.created_at || undefined;
+  const campaignPickerDateLabel: string | undefined = localMemoryUpdates?.dateRange || apiMemoryData?.dates?.formatted_range || undefined;
+
   // Map API data to UI-expected format with local updates applied
   const uiMemory = apiMemoryData ? {
     id: apiMemoryData.id,
@@ -4931,17 +4960,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return `Text_Post_${post.id}.txt`;
   };
 
-  // Helper function to format file size
-  const formatFileSize = (bytes: number | string): string => {
-    const size = typeof bytes === 'string' ? parseInt(bytes) || 0 : bytes;
-    if (size === 0) return '2.4 MB'; // Default size if not provided
-    
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(size) / Math.log(k));
-    return parseFloat((size / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
-
   // Helper function to extract or estimate image dimensions
   const getImageDimensions = (post: any): string => {
     // Check if dimensions are provided in the API
@@ -5006,7 +5024,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         thumbnail: imageUrl,
         image: imageUrl,
         type: mediaType,
-        size: formatFileSize(post.size || (imageUrl ? 2515456 : 1024)),
+        size: formatStoredSize(post.size), // stored in MB (Chris, 19 Nov 2026: read as bytes, "3 B")
         date: post.capture_date || post.timestamp || post.date || new Date().toISOString(),
         location: post.location ? {
           displayName: post.location,
@@ -5750,29 +5768,56 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
-  // Helper function to get video duration
-  const getVideoDuration = (file: File): Promise<number> => {
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
+  // The picked cover, ready to send (Chris 19 Nov 2026): a HEIC/HEIF photo becomes a JPEG; a video's length is checked
+  // when the browser can read it (an iPhone HEVC .mov often can't be read in Chrome — the web API checks it then).
+  // null = refused (the toast says why); nothing about the current cover has changed.
+  const prepareCoverFile = async (picked: File): Promise<{ file: File; isVideo: boolean } | null> => {
+    const isVideo = isVideoFile(picked);
+    if (!isVideo && !isImageFile(picked)) {
+      toast.error('Please select an image or video file');
+      return null;
+    }
+    if (!isVideo) {
+      if (picked.size > 10 * 1024 * 1024) {
+        toast.error('Image size must be less than 10MB');
+        return null;
+      }
+      if (!isHeicFile(picked)) return { file: picked, isVideo: false };
+      const preparing = toast.loading('Preparing photo...');
+      try {
+        return { file: await convertHeicToJpeg(picked), isVideo: false };
+      } catch (error) {
+        toast.error(error instanceof UploadFileError ? error.message : HEIC_CONVERT_FAILED);
+        return null;
+      } finally {
+        toast.dismiss(preparing);
+      }
+    }
+    const tooLong = coverVideoTooLongMessage(await readVideoDuration(picked));
+    if (tooLong) {
+      toast.error(tooLong);
+      return null;
+    }
+    return { file: picked, isVideo: true };
+  };
 
-      video.onloadedmetadata = () => {
-        window.URL.revokeObjectURL(video.src);
-        const duration = video.duration;
-        if (isNaN(duration) || !isFinite(duration)) {
-          reject(new Error('Invalid video duration'));
-        } else {
-          resolve(duration);
-        }
-      };
+  // A photo picked into a form (preview now, upload later): HEIC/HEIF → JPEG so the preview shows and the upload works.
+  const preparePickedImage = async (picked: File | null | undefined): Promise<File | null> => {
+    if (!picked) return null;
+    try {
+      return (await prepareImageForUpload(picked)) as File;
+    } catch (error) {
+      toast.error(error instanceof UploadFileError ? error.message : HEIC_CONVERT_FAILED);
+      return null;
+    }
+  };
 
-      video.onerror = () => {
-        window.URL.revokeObjectURL(video.src);
-        reject(new Error('Failed to load video'));
-      };
-
-      video.src = URL.createObjectURL(file);
-    });
+  // What a refused cover upload says: the web API's own message (e.g. "too long"), else by status.
+  const coverUploadFailureMessage = (status: number, body: any, isVideo: boolean): string => {
+    const fromServer = body?.message || body?.error;
+    if (typeof fromServer === 'string' && fromServer.trim()) return fromServer;
+    if (status === 413) return isVideo ? 'This video is too large to upload.' : 'This photo is too large to upload.';
+    return isVideo ? 'Failed to update cover video' : 'Failed to update cover photo';
   };
 
   const handleUploadFromDesktop = () => {
@@ -5783,13 +5828,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     // Use explicit extensions on mobile to bypass iOS/Android native action sheet
-    fileInput.accept = isMobile ? MOBILE_ALL_EXTENSIONS : 'image/*,video/*';
+    fileInput.accept = isMobile ? MOBILE_ALL_EXTENSIONS : MEDIA_ACCEPT;
     fileInput.style.display = 'none';
 
     fileInput.onchange = async (e: Event) => {
       console.log('📁 File input changed');
       const target = e.target as HTMLInputElement;
-      const file = target.files?.[0];
+      let file = target.files?.[0];
 
       if (!file) {
         console.log('❌ No file selected');
@@ -5798,42 +5843,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       console.log('✅ File selected:', file.name, file.size, file.type);
 
-      const isImage = file.type.startsWith('image/');
-      const isVideo = file.type.startsWith('video/');
-
-      // Validate file type
-      if (!isImage && !isVideo) {
-        toast.error('Please select an image or video file');
-        return;
-      }
-
-      // Validate file size based on type
-      if (isImage) {
-        const maxImageSize = 10 * 1024 * 1024; // 10MB for images
-        if (file.size > maxImageSize) {
-          toast.error('Image size must be less than 10MB');
-          return;
-        }
-      } else if (isVideo) {
-        
-
-        // Validate video duration (must be <= 2 minutes)
-        try {
-          const duration = await getVideoDuration(file);
-          console.log('🎬 Video duration:', duration, 'seconds');
-
-          if (duration > 120) {
-            const minutes = Math.floor(duration / 60);
-            const seconds = Math.floor(duration % 60);
-            toast.error(`Video is too long (${minutes}m ${seconds}s). Maximum duration is 2 minutes.`);
-            return;
-          }
-        } catch (error) {
-          console.error('❌ Error checking video duration:', error);
-          toast.error('Unable to validate video duration. Please try again.');
-          return;
-        }
-      }
+      // HEIC → JPEG, .mov length check that never blocks on an unreadable length (Chris 19 Nov 2026).
+      const prepared = await prepareCoverFile(file);
+      if (!prepared) return;
+      const { isVideo } = prepared;
+      file = prepared.file;
 
       try {
         console.log('🚀 Starting cover photo upload...');
@@ -5917,7 +5931,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             try {
               resolve({ status: xhr.status, body: JSON.parse(xhr.responseText) });
             } catch {
-              reject(new Error('Invalid JSON response'));
+              resolve({ status: xhr.status, body: null });
             }
           };
 
@@ -5935,11 +5949,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           toast.dismiss();
           toast.success(isVideo ? 'Cover video updated successfully!' : 'Cover photo updated successfully!');
           console.log('🔄 Refreshing memory details...');
+          clearApiCache(); // the upload went by XHR, not apiRequest: drop the cached campaign so the new cover shows now
           await fetchMemoryDetails(true);
           if (onRefresh) await onRefresh();
         } else {
           toast.dismiss();
-          toast.error(data.body?.message || data.body?.error || (isVideo ? 'Failed to update cover video' : 'Failed to update cover photo'));
+          toast.error(coverUploadFailureMessage(data.status, data.body, isVideo));
         }
       } catch (error) {
         console.error('❌ Error uploading cover:', error);
@@ -5995,35 +6010,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
     console.log('✅ Cover file selected:', file.name, file.size, file.type);
 
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/');
-
-    if (!isImage && !isVideo) {
-      toast.error('Please select an image or video file');
-      return;
-    }
-
-    if (isImage) {
-      const maxImageSize = 10 * 1024 * 1024;
-      if (file.size > maxImageSize) {
-        toast.error('Image size must be less than 10MB');
-        return;
-      }
-    } else if (isVideo) {
-      try {
-        const duration = await getVideoDuration(file);
-        if (duration > 120) {
-          const minutes = Math.floor(duration / 60);
-          const seconds = Math.floor(duration % 60);
-          toast.error(`Video is too long (${minutes}m ${seconds}s). Maximum duration is 2 minutes.`);
-          return;
-        }
-      } catch (error) {
-        console.error('❌ Error checking video duration:', error);
-        toast.error('Unable to validate video duration. Please try again.');
-        return;
-      }
-    }
+    const prepared = await prepareCoverFile(file);
+    if (!prepared) return;
+    const { isVideo, file: coverFile } = prepared;
 
     try {
       setCoverUploadType(isVideo ? 'video' : 'photo');
@@ -6033,7 +6022,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       const formData = new FormData();
       formData.append('_method', 'PUT');
-      formData.append('last_update_img', file);
+      formData.append('last_update_img', coverFile);
 
       const token = tokenUtils.getToken();
       const getApiBaseUrl = () => {
@@ -6082,7 +6071,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           try {
             resolve({ status: xhr.status, body: JSON.parse(xhr.responseText) });
           } catch {
-            reject(new Error('Invalid JSON response'));
+            resolve({ status: xhr.status, body: null });
           }
         };
         xhr.onerror = () => { clearInterval_(); reject(new Error('Network error')); };
@@ -6095,11 +6084,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (data.status >= 200 && data.status < 300 && data.body?.success) {
         toast.dismiss();
         toast.success(isVideo ? 'Cover video updated successfully!' : 'Cover photo updated successfully!');
+        clearApiCache();
         await fetchMemoryDetails(true);
         if (onRefresh) await onRefresh();
       } else {
         toast.dismiss();
-        toast.error(data.body?.message || data.body?.error || (isVideo ? 'Failed to update cover video' : 'Failed to update cover photo'));
+        toast.error(coverUploadFailureMessage(data.status, data.body, isVideo));
       }
     } catch (error) {
       console.error('❌ Error uploading cover:', error);
@@ -6174,6 +6164,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         setIsCoverPhotoSelectionMode(false);
 
         console.log('🔄 Refreshing memory details...');
+        clearApiCache();
         await fetchMemoryDetails(true);
 
         // Refresh memories list on parent page
@@ -6232,13 +6223,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const handleSidebarUpdatePostImage = (postId: string) => {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/*';
+    fileInput.accept = IMAGE_ACCEPT;
     fileInput.style.display = 'none';
     fileInput.onchange = async () => {
       const file = fileInput.files?.[0];
       fileInput.remove();
       if (!file) return;
-      if (!file.type.startsWith('image/')) {
+      if (!isImageFile(file)) {
         toast.error('Please select an image file');
         return;
       }
@@ -7594,9 +7585,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         // Remember this post ID so we scroll back to it after data refreshes
         scrollToPostIdAfterRefresh.current = String(id);
 
-        // Force re-fetch memory details to get updated data
-        setApiMemoryData(null); // Clear current data to force re-render
-        await fetchMemoryDetails(false); // Fetch fresh data with loading state
+        // Re-fetch in place (Chris, 19 Nov 2026): moving a photo into another moment updates the Media count and the
+        // timeline without the full-page "Loading campaign…" that lost the viewer's place.
+        await fetchMemoryDetails(true);
       } else {
         console.error('❌ Failed to update item:', response.error);
         toast.error(response.error || "Failed to update photo");
@@ -7898,7 +7889,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Storeel page's "+" (Chris, 8 Nov 2026, point 1) both come here, so each option opens its existing editor.
   const openAddWidget = (kind: AddWidgetKind, afterPostId: string | null, place?: { atStart: true } | { afterWidgetId: string }) => {
     insertPlaceRef.current = place ? { ...place, afterPostId } : null;
-    if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
+    if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; insertMomentAtStartRef.current = momentInsertAtStart(afterPostId, place); setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
     else if (kind === 'html') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
     else if (kind === 'youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
     else if (kind === 'quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
@@ -8016,7 +8007,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             <button
               type="button"
               className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
-              onClick={() => { setActivePlusDivider(null); insertAfterPostIdRef.current = afterPostId || null; setInsertAfterPostId(afterPostId || null); setIsAddMomentModalOpen(true); }}
+              onClick={() => { setActivePlusDivider(null); insertAfterPostIdRef.current = afterPostId || null; insertMomentAtStartRef.current = momentInsertAtStart(afterPostId, place); setInsertAfterPostId(afterPostId || null); setIsAddMomentModalOpen(true); }}
             >
               <div className="w-[32px] h-[32px] flex-shrink-0">
                 <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -8629,10 +8620,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <label className="mt-1.5 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:border-[#6C60FF]/50 hover:bg-[#6C60FF]/5 transition-colors cursor-pointer">
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={IMAGE_ACCEPT}
                       className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
+                      onChange={async (e) => {
+                        const file = await preparePickedImage(e.target.files?.[0]);
                         if (!file) return;
                         const url = URL.createObjectURL(file);
                         setAiCreatorReferenceImage(file);
@@ -9858,17 +9849,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           isOpen={isAddMomentModalOpen && !isInventoryDetail} // never on read-only inventory (cars, catalogue products)
           onClose={() => {
             setIsAddMomentModalOpen(false);
-            insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+            insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
             setSelectedMediaLibraryImagesForMoment([]);
             setParentImageIdForSubImage(undefined); // Clear parent image ID
             setCapturedFiles(null); // Clear captured files
-            // Refresh memory data
-            fetchMemoryDetails();
+            // Refresh memory data in place (Chris, 19 Nov 2026: no "Loading campaign…", the page keeps its place)
+            fetchMemoryDetails(true);
           }}
           memoryId={memoryId}
           memoryTitle={apiMemoryData?.title || 'Memory'}
-          memoryThumbnail={apiMemoryData?.last_update_img || apiMemoryData?.thumbnail}
-          memoryCreatedDate={apiMemoryData?.created_at}
+          memoryThumbnail={campaignPickerCover || undefined}
+          memoryCreatedDate={campaignPickerDate}
           userRole={currentUserRole}
           parentImageId={parentImageIdForSubImage}
           capturedFiles={capturedFiles}
@@ -9879,6 +9870,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             console.log('🔍 Current userRole:', currentUserRole);
             console.log('🔍 Setting isAddMomentSelectionMode: true');
             console.log('🔍 Setting isMediaLibraryOpen: true');
+            libraryForViewerRef.current = false;
             setIsAddMomentSelectionMode(true);
             setIsMediaLibraryOpen(true);
             console.log('🔍 States updated');
@@ -9886,6 +9878,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           selectedMediaLibraryImages={selectedMediaLibraryImagesForMoment}
           insertAfterPostId={insertAfterPostId}
           getInsertAfterPostId={() => insertAfterPostIdRef.current}
+          getInsertAtStart={() => insertMomentAtStartRef.current}
           onAddMoment={(momentData) => {
             console.log('Moment added:', momentData);
             // Scroll the Timeline to the newly added moment once the refreshed
@@ -9893,12 +9886,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             // the Voice-to-Text modal's onMomentsCreated already relies on.
             const newPostId = Array.isArray(momentData) ? momentData[momentData.length - 1]?.image?.id : undefined;
             if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
-            // Close modal and refresh
+            // Close modal and refresh in place (no full-page "Loading campaign…")
             setIsAddMomentModalOpen(false);
-            insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+            insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
             setSelectedMediaLibraryImagesForMoment([]);
             setCapturedFiles(null); // Clear captured files
-            fetchMemoryDetails();
+            fetchMemoryDetails(true);
 
             // Refresh memories list on parent page
             if (onRefresh) {
@@ -9944,7 +9937,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         <input
           ref={mediaLibraryInputRef}
           type="file"
-          accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+          accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
           className="hidden"
           onChange={handleMediaLibrarySelection}
         />
@@ -10209,6 +10202,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           onCommentCountChange={handleCommentCountChange}
           activeCollaborators={apiCollaborators.filter(c => c.status === 'active')}
           onDeleteSubImage={isInventoryDetail ? undefined : handleDeleteSubImage}
+          onOpenMediaLibrary={() => {
+            libraryForViewerRef.current = true;
+            setIsAddMomentSelectionMode(true);
+            setIsMediaLibraryOpen(true);
+          }}
+          selectedMediaLibraryImages={viewerLibraryImages}
+          onClearMediaLibraryImages={() => setViewerLibraryImages([])}
+          mediaLibraryOpen={isMediaLibraryOpen}
+          onCloseMediaLibrary={() => {
+            setIsMediaLibraryOpen(false);
+            setIsAddMomentSelectionMode(false);
+            setMediaLibrarySelectedItems([]);
+          }}
         />
 
         {/* Media Library Modal */}
@@ -10441,7 +10447,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       );
                       console.log('Passing moments to AddMomentModal:', selectedImages);
 
-                      setSelectedMediaLibraryImagesForMoment(selectedImages);
+                      if (libraryForViewerRef.current) setViewerLibraryImages(selectedImages);
+                      else setSelectedMediaLibraryImagesForMoment(selectedImages);
 
                       setIsMediaLibraryOpen(false);
                       setMediaLibrarySelectedItems([]);
@@ -10759,10 +10766,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 )}
                 <input
                   type="file"
-                  accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+                  accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
                   className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
+                  onChange={async (e) => {
+                    const file = await preparePickedImage(e.target.files?.[0]);
                     if (file) {
                       setAddPersonPhoto(file);
                       setAddPersonPhotoPreview(URL.createObjectURL(file));
@@ -13775,8 +13782,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       subImageCount={subImageCount}
                                       subImages={postSubImages}
                                       memoryTitle={apiMemoryData?.title}
-                                      memoryThumbnail={apiMemoryData?.last_update_img}
-                                      memoryCreatedDate={apiMemoryData?.created_at}
+                                      memoryThumbnail={campaignPickerCover || undefined}
+                                      memoryCreatedDate={campaignPickerDate}
+                                      memoryDateLabel={campaignPickerDateLabel}
                                       memoryImages={memoryImagesWithSubImages}
                                       memoryPublished={apiMemoryData?.published}
                                       memoryId={memoryId}
@@ -14024,8 +14032,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               onDeleteItem={isSuggestedCategory || isCatalogItemDetail || mediaItemLocked(item.id) ? undefined : () => handleDeleteItem(item.id, isCarPhotoId(item.id))}
                               memoryOwnerId={memoryOwnerId}
                               memoryTitle={apiMemoryData?.title}
-                              memoryThumbnail={apiMemoryData?.last_update_img}
-                              memoryCreatedDate={apiMemoryData?.created_at}
+                              memoryThumbnail={campaignPickerCover || undefined}
+                              memoryCreatedDate={campaignPickerDate}
+                              memoryDateLabel={campaignPickerDateLabel}
                               memoryImages={memoryImagesWithSubImages}
                               index={idx + 1}
                               isHidden={hiddenImageUrls.has(item.image) || hiddenImageUrls.has(item.thumbnail)}
@@ -14408,8 +14417,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               subImageCount={subImageCount}
                               subImages={postSubImages}
                               memoryTitle={apiMemoryData?.title}
-                              memoryThumbnail={apiMemoryData?.last_update_img}
-                              memoryCreatedDate={apiMemoryData?.created_at}
+                              memoryThumbnail={campaignPickerCover || undefined}
+                              memoryCreatedDate={campaignPickerDate}
+                              memoryDateLabel={campaignPickerDateLabel}
                               memoryImages={memoryImagesWithSubImages}
                               memoryPublished={apiMemoryData?.published}
                               memoryId={memoryId}
@@ -16058,6 +16068,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               >
                 {mediaSortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
               </Button>
+              {/* 2 or 3 photos across (Chris, 19 Nov 2026, point 12): smaller thumbnails, easier to drag in order. */}
+              <Button
+                variant="outline"
+                size="sm"
+                data-testid="media-columns-toggle"
+                aria-label={mediaColumns === 3 ? 'Show 2 per row' : 'Show 3 per row'}
+                title={mediaColumns === 3 ? 'Show 2 per row' : 'Show 3 per row'}
+                onClick={() => { const next: MediaColumns = mediaColumns === 3 ? 2 : 3; setMediaColumns(next); saveMediaColumns(next); }}
+                className="h-9 w-9 p-0 border-gray-200 flex-shrink-0"
+              >
+                {mediaColumns === 3 ? <Grid2x2 className="w-4 h-4" /> : <Grid3x3 className="w-4 h-4" />}
+              </Button>
               <button
                 onClick={() => {
                   const newVal = !isMediaSelectAll;
@@ -16252,7 +16274,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           setShowAddMomentModal(false);
                           setSelectedItems([]);
                           setAddMomentSelectedParentId(null);
-                          await fetchMemoryDetails();
+                          // In place, fresh (raw fetch: the GET cache isn't cleared for us) — Chris, 19 Nov 2026
+                          clearApiCache();
+                          await fetchMemoryDetails(true);
                         } else {
                           toast.error(data.error || 'Failed to add moment');
                         }
@@ -16327,7 +16351,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {displayMediaItems.length > 0 ? (
               <>
               <div
-                className="grid grid-cols-2 gap-3 relative [&_*]:!cursor-none [&_button]:!cursor-pointer [&_a]:!cursor-pointer [&_[role=button]]:!cursor-pointer cursor-none"
+                data-testid="media-panel-grid"
+                data-columns={mediaColumns}
+                className={`grid ${mediaColumns === 3 ? 'grid-cols-3 gap-2' : 'grid-cols-2 gap-3'} relative [&_*]:!cursor-none [&_button]:!cursor-pointer [&_a]:!cursor-pointer [&_[role=button]]:!cursor-pointer cursor-none`}
                 onMouseMove={(e) => {
                   const target = e.target as HTMLElement;
                   const isOverButton = !!(target.closest('button') || target.closest('a') || target.closest('[role="button"]'));
@@ -16368,12 +16394,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       onDeleteItem={isSuggestedCategory || isCatalogItemDetail || mediaItemLocked(item.id) ? undefined : () => handleDeleteItem(item.id, isCarPhotoId(item.id))}
                       memoryOwnerId={memoryOwnerId}
                       memoryTitle={apiMemoryData?.title}
-                      memoryThumbnail={apiMemoryData?.last_update_img}
-                      memoryCreatedDate={apiMemoryData?.created_at}
+                      memoryThumbnail={campaignPickerCover || undefined}
+                      memoryCreatedDate={campaignPickerDate}
+                      memoryDateLabel={campaignPickerDateLabel}
                       memoryImages={memoryImagesWithSubImages}
                       index={idx + 1}
                       isHidden={isItemHidden}
                       isCar={isInventoryDetail}
+                      compact={mediaColumns === 3}
                     />
                     </div>
                   );
@@ -16613,10 +16641,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       <input
                         id="person-thumb-input"
                         type="file"
-                        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+                        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
                         className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
+                        onChange={async (e) => {
+                          const input = e.target;
+                          const file = await preparePickedImage(input.files?.[0]);
                           if (file) {
                             const url = URL.createObjectURL(file);
                             setCropImageSrc(url);
@@ -16624,7 +16653,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             setCropZoom(1);
                             setCroppedAreaPixels(null);
                           }
-                          e.target.value = '';
+                          input.value = '';
                         }}
                       />
                     </div>
@@ -17261,20 +17290,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         isOpen={isAddMomentModalOpen && !isInventoryDetail} // never on read-only inventory (cars, catalogue products)
         onClose={() => {
           setIsAddMomentModalOpen(false);
-          insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+          insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
           setSelectedMediaLibraryImagesForMoment([]);
           setParentImageIdForSubImage(undefined); // Clear parent image ID
           setCapturedFiles(null); // Clear captured files
-          // Refresh page data when modal closes
-          fetchMemoryDetails();
+          // Refresh page data in place when the modal closes (Chris, 19 Nov 2026: no "Loading campaign…")
+          fetchMemoryDetails(true);
           fetchMemoryActivity();
           // NOTE: We do NOT call onRefreshMedia() here to avoid heavy reload
           // The media page will refresh when the user navigates to it
         }}
         memoryId={memoryId}
         memoryTitle={uiMemory.title}
-        memoryThumbnail={apiMemoryData?.last_update_img || apiMemoryData?.thumbnail}
-        memoryCreatedDate={apiMemoryData?.created_at}
+        memoryThumbnail={campaignPickerCover || undefined}
+        memoryCreatedDate={campaignPickerDate}
         memoryLocation={apiMemoryData?.location}
         userRole={currentUserRole}
         parentImageId={parentImageIdForSubImage}
@@ -17284,11 +17313,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         buttonRef={addMomentButtonRef}
         insertAfterPostId={insertAfterPostId}
         getInsertAfterPostId={() => insertAfterPostIdRef.current}
+        getInsertAtStart={() => insertMomentAtStartRef.current}
         // Chris, 7 Nov 2026: the owner can add Website Catalogue products / vehicles here too (saved at once).
         inventory={memoryId && !isCollaboratorView ? campaignPageInventory({
           memoryId,
           afterPostId: () => insertAfterPostIdRef.current,
-          onAdded: () => { clearApiCache(); fetchMemoryDetails(); },
+          onAdded: () => { clearApiCache(); fetchMemoryDetails(true); },
           linkedVehicleIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => lm?.is_car === true || Number(lm?.is_car) === 1).map((lm: any) => String(lm.id)),
           linkedCampaignIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => !(lm?.is_car === true || Number(lm?.is_car) === 1)).map((lm: any) => String(lm.id)),
         }) : undefined}
@@ -17297,6 +17327,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           console.log('🔍 Current userRole:', currentUserRole);
           console.log('🔍 Setting isAddMomentSelectionMode: true');
           console.log('🔍 Setting isMediaLibraryOpen: true');
+          libraryForViewerRef.current = false;
           setIsAddMomentSelectionMode(true);
           setIsMediaLibraryOpen(true);
           console.log('🔍 States updated');
@@ -17311,11 +17342,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
           // Close modal immediately
           setIsAddMomentModalOpen(false);
-          insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+          insertAfterPostIdRef.current = null; insertMomentAtStartRef.current = false; setInsertAfterPostId(null);
           setSelectedMediaLibraryImagesForMoment([]);
           setCapturedFiles(null); // Clear captured files
-          // Refresh memory data instead of page reload
-          fetchMemoryDetails();
+          // Refresh memory data in place: no "Loading campaign…", the scroll position stays (Chris, 19 Nov 2026)
+          fetchMemoryDetails(true);
 
           // Refresh memories list on parent page
           if (onRefresh) {
@@ -17363,7 +17394,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       <input
         ref={mediaLibraryInputRef}
         type="file"
-        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : 'image/*'}
+        accept={isMobile ? MOBILE_IMAGE_EXTENSIONS : IMAGE_ACCEPT}
         className="hidden"
         onChange={handleMediaLibrarySelection}
       />
@@ -18383,6 +18414,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         onCommentCountChange={handleCommentCountChange}
         activeCollaborators={apiCollaborators.filter(c => c.status === 'active')}
         onDeleteSubImage={isInventoryDetail ? undefined : handleDeleteSubImage}
+        onOpenMediaLibrary={() => {
+          libraryForViewerRef.current = true;
+          setIsAddMomentSelectionMode(true);
+          setIsMediaLibraryOpen(true);
+        }}
+        selectedMediaLibraryImages={viewerLibraryImages}
+        onClearMediaLibraryImages={() => setViewerLibraryImages([])}
+        mediaLibraryOpen={isMediaLibraryOpen}
+        onCloseMediaLibrary={() => {
+          setIsMediaLibraryOpen(false);
+          setIsAddMomentSelectionMode(false);
+          setMediaLibrarySelectedItems([]);
+        }}
       />
 
       {/* Media Library Modal */}
@@ -18620,7 +18664,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     console.log('Passing moments to AddMomentModal:', selectedImages);
 
                     // Pass selected images to AddMomentModal
-                    setSelectedMediaLibraryImagesForMoment(selectedImages);
+                    if (libraryForViewerRef.current) setViewerLibraryImages(selectedImages);
+                    else setSelectedMediaLibraryImagesForMoment(selectedImages);
 
                     // Close media library modal
                     setIsMediaLibraryOpen(false);

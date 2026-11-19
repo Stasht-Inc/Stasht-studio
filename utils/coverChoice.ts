@@ -60,7 +60,8 @@ export function coverChoicePayload(state: CoverChoice<unknown>): { last_update_i
 
 // Same types and size as the form's Media picker ("JPG, JPEG, PNG up to 10MB").
 export const COVER_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
-export const COVER_PHOTO_ACCEPT = '.jpg,.jpeg,.png,image/jpeg,image/png';
+// HEIC/HEIF (iPhone / Mac Photos) are offered too: Create campaign turns them into JPEG before checking/uploading (Chris 19 Nov 2026).
+export const COVER_PHOTO_ACCEPT = '.jpg,.jpeg,.png,image/jpeg,image/png,.heic,.heif,image/heic,image/heif';
 const COVER_PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png'];
 
 export function coverPhotoFileError(file: { type?: string; size?: number }): string | null {

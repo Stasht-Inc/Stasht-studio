@@ -15,7 +15,8 @@ type Row = Record<string, any> | null | undefined;
 
 export const PROPERTY_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const PROPERTY_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-export const PROPERTY_IMAGE_ACCEPT = PROPERTY_IMAGE_TYPES.join(',');
+// HEIC/HEIF (iPhone / Mac Photos) are offered too: the pickers turn them into JPEG before checking (Chris 19 Nov 2026).
+export const PROPERTY_IMAGE_ACCEPT = [...PROPERTY_IMAGE_TYPES, 'image/heic', 'image/heif', '.heic', '.heif'].join(',');
 
 const FALLBACK_ERROR = 'The image could not be uploaded. Please try again.';
 

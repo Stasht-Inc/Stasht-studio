@@ -8,6 +8,7 @@ import { Badge } from './ui/badge';
 import { EditMediaItemPopover } from './EditMediaItemPopover';
 import { FacebookIcon } from './icons/FacebookIcon';
 import { InstagramIcon } from './icons/InstagramIcon';
+import { formatStoredSize } from '../utils/campaignMoments';
 
 interface MediaItem {
   id: string;
@@ -58,7 +59,9 @@ interface MemoryDetailsMediaItemProps {
   memoryTitle?: string;
   memoryThumbnail?: string;
   memoryCreatedDate?: string;
+  memoryDateLabel?: string; // the campaign's dates for "Choose a Moment" (Chris, 19 Nov 2026)
   memoryImages?: MemoryImage[];
+  compact?: boolean; // the Media panel's 3-across grid: smaller text, no description
   index?: number; // Sequential number to display on the card
   isHidden?: boolean; // Person hidden from media
   isCar?: boolean; // Car media has no real capture date — hide the date row
@@ -76,7 +79,9 @@ export default function MemoryDetailsMediaItem({
   memoryTitle,
   memoryThumbnail,
   memoryCreatedDate,
+  memoryDateLabel,
   memoryImages = [],
+  compact = false,
   index,
   isHidden = false,
   isCar = false
@@ -133,14 +138,8 @@ export default function MemoryDetailsMediaItem({
     }
   };
 
-  const formatFileSize = (sizeInBytes: string | number) => {
-    const bytes = typeof sizeInBytes === 'string' ? parseInt(sizeInBytes) : sizeInBytes;
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
+  // Sizes are stored in MB (Chris, 19 Nov 2026: a 3.4 MB photo read "3 B"); '' when unknown.
+  const formatFileSize = (size: string | number) => formatStoredSize(size);
 
   const formatDate = (dateString: string) => {
     try {
@@ -204,14 +203,14 @@ export default function MemoryDetailsMediaItem({
                 src: item.image,
                 alt: item.name,
                 title: item.name,
-                subtitle: `${formatFileSize(item.size)} • ${formatDate(item.date)}`,
+                subtitle: [formatFileSize(item.size), formatDate(item.date)].filter(Boolean).join(' • '),
                 id: item.id
               });
               onViewImage(
                 item.image,
                 item.name,
                 item.name,
-                `${formatFileSize(item.size)} • ${formatDate(item.date)}`,
+                [formatFileSize(item.size), formatDate(item.date)].filter(Boolean).join(' • '),
                 item.id
               );
             }}
@@ -258,14 +257,14 @@ export default function MemoryDetailsMediaItem({
                   src: item.image,
                   alt: item.name,
                   title: item.name,
-                  subtitle: `${formatFileSize(item.size)} • ${formatDate(item.date)}`,
+                  subtitle: [formatFileSize(item.size), formatDate(item.date)].filter(Boolean).join(' • '),
                   id: item.id
                 });
                 onViewImage(
                   item.image,
                   item.name,
                   item.name,
-                  `${formatFileSize(item.size)} • ${formatDate(item.date)}`,
+                  [formatFileSize(item.size), formatDate(item.date)].filter(Boolean).join(' • '),
                   item.id
                 );
               }}
@@ -291,14 +290,14 @@ export default function MemoryDetailsMediaItem({
                   src: item.image,
                   alt: item.name,
                   title: item.name,
-                  subtitle: `${formatFileSize(item.size)} • ${formatDate(item.date)}`,
+                  subtitle: [formatFileSize(item.size), formatDate(item.date)].filter(Boolean).join(' • '),
                   id: item.id
                 });
                 onViewImage(
                   item.image,
                   item.name,
                   item.name,
-                  `${formatFileSize(item.size)} • ${formatDate(item.date)}`,
+                  [formatFileSize(item.size), formatDate(item.date)].filter(Boolean).join(' • '),
                   item.id
                 );
               }}
@@ -321,6 +320,7 @@ export default function MemoryDetailsMediaItem({
                 memoryTitle={memoryTitle}
                 memoryThumbnail={memoryThumbnail}
                 memoryCreatedDate={memoryCreatedDate}
+                memoryDateLabel={memoryDateLabel}
                 memoryImages={memoryImages}
                 trigger={
                   <Button
@@ -430,9 +430,9 @@ export default function MemoryDetailsMediaItem({
       </div>
 
       {/* Media Info */}
-      <div className="p-3 space-y-2">
+      <div className={compact ? 'p-2 space-y-1' : 'p-3 space-y-2'}>
         {/* File Name */}
-        <h4 className="font-medium text-sm text-gray-900 truncate" title={item.name}>
+        <h4 className={`font-medium ${compact ? 'text-xs' : 'text-sm'} text-gray-900 truncate`} title={item.name}>
           {item.name}
         </h4>
 
@@ -444,7 +444,7 @@ export default function MemoryDetailsMediaItem({
         )}
 
         {/* Description */}
-        {item.description && item.description !== item.name && (
+        {!compact && item.description && item.description !== item.name && (
           <p className="text-xs text-gray-600 line-clamp-2" title={item.description}>
             {item.description}
           </p>
@@ -464,10 +464,10 @@ export default function MemoryDetailsMediaItem({
         <div className="space-y-1.5">
           {/* Size and Dimensions */}
           <div className="flex items-center gap-2 text-xs text-gray-500">
-            <span>{formatFileSize(item.size)}</span>
-            {item.dimensions && (
+            {formatFileSize(item.size) && <span>{formatFileSize(item.size)}</span>}
+            {item.dimensions && !compact && (
               <>
-                <span>•</span>
+                {formatFileSize(item.size) && <span>•</span>}
                 <span>{item.dimensions}</span>
               </>
             )}

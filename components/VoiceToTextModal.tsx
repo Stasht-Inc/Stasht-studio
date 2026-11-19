@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Mic, AlertTriangle, Pencil, Sparkles, RotateCcw, Layers, Check, MicOff } from 'lucide-react';
 import { toast } from 'sonner';
+import { IMAGE_ACCEPT, toUploadableImage } from '../utils/uploadFiles';
 import mediaAPI from '../services/mediaAPI';
 
 const detectBrowser = () => {
@@ -175,9 +176,10 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
     delete segmentPhotosRef.current[idx];
   };
 
-  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = await toUploadableImage(input.files?.[0], (m) => toast.error(m)); // HEIC → JPEG (Chris 19 Nov 2026)
+    if (!file) { input.value = ''; return; }
     const idx = pendingPhotoSegmentIdxRef.current;
     if (idx >= 0) {
       segmentPhotosRef.current = { ...segmentPhotosRef.current, [idx]: file };
@@ -440,7 +442,7 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
       <input
         ref={photoInputRef}
         type="file"
-        accept="image/*"
+        accept={IMAGE_ACCEPT}
         onChange={handlePhotoSelected}
         style={{ position: 'fixed', bottom: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none', zIndex: -1 }}
       />

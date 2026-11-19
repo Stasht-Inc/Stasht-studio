@@ -44,7 +44,9 @@ import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
 import { createPreviewMoments, SHOPIFY_PRODUCT_KEY, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
+import { toUploadableImage } from '../utils/uploadFiles';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
+import { cn } from './ui/utils';
 import StepCard from './newsletters/StepCard';
 import StoreelSendStep, { SEND_STEP_ID } from './storeel/StoreelSendStep';
 import StoreelMomentsCard, { MOMENTS_STEP_ID, type MomentRow } from './storeel/StoreelMomentsCard';
@@ -1553,7 +1555,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   // Cover photo: uploaded like the Media photos (same endpoint), sent as last_update_img. Replaces an intro video.
-  const handleCoverPhotoPicked = async (file: File) => {
+  const handleCoverPhotoPicked = async (picked: File) => {
+    // An iPhone / Mac HEIC photo becomes a JPEG first (Chris 19 Nov 2026).
+    const file = await toUploadableImage(picked, (m) => toast.error(m));
+    if (!file) return;
     const problem = coverPhotoFileError(file);
     if (problem) { toast.error(problem); return; }
     const seq = nextCoverSeq();
@@ -2973,12 +2978,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
       style={{ zIndex: widgetEditorOpen ? 50 : 99999 }}
     >
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
-        <div className="flex min-w-0 items-center gap-3">
+      {/* Edit (a saved campaign): one row on phones too (Chris, 19 Nov 2026, point 16) — the title gives way, not the buttons. */}
+      <header className={cn('flex flex-shrink-0 items-center gap-x-2 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:gap-x-3 md:px-6', flowEditing || flowCampaign ? 'flex-nowrap' : 'flex-wrap')}>
+        <div className="flex min-w-0 items-center gap-2 md:gap-3">
           <button type="button" onClick={closeFlow} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">{view.title}</h2>
+          <h2 id="storeel-create-title" className={cn('truncate font-semibold text-gray-900', flowEditing || flowCampaign ? 'text-base md:text-lg' : 'text-lg')}>{view.title}</h2>
         </div>
         {/* Newsletter | Storeel only while nothing is saved: a saved campaign is a Storeel. */}
         {flowEditing || flowCampaign ? <div className="hidden md:block md:flex-1" /> : (
@@ -2986,9 +2992,25 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
           </div>
         )}
-        {/* Like the newsletter composer's top bar, minus its actions: those are at the end of the list (Chris, 4 Nov). */}
-        <div className="ml-auto hidden items-center gap-2 md:flex">
-          <button type="button" onClick={closeFlow} className={BUTTON_OUTLINE}>{view.closeLabel}</button>
+        {/* Like the newsletter composer's top bar, minus its actions: those are at the end of the list (Chris, 4 Nov).
+            On a saved campaign (Edit) Save Changes / Save & Send are here too (Chris, 19 Nov 2026, point 16): the same
+            handlers and disabled state as the bottom ones, which stay (with the red "*To send now…" reasons). */}
+        <div className="ml-auto flex flex-shrink-0 items-center gap-1.5 md:gap-2">
+          <button type="button" onClick={closeFlow} className={`${BUTTON_OUTLINE} hidden md:inline-flex`}>{view.closeLabel}</button>
+          {flowEditing || flowCampaign ? (
+            <>
+              <button type="button" data-testid="st-top-save" onClick={() => saveFlow(false)} disabled={saveDisabled}
+                aria-describedby={saveReason ? 'st-save-reason' : undefined}
+                className={cn(BUTTON_SECONDARY, 'h-9 whitespace-nowrap px-2.5 text-[13px] md:h-10 md:px-5 md:text-sm')}>
+                {savingAction === 'save' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{view.save.label}
+              </button>
+              <button type="button" data-testid="st-top-send" onClick={() => saveFlow(true)} disabled={saveDisabled || Boolean(sendDisabledReason)}
+                aria-describedby={saveReason ? 'st-save-reason' : sendDisabledReason ? 'st-send-reason' : undefined}
+                className={cn(BUTTON_PRIMARY, 'h-9 whitespace-nowrap px-2.5 text-[13px] md:h-10 md:px-5 md:text-sm')}>
+                {savingAction === 'send' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="hidden h-4 w-4 sm:block" aria-hidden="true" />}{view.saveAndSend.label}
+              </button>
+            </>
+          ) : null}
         </div>
       </header>
 
@@ -3376,7 +3398,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               <input
                 ref={introVideoInputRef}
                 type="file"
-                accept="video/*"
+                accept="video/*,video/quicktime,.mov,.mp4,.m4v"
                 className="hidden"
                 data-testid="intro-video-input"
                 onChange={(e) => {

@@ -1,6 +1,7 @@
 import { Upload } from "lucide-react";
 import { Button } from "../ui/button";
 import { useState, useRef, forwardRef, useImperativeHandle } from "react";
+import { MEDIA_ACCEPT } from '../../utils/uploadFiles';
 
 interface MainUploadAreaProps {
   onFilesUpload: (files: File[]) => void;
@@ -75,7 +76,7 @@ export const MainUploadArea = forwardRef<MainUploadAreaRef, MainUploadAreaProps>
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*,video/*"
+        accept={MEDIA_ACCEPT}
         onChange={handleFileSelect}
         className="hidden"
         id="main-file-upload"
