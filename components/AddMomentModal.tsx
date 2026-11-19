@@ -542,7 +542,7 @@ export function AddMomentModal({
     }
   };
 
-  // Upload from Desktop: Chrome / Edge on a computer use the re-readable picker, every pick read into memory at once
+  // Upload from Desktop: Chrome / Edge in a browser tab on a computer use the re-readable picker, every pick read into memory at once
   // (a Mac Photos pick is written by macOS at pick time; Chrome refused to send it — Chris 19 Nov 2026). Other browsers:
   // the hidden file input, as before.
   const openDesktopPicker = (inputId: string) => {
@@ -554,7 +554,10 @@ export function AddMomentModal({
       .then((files) => {
         if (files.length) void handleFileSelect({ target: { files } } as unknown as React.ChangeEvent<HTMLInputElement>);
       })
-      .catch((error) => toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED));
+      .catch((error) => toast.error(error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED, {
+        // A new pick with the plain file window (the installed Studio app and other browsers use it too).
+        action: { label: 'Pick again', onClick: () => document.getElementById(inputId)?.click() },
+      }));
   };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {

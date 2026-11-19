@@ -405,7 +405,49 @@ async function photosAddMomentFlow() {
   await context.close();
 }
 
+/** The installed Studio app (display-mode: standalone): Edit Cover opens the plain file window, the pick uploads.
+ *  Then a pick that can't be read (Chrome tab) shows "Pick again", which opens the plain file window and uploads. */
+async function installedAppAndPickAgainFlow() {
+  const width = 1280;
+  console.log(`-- ${width}px: installed Studio app → plain file window; "Pick again" after an unreadable pick`);
+  const { page, context, state } = await open({ width, height: 900, keepHandlePicker: true });
+  await openCampaign(page);
+  // Installed app: display-mode standalone.
+  await page.evaluate(() => {
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = (q) => (q === '(display-mode: standalone)' ? { matches: true, media: q, addEventListener() {}, removeEventListener() {} } : real(q));
+  });
+  await stubPhotosPicker(page, { bad: 0 });
+  const accept = await pickCover(page, width, JPEG_FIXTURE);
+  const t1 = await waitToast(page, /Cover photo updated|Failed|couldn't/);
+  const opened = await page.evaluate(() => window.__picker.opened);
+  expect(opened === 0 && /\.heic/.test(accept), `${width}: installed app → the plain file window (re-readable picker opened ${opened}×, accept ${accept})`);
+  expect(/Cover photo updated successfully/.test(t1) && state.coverPuts.length === 1 && state.coverPuts[0].jpeg, `${width}: … and the photo uploads (${t1})`);
+  await page.waitForTimeout(4500);
+
+  // Back to a Chrome tab: a pick that never reads → "Pick again" → plain file window → uploads.
+  await page.reload();
+  await openCampaign(page);
+  await stubPhotosPicker(page, { neverReadable: true });
+  await clickUploadFromDesktop(page);
+  const t2 = await waitToast(page, /couldn't be read/, 20000);
+  expect(/This photo couldn't be read\. Please pick it again\./.test(t2), `${width}: unreadable pick → message (${t2})`);
+  const again = page.getByRole('button', { name: 'Pick again' }).filter({ visible: true }).first();
+  expect(await again.isVisible(), `${width}: … with a "Pick again" button`);
+  await shot(page, '05-pick-again', width);
+  const chooserP = page.waitForEvent('filechooser', { timeout: 15000 });
+  await again.click();
+  const chooser = await chooserP;
+  await chooser.setFiles(JPEG_FIXTURE);
+  const t3 = await waitToast(page, /Cover photo updated/, 15000);
+  expect(/Cover photo updated successfully/.test(t3) && state.coverPuts.length === 2, `${width}: "Pick again" opens the plain file window and the photo uploads (${t3})`);
+  await page.waitForTimeout(1500);
+  expect((await coverState(page)).src === state.cover, `${width}: … and is the cover`);
+  await context.close();
+}
+
 try {
+  await installedAppAndPickAgainFlow();
   await photosCoverFlow();
   await photosAddMomentFlow();
   await classicCoverFlow(1280, 900);
