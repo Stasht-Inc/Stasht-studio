@@ -16,6 +16,7 @@ import { propertyViewHasLeads, showsProfileTask } from "../utils/salespersonLand
 import { widgetsAPI } from "../services/widgetsAPI";
 import { catalogueAPI } from "../services/catalogueAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
+import { USERS_COUNT_EVENT } from "../utils/usersTabCounts";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
 import { useUploadProgress } from "../contexts/UploadProgressContext";
@@ -322,6 +323,13 @@ export default function Sidebar({
         }
       }
     }).catch(() => {});
+    // The Users page's own loads keep the badge current (utils/usersTabCounts USERS_COUNT_EVENT).
+    const onUsersCount = (e: Event) => {
+      const count = (e as CustomEvent<{ count?: number }>).detail?.count;
+      if (typeof count === 'number') setUsersCount(count);
+    };
+    window.addEventListener(USERS_COUNT_EVENT, onUsersCount);
+    return () => window.removeEventListener(USERS_COUNT_EVENT, onUsersCount);
   }, [isAuthenticated]);
 
   // Connectors badge = number of connectors currently connected (DocuSign + Shopify, plus the

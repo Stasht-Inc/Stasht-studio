@@ -6,6 +6,12 @@
 //   properties  GET /properties, split by account_type as the External and Properties tabs list it (utils/propertyRows)
 import { rowsForPropertyTab, type PropertyRow } from './propertyRows.ts';
 
+/**
+ * The Users page tells the sidebar's Users badge its fresh total (detail.count) after each full load, so the badge
+ * agrees with the table after an invite / removal (Chris 20 Nov 2026: badge 0, table 1 — the badge was read at sign-in).
+ */
+export const USERS_COUNT_EVENT = 'stasht:users-count';
+
 export type UsersTabCounts = {
   users: number | null;
   sharedWith: number | null;

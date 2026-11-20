@@ -67,3 +67,12 @@ test('sender unknown: the business alone', () => {
   const s = messageSignoff({ account: royalWood, acting: { id: 9, name: '' } });
   assert.equal(s.who, 'TheRoyalWoodShop');
 });
+
+// "Send as" the business (20 Nov 2026): the dialog passes no acting person / property → the business alone.
+test('sent as the business: signed by the business alone, even when an Admin is switched in', () => {
+  const s = messageSignoff({ account: { id: 1, name: 'TheRoyalWoodShop' }, acting: null, property: null, viewProperty: null });
+  assert.equal(s.who, 'TheRoyalWoodShop');
+  assert.equal(s.business, 'TheRoyalWoodShop');
+  const multi = messageSignoff({ account: { id: 2, name: 'Serpa Chrysler' }, acting: null, property: null, viewProperty: null });
+  assert.equal(multi.who, 'Serpa Chrysler');
+});

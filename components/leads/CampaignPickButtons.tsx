@@ -8,10 +8,12 @@ import { BADGE_CLASS } from '../../utils/products';
 // .active); "+ Campaign" the light purple it was before 14 Nov (3134a5b's pill, turned grey by f640cb8). Both open the
 // same picker (ShareCarsDialog): "+ Products" straight on its Products tab, "+ Campaign" as before.
 // compact: the composer's smaller pills (3134a5b's h-7 size, a little taller), so Send stays on the composer's row.
+// Same pattern for both (Chris, 20 Nov 2026: "why is Campaign button missing a stroke around it"): light fill + a
+// 1px border one step darker (emerald-200 / purple-200), same radius, padding and text weight.
 
 const PILL = 'flex items-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 whitespace-nowrap';
 const SIZE = { regular: 'gap-1.5 h-10 px-4 text-sm', compact: 'gap-1 h-8 px-2.5 text-xs' };
-export const campaignPill = (compact = false) => `${PILL} ${compact ? SIZE.compact : SIZE.regular} border border-transparent bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] focus-visible:ring-[#6C60FF]`;
+export const campaignPill = (compact = false) => `${PILL} ${compact ? SIZE.compact : SIZE.regular} border bg-purple-50 border-purple-200 hover:bg-purple-100 text-[#5A4FE5] focus-visible:ring-[#6C60FF]`;
 export const productsPill = (compact = false) => `${PILL} ${compact ? SIZE.compact : SIZE.regular} border ${BADGE_CLASS.active} hover:bg-emerald-100 focus-visible:ring-emerald-600`;
 export const CAMPAIGN_PILL = campaignPill();
 export const PRODUCTS_PILL = productsPill();

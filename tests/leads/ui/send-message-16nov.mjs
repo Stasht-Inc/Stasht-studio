@@ -1,5 +1,5 @@
 // Chris 16 Nov 2026 (C1, C2), mocked API, 1280 + 390:
-//  C1. "+ Send Message": "Send as" (not "Send from"), placeholder "Choose a business", the hint under it, and it starts on
+//  C1. "+ Send Message": "Send as" (not "Send from"), placeholder "Choose a sender" (20 Nov), the hint under it, and it starts on
 //      the business's own property (Royal Wood's shop) in the main account — still changeable; Send carries it.
 //  C2. "+ Products" (green) to the LEFT of "+ Campaign" (light purple) in "+ Send Message" and in the lead chat
 //      composer; "+ Products" opens the picker on its Products tab, "+ Campaign" as before (Vehicles first).
@@ -106,7 +106,7 @@ try {
     await page.waitForTimeout(400);
     expect(await dlg.getByText('Send from').count() === 0, `${tag}C1: no "Send from" label`);
     expect(/TheRoyalWoodShop/.test(await sendAs.innerText()), `${tag}C1: starts on the business's own property (got "${(await sendAs.innerText()).trim()}")`);
-    expect(await dlg.getByText('Which business this conversation is filed under. Its team sees it in Leads.').count() === 1, `${tag}C1: hint under "Send as"`);
+    expect(await dlg.getByText('Who the message comes from. The team sees the conversation in Leads.').count() === 1, `${tag}C1: hint under "Send as"`);
     expect(await dlg.getByText(/dealership/i).count() === 0, `${tag}C1: no "dealership" wording`);
 
     const products = dlg.getByRole('button', { name: 'Add products to your message' });

@@ -12,7 +12,8 @@ import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phon
 import { useProperty } from '../../contexts/PropertyContext';
 import { actingPerson, messageSignoff } from '../../utils/messageSignoff';
 import { fallbackDraft, removeDraft, replaceDraft } from '../../utils/composerCampaign';
-import { defaultSendAs } from '../../utils/sendAsDefault';
+import { defaultSendAs, offersBusiness, SEND_AS_BUSINESS } from '../../utils/sendAsDefault';
+import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { findPropertyRow } from '../../utils/propertyRows';
 import { CAMPAIGN_PILL, ProductsPickButton, useHasProducts } from './CampaignPickButtons';
 
@@ -61,7 +62,13 @@ interface Props {
 
 // account_type etc. come from GET /properties (my-properties sends id + name only): a property's name is used in the
 // sign-off only when that row says it is internal (utils/messageSignoff).
-interface Option { id: string; name: string; row?: Record<string, any> }
+// The business itself (SEND_AS_BUSINESS) is listed first when offersBusiness(): the account's name and logo.
+interface Option { id: string; name: string; row?: Record<string, any>; avatar?: string | null }
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
+}
 
 function readSwitchData(): any {
   try { return JSON.parse(localStorage.getItem('admin_switch_data') || 'null'); } catch { return null; }
@@ -107,22 +114,32 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
       const list: any[] = res?.properties || res?.data?.properties || [];
       const rows = await fullRows;
       if (cancelled) return;
-      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: findPropertyRow(rows, p.id) ?? undefined }));
+      const props: Option[] = list.map((p) => ({ id: String(p.id), name: p.name, row: findPropertyRow(rows, p.id) ?? undefined }));
+      const inPropertyView = viewType === 'property';
+      const accountName = ((user as any)?.name || '').trim();
+      const accountLogo = (user as any)?.avatar || (user as any)?.profile_image;
+      // The business itself first (Chris, 20 Nov 2026), then the properties as before.
+      const opts: Option[] = accountName && offersBusiness(props, inPropertyView)
+        ? [{ id: SEND_AS_BUSINESS, name: accountName, avatar: accountLogo && accountLogo !== 'null' ? accountLogo : null }, ...props]
+        : props;
       setProperties(opts);
-      // "Send as" starts on the current view's business, or the account's own (utils/sendAsDefault); changeable.
-      setPropertyId(defaultSendAs(opts, viewType === 'property' ? (currentProperty as any)?.id ?? null : null));
+      // "Send as" starts on the current view's business, the account's own property, else the business itself
+      // (utils/sendAsDefault); changeable.
+      setPropertyId(defaultSendAs(opts, inPropertyView ? (currentProperty as any)?.id ?? null : null));
     }).catch(() => { if (!cancelled) setProperties([]); });
     return () => { cancelled = true; };
   }, [open]);
 
   const carCount = picked?.ids.length ?? 0;
   const pickedKind: PickKind = picked?.kind ?? 'vehicle';
-  const pickedProperty = properties.find((p) => p.id === propertyId);
+  const asBusiness = propertyId === SEND_AS_BUSINESS;
+  const pickedProperty = asBusiness ? undefined : properties.find((p) => p.id === propertyId);
+  // Sent as the business: signed by the business alone ("— TheRoyalWoodShop"), not "Christian at TheRoyalWoodShop".
   const signoff = messageSignoff({
     account: user as any,
-    acting: actingPerson(readSwitchData(), user as any, readToken()),
+    acting: asBusiness ? null : actingPerson(readSwitchData(), user as any, readToken()),
     property: pickedProperty ? { ...(pickedProperty.row || {}), name: pickedProperty.name } : null,
-    viewProperty: viewType === 'property' ? (currentProperty as any) : null,
+    viewProperty: !asBusiness && viewType === 'property' ? (currentProperty as any) : null,
   });
   const bodySuggestion = suggestedBody(carCount, signoff.who, pickedKind);
   const body = bodyOverride ?? bodySuggestion;
@@ -186,7 +203,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
         ...(channel === 'sms' ? { phone: phoneE164 } : { email: email.trim(), ...(subject.trim() ? { subject: subject.trim() } : {}) }),
         ...(name.trim() ? { name: name.trim() } : {}),
         body: body.trim(),
-        ...(propertyId ? { property_id: propertyId } : {}),
+        ...(asBusiness ? { send_as: 'account' } : propertyId ? { property_id: propertyId } : {}),
         ...(picked ? { ...campaignIdsBody(picked.kind, picked.ids), campaign_title: picked.name } : {}),
       });
       if (res.success && res.data) {
@@ -290,13 +307,25 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
               <span id="sm-property-label" className={label}>Send as</span>
               <Select value={propertyId} onValueChange={setPropertyId}>
                 <SelectTrigger aria-labelledby="sm-property-label" aria-describedby="sm-property-hint" className="h-10 w-full bg-white border-gray-200 text-sm">
-                  <SelectValue placeholder="Choose a business" />
+                  <SelectValue placeholder="Choose a sender" />
                 </SelectTrigger>
                 <SelectContent>
-                  {properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  {properties.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.id === SEND_AS_BUSINESS ? (
+                        <span className="flex items-center gap-2">
+                          <Avatar className="h-5 w-5">
+                            {p.avatar && <AvatarImage src={p.avatar} alt="" />}
+                            <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-[10px] font-bold">{initials(p.name)}</AvatarFallback>
+                          </Avatar>
+                          {p.name}
+                        </span>
+                      ) : p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              <p id="sm-property-hint" className="mt-1 text-xs text-gray-500">Which business this conversation is filed under. Its team sees it in Leads.</p>
+              <p id="sm-property-hint" className="mt-1 text-xs text-gray-500">Who the message comes from. The team sees the conversation in Leads.</p>
             </div>
           )}
 
