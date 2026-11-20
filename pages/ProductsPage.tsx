@@ -71,7 +71,10 @@ const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gr
 // C8 (Chris, 16 Nov): the Website Catalogue connector's brand (components/connectors/catalog.ts brandColors →
 // WEBSITE_CATALOG_COLOR #0F766E, white Globe on it, ConnectorIcon), on the primary button's shape.
 // Spelled out (review minor 7: no String.replace on BUTTON_PRIMARY); hover dims it slightly, as the connector has no hover shade.
-const IMPORT_BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#0F766E] px-5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:ring-offset-2';
+// Chris, 20 Nov 2026 (call 00:00:20): "make this a different green so it doesn't look too much like this" — the button
+// was the same teal (#0F766E) as every card's "Website" badge and website category pill. It is now a true green
+// (#15803D, Tailwind green-700; white text 5:1), so the button no longer reads as one of the Website badges.
+const IMPORT_BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#15803D] px-5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] focus-visible:ring-offset-2';
 
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 

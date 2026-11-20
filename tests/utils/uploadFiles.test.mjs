@@ -64,14 +64,18 @@ test('non-HEIC files (JPEG, PNG, video) and empty values are not converted — n
     assert.equal(jpgOut.name, jpg.name);
     assert.equal(jpgOut.type, jpg.type);
     assert.deepEqual([...new Uint8Array(await jpgOut.arrayBuffer())], [...new Uint8Array(await jpg.arrayBuffer())]);
-    assert.equal(await prepareImageForUpload(mov), mov);
+    // A video is copied into memory too since 20 Nov (Mac Photos videos), never converted.
+    const movOut = await prepareImageForUpload(mov);
+    assert.equal(movOut.name, mov.name);
+    assert.equal(movOut.type, 'video/quicktime');
     assert.equal(await prepareImageForUpload(null), null);
     assert.equal(await prepareImageForUpload(undefined), undefined);
     const list = await prepareImagesForUpload([jpg, file('b.heic', 'image/heic'), mov]);
     assert.equal(list.length, 3);
     assert.equal(list[0].name, jpg.name);
     assert.equal(list[1].name, 'b.jpg');
-    assert.equal(list[2], mov);
+    assert.equal(list[2].name, mov.name);
+    assert.equal(list[2].type, 'video/quicktime');
     assert.equal(called, 1);
   } finally {
     setHeicConverterForTests(null);

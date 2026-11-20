@@ -1447,6 +1447,31 @@ try {
       await context.close();
     }
   }
+  if (run('c20green')) {
+    // Chris, 20 Nov 2026 (call 00:00:20): "make this a different green so it doesn't look too much like this". The
+    // Import button was the same teal (#0F766E) as every card's "Website" badge / website category pill; now a true
+    // green (#15803D), still white text, still opens Connectors.
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `c20green-${width}`;
+      const { page, context } = await open(world(), { width, height });
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      const btn = page.getByTestId('products-import').filter({ visible: true }).first();
+      const colours = await page.evaluate(() => {
+        const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+        const b = [...document.querySelectorAll('[data-testid="products-import"]')].find((el) => el.getBoundingClientRect().width > 0);
+        const website = [...document.querySelectorAll('[data-testid="product-card"] span')].find((el) => el.textContent.trim() === 'Website');
+        return { button: bg(b), text: b ? getComputedStyle(b).color : null, website: bg(website) };
+      });
+      expect((await btn.innerText()).trim() === 'Import active', `${tag}: the button says "Import active"`);
+      expect(colours.button === 'rgb(21, 128, 61)' && colours.text === 'rgb(255, 255, 255)', `${tag}: Import button is #15803D with white text (${JSON.stringify(colours)})`);
+      expect(colours.website === 'rgb(15, 118, 110)' && colours.website !== colours.button, `${tag}: … no longer the Website badge's teal (${colours.website})`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-import-green.png` });
+      await btn.click();
+      await page.getByRole('heading', { name: 'Connectors' }).filter({ visible: true }).first().waitFor({ timeout: 20000 });
+      expect(true, `${tag}: it still opens Connectors`);
+      await context.close();
+    }
+  }
   if (run('serpa')) {
     // Chris, 17 Nov: "why are there 2 different interfaces? … All u have to do is screenshot Serpa details screen and
     // follow that pattern". A product (manual, website, Shopify; photos shown or hidden) opens the SAME page as a Serpa

@@ -89,6 +89,9 @@ async function open(width, height, path = '/memories') {
       localStorage.setItem('stasht_campaigns_view', 'storeels');
     }
   }, [OWNER]);
+  // The plain file window (as before 19 Nov evening): since c19d Chrome tabs use showOpenFilePicker, which fires no
+  // 'filechooser' event; that picker is covered by chris-19nov-photos-pick.mjs.
+  await context.addInitScript(() => { try { delete window.showOpenFilePicker; } catch { window.showOpenFilePicker = undefined; } });
   await context.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -337,12 +340,14 @@ async function point17desktop() {
   expect(/of 3/.test(await counter.first().innerText().catch(() => '')), `${tag} 17: the viewer shows 3 photos now`);
   await page.screenshot({ path: `${OUT}/${tag}-05-desktop-upload.png` });
 
-  // Reload: still there (the card's badge counts the 2 extra photos).
+  // Reload: still there (the card's "1 / 3" counter; the bottom-right clock badge is hidden since 20 Nov — Chris).
   await page.keyboard.press('Escape');
   await page.reload();
   await openCampaign(page);
-  const badge = page.locator('[data-post-id="15"]').filter({ visible: true }).first().locator('.absolute.bottom-2.right-2.rounded-full');
-  expect(await badge.count() === 1 && /\b2\b/.test(await badge.innerText().catch(() => '')), `${tag} 17/19: after a reload the moment's card shows its 2 extra photos`);
+  const card15 = page.locator('[data-post-id="15"]').filter({ visible: true }).first();
+  const badge = card15.locator('.absolute.bottom-2.right-2.rounded-full');
+  const count15 = card15.locator('.absolute.top-2.right-2');
+  expect(await badge.count() === 0 && /1 \/ 3/.test(await count15.first().innerText().catch(() => '')), `${tag} 17/19: after a reload the moment's card counts 3 photos ("1 / 3"; no clock badge)`);
   expect(await noHScroll(page), `${tag}: no horizontal page scroll`);
   await context.close();
 }

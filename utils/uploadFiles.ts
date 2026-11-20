@@ -111,6 +111,16 @@ export async function convertHeicToJpeg(file: File): Promise<File> {
 }
 
 export const PHOTO_READ_FAILED = "This photo couldn't be read. Please pick it again.";
+export const VIDEO_READ_FAILED = "This video couldn't be read. Please pick it again.";
+/** The "couldn't be read" message for this pick (a video says video). */
+export function readFailedMessage(file: FileLike | null | undefined): string {
+  return file && isVideoFile(file) ? VIDEO_READ_FAILED : PHOTO_READ_FAILED;
+}
+/**
+ * Picks up to this size are copied into memory (Chris 20 Nov 2026: Mac Photos videos). The web API takes videos up to
+ * 500 MB (memories/upload-video max:512000 KB); a bigger file goes as it is (the web API refuses it with its own message).
+ */
+export const MAX_IN_MEMORY_BYTES = 500 * 1024 * 1024;
 
 /**
  * The picked file copied into memory (Chris 19 Nov 2026, Mac Photos). A photo picked from the Photos section of the Mac
@@ -139,13 +149,14 @@ export async function materializeFile(
     await new Promise((resolve) => setTimeout(resolve, waitMs));
     try { current = await reread(); } catch { break; }
   }
-  throw new UploadFileError(PHOTO_READ_FAILED);
+  throw new UploadFileError(readFailedMessage(file));
 }
 
-/** Copy a picked file into memory once, without any retry source (the classic file input). */
+/** Copy a picked file (photo or video) into memory once, without any retry source (the classic file input). */
 const materialized = new WeakSet<File>();
 export async function ensureInMemory(file: File): Promise<File> {
   if (materialized.has(file)) return file;
+  if (file.size > MAX_IN_MEMORY_BYTES) return file; // too big to hold in memory: sent as it is
   const copy = await materializeFile(file);
   materialized.add(copy);
   return copy;
@@ -156,11 +167,14 @@ export function markInMemory(file: File): File {
   return file;
 }
 
-/** What every photo upload sends: a HEIC/HEIF becomes a JPEG; every photo is copied into memory first. */
+/**
+ * What every upload sends: every photo AND video is copied into memory first (a Mac Photos pick is written by macOS at
+ * pick time and Chrome won't send it once it changed — Chris 19/20 Nov 2026); a HEIC/HEIF photo becomes a JPEG.
+ */
 export async function prepareImageForUpload<T extends File | Blob | null | undefined>(file: T): Promise<T | File> {
   if (!file || !(file instanceof File)) return file;
-  if (isVideoFile(file)) return file;
   const copy = await ensureInMemory(file);
+  if (isVideoFile(copy)) return copy;
   if (!isHeicFile(copy)) return copy;
   return convertHeicToJpeg(copy);
 }
@@ -221,7 +235,7 @@ export async function pickFiles(opts: { kind: 'image' | 'media'; multiple?: bool
     for (const handle of handles) {
       const first = await handle.getFile();
       // Photos AND videos (a Photos video is written at pick time too) are read into memory, re-read when needed.
-      out.push(markInMemory(await materializeFile(first, () => handle.getFile())));
+      out.push(first.size > MAX_IN_MEMORY_BYTES ? first : markInMemory(await materializeFile(first, () => handle.getFile())));
     }
     return out;
   }
@@ -244,7 +258,7 @@ function pickWithInput(opts: { kind: 'image' | 'media'; multiple?: boolean; doc?
       cleanup();
       try {
         const out: File[] = [];
-        for (const f of files) out.push(isVideoFile(f) ? f : markInMemory(await materializeFile(f)));
+        for (const f of files) out.push(await ensureInMemory(f)); // photos and videos (Chris 20 Nov 2026)
         resolve(out);
       } catch (error) {
         reject(error);
@@ -256,7 +270,7 @@ function pickWithInput(opts: { kind: 'image' | 'media'; multiple?: boolean; doc?
   });
 }
 
-/** prepareImageForUpload for a list (keeps the order; videos and other files go as they are). */
+/** prepareImageForUpload for a list (keeps the order; every file read into memory, HEIC → JPEG). */
 export async function prepareImagesForUpload(files: readonly File[]): Promise<File[]> {
   const out: File[] = [];
   for (const file of files) out.push(await prepareImageForUpload(file));
