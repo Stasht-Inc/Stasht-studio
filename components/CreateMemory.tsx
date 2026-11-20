@@ -44,7 +44,7 @@ import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
 import { createPreviewMoments, SHOPIFY_PRODUCT_KEY, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
-import { toUploadableImage } from '../utils/uploadFiles';
+import { ensureInMemory, toUploadableImage, UploadFileError, VIDEO_READ_FAILED } from '../utils/uploadFiles';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
 import { cn } from './ui/utils';
 import StepCard from './newsletters/StepCard';
@@ -1583,7 +1583,18 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   // Intro video: uploaded to /memories/upload-video, sent as last_update_img. Replaces a cover photo.
-  const handleIntroVideoPicked = async (file: File) => {
+  const handleIntroVideoPicked = async (picked: File) => {
+    // Read into memory at once: a video picked from Mac Photos is written by macOS at pick time and Chrome won't send it
+    // once it changed (Chris 20 Nov 2026). Unreadable → say so, with "Pick again".
+    let file: File;
+    try {
+      file = await ensureInMemory(picked);
+    } catch (error) {
+      toast.error(error instanceof UploadFileError ? error.message : VIDEO_READ_FAILED, {
+        action: { label: 'Pick again', onClick: () => introVideoInputRef.current?.click() },
+      });
+      return;
+    }
     const seq = nextCoverSeq();
     dispatchCover({ type: 'pick', seq, kind: 'video', file, name: file.name, localUrl: URL.createObjectURL(file) });
     // Tick 1% per second up to 90%, wait for server to reach 100%
@@ -2997,20 +3008,26 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             handlers and disabled state as the bottom ones, which stay (with the red "*To send now…" reasons). */}
         <div className="ml-auto flex flex-shrink-0 items-center gap-1.5 md:gap-2">
           <button type="button" onClick={closeFlow} className={`${BUTTON_OUTLINE} hidden md:inline-flex`}>{view.closeLabel}</button>
-          {flowEditing || flowCampaign ? (
-            <>
-              <button type="button" data-testid="st-top-save" onClick={() => saveFlow(false)} disabled={saveDisabled}
-                aria-describedby={saveReason ? 'st-save-reason' : undefined}
-                className={cn(BUTTON_SECONDARY, 'h-9 whitespace-nowrap px-2.5 text-[13px] md:h-10 md:px-5 md:text-sm')}>
-                {savingAction === 'save' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{view.save.label}
-              </button>
-              <button type="button" data-testid="st-top-send" onClick={() => saveFlow(true)} disabled={saveDisabled || Boolean(sendDisabledReason)}
-                aria-describedby={saveReason ? 'st-save-reason' : sendDisabledReason ? 'st-send-reason' : undefined}
-                className={cn(BUTTON_PRIMARY, 'h-9 whitespace-nowrap px-2.5 text-[13px] md:h-10 md:px-5 md:text-sm')}>
-                {savingAction === 'send' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="hidden h-4 w-4 sm:block" aria-hidden="true" />}{view.saveAndSend.label}
-              </button>
-            </>
-          ) : null}
+          {/* Chris, 20 Nov 2026 (point 5): a NEW campaign gets Save as Draft / Save & Send in the top bar too, the way the
+              Newsletter composer has its actions there (computer / tablet; on phones they stay at the end of the list,
+              like the newsletter's). A saved campaign (Edit) keeps them on phones as well (19 Nov, point 16). */}
+          {(() => {
+            const topOnly = flowEditing || flowCampaign ? '' : 'hidden md:inline-flex';
+            return (
+              <>
+                <button type="button" data-testid="st-top-save" onClick={() => saveFlow(false)} disabled={saveDisabled}
+                  aria-describedby={saveReason ? 'st-save-reason' : undefined}
+                  className={cn(BUTTON_SECONDARY, 'h-9 whitespace-nowrap px-2.5 text-[13px] md:h-10 md:px-5 md:text-sm', topOnly)}>
+                  {savingAction === 'save' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{view.save.label}
+                </button>
+                <button type="button" data-testid="st-top-send" onClick={() => saveFlow(true)} disabled={saveDisabled || Boolean(sendDisabledReason)}
+                  aria-describedby={saveReason ? 'st-save-reason' : sendDisabledReason ? 'st-send-reason' : undefined}
+                  className={cn(BUTTON_PRIMARY, 'h-9 whitespace-nowrap px-2.5 text-[13px] md:h-10 md:px-5 md:text-sm', topOnly)}>
+                  {savingAction === 'send' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="hidden h-4 w-4 sm:block" aria-hidden="true" />}{view.saveAndSend.label}
+                </button>
+              </>
+            );
+          })()}
         </div>
       </header>
 

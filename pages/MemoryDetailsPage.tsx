@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
 import { campaignCover } from "../utils/campaignCover";
+import { ArrowUpDown } from "lucide-react"; // Media panel sort button (Chris 20 Nov 2026)
 import { formatStoredSize, momentInsertAtStart, readMediaColumns, saveMediaColumns, type MediaColumns, mediaInTimelineOrder, nextMediaSort, planMediaDrop, type MediaSortBy } from "../utils/campaignMoments";
 import { campaignMomentsAPI } from "../services/campaignMomentsAPI";
 import { toast } from "sonner";
@@ -8013,12 +8014,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Shopify Product as in the phone "+" menu (Deepak, 10 Nov 2026), so the three "+" menus match.
   // Chris, 12 Nov 2026: also after every widget card (`place` afterWidgetId: right after it); under a moment card or the
   // header, `place` atStart: first in that slot.
+  // Chris, 20 Nov 2026: the circle stays solid on hover (opaque #E6E5F7, was a see-through purple/10 tint), so the
+  // timeline line never shows through it.
   const renderCardAddWidgetPlus = (afterPostId: string | null, options = addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true }), place?: { atStart: true } | { afterWidgetId: string }) => isInventoryDetail ? null : (
     <div className="relative flex items-center justify-center h-10" data-testid="timeline-add-plus" data-after-post-id={afterPostId ?? ''} data-after-widget-id={place && 'afterWidgetId' in place ? place.afterWidgetId : ''}>
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" aria-label="Add Widget" className="relative z-10 w-9 h-9 rounded-full bg-[#F3F4F6] border border-[#6C60FF] hover:bg-[#6C60FF]/10 flex items-center justify-center transition-colors duration-200">
+          <button type="button" aria-label="Add Widget" className="relative z-10 w-9 h-9 rounded-full bg-[#F3F4F6] border border-[#6C60FF] hover:bg-[#E6E5F7] flex items-center justify-center transition-colors duration-200">
             <Plus className="w-4 h-4 text-[#6C60FF]" />
           </button>
         </PopoverTrigger>
@@ -16184,7 +16187,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg bg-white text-base focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
                 />
               </div>
-              {/* Campaign order (what dragging changes) → newest first → oldest first (Chris, 19 Nov 2026). */}
+              {/* Campaign order (what dragging changes) ↔ newest first (Chris, 19 Nov 2026; two states, 20 Nov — "Oldest
+                  first" dropped; a sort-arrows icon, not the list icon that read as a "list view"). */}
               <Button
                 variant="outline"
                 size="sm"
@@ -16195,7 +16199,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 onClick={() => { const next = nextMediaSort(mediaSortBy as MediaSortBy, mediaSortOrder); setMediaSortBy(next.by); setMediaSortOrder(next.dir); }}
                 className="h-9 w-9 p-0 border-gray-200 flex-shrink-0"
               >
-                {mediaSortBy === 'order' ? <ListOrdered className="w-4 h-4" /> : mediaSortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
+                {mediaSortBy === 'order' ? <ArrowUpDown className="w-4 h-4" /> : mediaSortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />}
               </Button>
               {/* 2 or 3 photos across (Chris, 19 Nov 2026, point 12): smaller thumbnails, easier to drag in order. */}
               <Button

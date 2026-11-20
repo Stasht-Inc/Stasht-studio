@@ -7,7 +7,7 @@
 //  - 2 across: drag DOWN → { item, after };
 //  - a photo inside a moment: shuffles among its moment's photos on screen only (no call); onto another moment → a hint;
 //  - the API refuses → the timeline goes back and the error toast shows;
-//  - the sort button: Campaign order → Newest first → Oldest first; a drag in a date view goes back to the campaign order;
+//  - the sort button: Campaign order ↔ Newest first (two states since 20 Nov); a drag in a date view goes back to the campaign order;
 //  - 390: the phone has no Media panel (the timeline's own order is unchanged there).
 // node tests/campaigns/ui/chris-19nov-media-order.mjs   (C19_BASE = dev server, default http://127.0.0.1:5461; C19_SHOTS)
 import { mkdirSync } from 'fs';
@@ -229,21 +229,25 @@ try {
     expect(await page.getByText("Those aren't this campaign's moments").filter({ visible: true }).count() > 0, `${tag}: …and the error toast shows`);
     await page.screenshot({ path: `${OUT}/${tag}-04-refused.png` });
 
-    // Sort button: Campaign order → Newest first → Oldest first → Campaign order.
+    // Sort button (two states since 20 Nov): Campaign order → Newest first → Campaign order; no "Oldest first".
     const sortBtn = page.getByTestId('media-sort-toggle');
     await sortBtn.click();
     await page.waitForTimeout(300);
     const newest = await panelOrder(page);
     expect(await sortBtn.getAttribute('title') === 'Newest first' && newest[0] === 16, `${tag}: Newest first (${newest.join(',')})`);
+    await page.screenshot({ path: `${OUT}/${tag}-05-newest-first.png` });
     await sortBtn.click();
     await page.waitForTimeout(300);
-    expect(await sortBtn.getAttribute('title') === 'Oldest first' && (await panelOrder(page))[0] === 15, `${tag}: Oldest first`);
+    expect(await sortBtn.getAttribute('title') === 'Campaign order' && same(await panelOrder(page), expectedPanel(state.order)), `${tag}: the second click goes back to Campaign order (no "Oldest first")`);
+    await sortBtn.click();
+    await page.waitForTimeout(300);
     // A drag in a date view saves next to the target and goes back to the campaign order.
-    // Oldest first: 15, 13, 11, 14, 12, 21, 22, 16 — drag 16 (last) up onto 13 → before 13.
-    await drag(page, 16, 13);
+    // Newest first: 16, 12, 21, 22, 14, 11, 13, 15 — drag 15 (last) up onto 14 → before 14.
+    const nf = await panelOrder(page);
+    await drag(page, 15, 14);
     await page.waitForTimeout(1500);
     const put3 = state.orderPuts.at(-1) || {};
-    expect(same(put3, { item: { type: 'post', id: 16 }, before: { type: 'post', id: 13 } }), `${tag}: in a date view the drop still saves next to the target (${JSON.stringify(put3)})`);
+    expect(same(put3, { item: { type: 'post', id: 15 }, before: { type: 'post', id: 14 } }), `${tag}: in a date view the drop still saves next to the target (${JSON.stringify(put3)}; panel was ${nf.join(',')})`);
     expect(await sortBtn.getAttribute('title') === 'Campaign order' && same(await panelOrder(page), expectedPanel(state.order)), `${tag}: …and the panel goes back to the campaign order (${(await panelOrder(page)).join(',')})`);
     expect(same(await drawnOrder(page), state.order), `${tag}: the timeline matches (${(await drawnOrder(page)).join(',')})`);
     expect(!(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)), `${tag}: no horizontal page scroll`);

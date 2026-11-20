@@ -20,6 +20,9 @@ import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
 
+/** The "User Activity Metrics" / "Published Stories: Viewed vs Unopened" row. Hidden for now — Chris 20 Nov 2026. */
+const SHOW_ACTIVITY_METRICS_ROW = false;
+
 // Billing's Add Payment Method modal, loaded only when opened from the trial banner (it loads Stripe.js).
 const AddPaymentMethodModal = lazy(() => import('./AddPaymentMethodModal'));
 
@@ -598,10 +601,13 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* User Activity Metrics Section */}
-      <div className="w-full">
-        <Frame732 timePeriod={timePeriod} />
-      </div>
+      {/* User Activity Metrics + Published Stories: Viewed vs Unopened — HIDDEN (Chris, 20 Nov 2026; not deleted: set
+          SHOW_ACTIVITY_METRICS_ROW to bring it back). Not rendered, so its two API calls aren't made either. */}
+      {SHOW_ACTIVITY_METRICS_ROW && (
+        <div className="w-full">
+          <Frame732 timePeriod={timePeriod} />
+        </div>
+      )}
 
       {/* Memories Section */}
       <div className="w-full">

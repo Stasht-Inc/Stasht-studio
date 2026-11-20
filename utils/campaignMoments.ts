@@ -96,10 +96,13 @@ export function mediaInTimelineOrder<T extends PanelPhoto>(items: readonly T[], 
   return out;
 }
 
-/** The desktop panel's sort button: campaign order → newest first → oldest first → campaign order. */
-export function nextMediaSort(by: MediaSortBy | string, dir: MediaSortDir): { by: MediaSortBy; dir: MediaSortDir } {
+/**
+ * The desktop panel's sort button: two states only, campaign order ↔ newest first (Chris 20 Nov 2026: "it's either this
+ * or it's that… we don't need that third"). "Oldest first" was dropped — it mostly matched the campaign order. Any
+ * other sort (e.g. the tablet's Order/Date/Name/Size select) goes back to the campaign order.
+ */
+export function nextMediaSort(by: MediaSortBy | string, _dir?: MediaSortDir): { by: MediaSortBy; dir: MediaSortDir } {
   if (by === 'order') return { by: 'date', dir: 'desc' };
-  if (by === 'date' && dir === 'desc') return { by: 'date', dir: 'asc' };
   return { by: 'order', dir: 'asc' };
 }
 

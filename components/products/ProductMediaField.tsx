@@ -8,7 +8,7 @@ import { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductMediaItem } from '../../services/productsAPI';
 import { acceptPickedMedia, moveItem } from '../../utils/products';
-import { HEIC_CONVERT_FAILED, prepareImageForUpload } from '../../utils/uploadFiles';
+import { HEIC_CONVERT_FAILED, prepareImageForUpload, UploadFileError } from '../../utils/uploadFiles';
 import { BUTTON_SECONDARY } from '../newsletters/lib/ui';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 
@@ -43,7 +43,7 @@ export default function ProductMediaField({ productId, media, disabled, onChange
     const list: File[] = [];
     const unreadable: string[] = [];
     for (const file of picked) {
-      try { list.push((await prepareImageForUpload(file)) as File); } catch { unreadable.push(`${file.name}: ${HEIC_CONVERT_FAILED}`); }
+      try { list.push((await prepareImageForUpload(file)) as File); } catch (e) { unreadable.push(`${file.name}: ${e instanceof UploadFileError ? e.message : HEIC_CONVERT_FAILED}`); }
     }
     if (!list.length) { setErrors(unreadable); return; }
     if (local) {

@@ -6,7 +6,7 @@ import { campaignAccessBody, withQr } from './qrAccess';
 import { clearAccountState } from './accountState';
 import { seedBrandPictures, setBrandPictureApiBase, setBrandPictureHeaders } from './brandPictures';
 import { friendlyCodeMessage } from './verificationCodeWording';
-import { convertHeicToJpeg, ensureInMemory, HEIC_CONVERT_FAILED, isHeicFile, isVideoFile, PHOTO_READ_FAILED, prepareImageForUpload, UploadFileError } from './uploadFiles';
+import { convertHeicToJpeg, ensureInMemory, HEIC_CONVERT_FAILED, isHeicFile, prepareImageForUpload, readFailedMessage, UploadFileError } from './uploadFiles';
 
 // Auth utility functions for API integration
 
@@ -2062,9 +2062,9 @@ async function sendWithHeicFallback(picked: File, name: string, send: (file: Fil
   // Read into memory first: a Mac Photos pick can change after the pick, and Chrome then won't send it (Chris 19 Nov 2026).
   let file: File;
   try {
-    file = isVideoFile(picked) ? picked : await ensureInMemory(picked);
+    file = await ensureInMemory(picked); // videos too (Chris 20 Nov 2026)
   } catch (error) {
-    return { success: false, data: null, error: error instanceof UploadFileError ? error.message : PHOTO_READ_FAILED };
+    return { success: false, data: null, error: error instanceof UploadFileError ? error.message : readFailedMessage(picked) };
   }
   if (!isHeicFile(file)) return send(file, name);
   try {

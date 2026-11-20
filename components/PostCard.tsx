@@ -16,6 +16,9 @@ import { EditMediaItemPopover } from "./EditMediaItemPopover";
 import { aiCreditsAPI } from "../services/aiCreditsAPI";
 import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
 
+/** The bottom-right extra-photos badge (clock icon + count) on a moment photo. Hidden for now — Chris 20 Nov 2026. */
+const SHOW_SUB_IMAGE_COUNT_BADGE = false;
+
 // User Avatar Component with Profile Image and Initials Fallback
 function UserFallbackAvatar({
   user,
@@ -1369,8 +1372,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
             </>
           )}
 
-          {/* Sub-image count badge (bottom right) */}
-          {subImageCount > 0 && (
+          {/* Sub-image count badge (bottom right). Hidden (Chris 20 Nov 2026 — the clock icon read as "views"; views come
+              later on the campaign level). The "1 / 3" counter above already shows the photo count. */}
+          {SHOW_SUB_IMAGE_COUNT_BADGE && subImageCount > 0 && (
             <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-medium px-2 py-1 rounded-full flex items-center gap-1.5">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" fill="none"/>

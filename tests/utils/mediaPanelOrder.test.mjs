@@ -61,9 +61,10 @@ test('sub-photos shuffle only within their moment, on screen; nothing else is sa
   assert.deepEqual(planMediaDrop([...shown, photo(14)], TIMELINE, 14, 11), { kind: 'local' }, 'not in the saved order yet');
 });
 
-test('the desktop sort button: campaign order → newest first → oldest first → campaign order', () => {
+test('the desktop sort button: campaign order ↔ newest first (two states)', () => {
+  // Two states only since 20 Nov (Chris): campaign order ↔ newest first; no "oldest first".
   assert.deepEqual(nextMediaSort('order', 'asc'), { by: 'date', dir: 'desc' });
-  assert.deepEqual(nextMediaSort('date', 'desc'), { by: 'date', dir: 'asc' });
+  assert.deepEqual(nextMediaSort('date', 'desc'), { by: 'order', dir: 'asc' });
   assert.deepEqual(nextMediaSort('date', 'asc'), { by: 'order', dir: 'asc' });
   assert.deepEqual(nextMediaSort('name', 'desc'), { by: 'order', dir: 'asc' });
 });

@@ -46,9 +46,7 @@ test('every photo upload path reads the photo into memory first (prepareImageFor
   // already copied → not copied again
   const once = await ensureInMemory(file('b.jpg', 'image/jpeg'));
   assert.equal(await ensureInMemory(once), once);
-  // videos go as they are (can be large)
-  const mov = file('IMG_2874.mov', 'video/quicktime');
-  assert.equal(await prepareImageForUpload(mov), mov);
+  // videos are read into memory too since 20 Nov (tests/utils/videoPickRead.test.mjs)
 });
 
 test('re-readable picker only on a computer with showOpenFilePicker, not in an iframe, not on iPhone/Android', () => {
