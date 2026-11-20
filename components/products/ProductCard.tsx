@@ -1,7 +1,9 @@
 // components/products/ProductCard.tsx — one Products grid card (spec: main photo, title, price + sale price, status and
 // source badges). Card look follows MemoryCard / WebsiteCatalogNav (rounded-xl, gray-200 border, #6C60FF accents).
-import { Camera, Package } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
+import { UserFallbackAvatar } from '../MemoryCard';
+import { useAuth } from '../../contexts/AuthContext';
 import type { ProductSummary } from '../../services/productsAPI';
 import { BADGE_CLASS, BADGE_LABEL, cardCategories, priceLine, productCategoryColor, sourceColor, sourceLabel } from '../../utils/products';
 
@@ -19,14 +21,21 @@ export default function ProductCard({ product, selectable, selected, onToggle, o
   const cats = cardCategories(product);
   const photos = Math.max(0, Number(product.images_count) || 0);
   const photosLabel = `${photos} ${photos === 1 ? 'photo' : 'photos'}`;
+  // Chris 20 Nov 2026 (point 17): a product with no photo shows the account's brand — the same default cover a campaign
+  // with no cover shows (MemoryCard's UserFallbackAvatar: the avatar / logo on the profile colour, initials without
+  // one). A shared product (a salesperson's External view) shows its owner's brand.
+  const { user } = useAuth();
+  const brand = product.read_only && product.owner
+    ? { name: product.owner.name || undefined, avatar: product.owner.profile_image || undefined, profile_color: product.owner.profile_color || undefined }
+    : { name: user?.name, avatar: user?.avatar || undefined, profile_color: user?.profile_color };
   return (
     <div data-testid="product-card" className={`relative overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md ${selected ? 'border-[#6C60FF] ring-2 ring-[#6C60FF]/30' : 'border-gray-200'}`}>
       <button type="button" onClick={onOpen} className="block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]">
         <div className="relative aspect-square bg-gray-100">
           {product.main_image ? (
-            <ImageWithFallback src={product.main_image} alt={product.title} className="h-full w-full object-cover" />
+            <ImageWithFallback src={product.main_image} alt={product.title} className="h-full w-full object-cover" fallback={<div className="h-full w-full"><UserFallbackAvatar user={brand} /></div>} />
           ) : (
-            <div className="flex h-full w-full items-center justify-center"><Package className="h-10 w-10 text-gray-300" aria-hidden="true" /></div>
+            <div data-testid="product-card-brand" className="h-full w-full"><UserFallbackAvatar user={brand} /></div>
           )}
           {/* C6: the category pill as campaign cards draw it (MemoryCard categoryPill: the category's colour, white
               semibold text, 8px corners, shadow); the first category plus "+N" for the rest. */}

@@ -123,7 +123,7 @@ export const MANUAL_FIELDS: readonly string[] = [
   'title', 'short_description', 'description_html', 'brand', 'product_type', 'price', 'compare_at_price', 'currency',
   'price_on_request', 'sku', 'barcode', 'stock_status', 'quantity', 'options', 'variants', 'attributes', 'weight',
   'weight_unit', 'dimensions', 'category_ids', 'tags', 'collections', 'status', 'show_enquire', 'show_price', 'show_photos', 'slug',
-  'seo_title', 'seo_description', 'share_image', 'buy_url', 'internal_notes',
+  'seo_title', 'seo_description', 'share_image', 'buy_url', 'buy_label', 'internal_notes',
 ];
 
 /** null = a new manual product (every field). */
@@ -295,7 +295,7 @@ export interface ProductForm {
   weight: string; weight_unit: string; dimensions: { length: string; width: string; height: string; unit: string };
   category_ids: number[]; tags: string[]; collections: string[];
   status: ProductStatus; show_enquire: boolean; show_price: boolean; show_photos: boolean;
-  slug: string; seo_title: string; seo_description: string; share_image: string; buy_url: string; internal_notes: string;
+  slug: string; seo_title: string; seo_description: string; share_image: string; buy_url: string; buy_label: string; internal_notes: string;
 }
 
 /** Chris, 16 Nov: a new manual product starts in USD (the web API's ProductAccess::defaultCurrency too). */
@@ -323,7 +323,7 @@ export function emptyProductForm(currency: string): ProductForm {
     weight: '', weight_unit: 'kg', dimensions: { length: '', width: '', height: '', unit: 'cm' },
     category_ids: [], tags: [], collections: [],
     status: 'active', show_enquire: true, show_price: true, show_photos: true,
-    slug: '', seo_title: '', seo_description: '', share_image: '', buy_url: '', internal_notes: '',
+    slug: '', seo_title: '', seo_description: '', share_image: '', buy_url: '', buy_label: '', internal_notes: '',
   };
 }
 
@@ -342,7 +342,7 @@ export function formFromDetail(d: ProductDetail): ProductForm {
     category_ids: (d.categories || []).map((c) => c.id), tags: [...(d.tags || [])], collections: [...(d.collections || [])],
     status: d.status || 'active', show_enquire: d.show_enquire !== false, show_price: d.show_price !== false, show_photos: d.show_photos !== false,
     slug: str(d.seo?.slug), seo_title: str(d.seo?.title), seo_description: str(d.seo?.description), share_image: str(d.seo?.share_image),
-    buy_url: str(d.buy_url), internal_notes: str(d.internal_notes),
+    buy_url: str(d.buy_url), buy_label: str(d.buy_label), internal_notes: str(d.internal_notes),
   };
 }
 
@@ -394,6 +394,7 @@ export function payloadFromForm(form: ProductForm, editable: readonly string[]):
     seo_description: text(form.seo_description),
     share_image: text(form.share_image),
     buy_url: text(form.buy_url),
+    buy_label: text(form.buy_label),
     internal_notes: text(form.internal_notes),
   };
   return Object.fromEntries(Object.entries(all).filter(([key]) => editable.includes(key)));
@@ -420,6 +421,7 @@ export function validateProductForm(form: ProductForm, editable: readonly string
   for (const k of ['buy_url', 'share_image'] as const) {
     if (can(k) && form[k].trim() && !/^https?:\/\/\S+$/i.test(form[k].trim())) e[k] = 'Use a web address starting with https://';
   }
+  if (can('buy_label') && form.buy_label.trim().length > BUY_LABEL_MAX) e.buy_label = `Keep the button text to ${BUY_LABEL_MAX} characters or fewer.`;
   if (can('currency') && form.currency.trim() && !/^[A-Za-z]{3}$/.test(form.currency.trim())) e.currency = 'Use a three-letter currency code, like CAD.';
   if (can('options')) {
     form.options.forEach((o, i) => {
@@ -740,11 +742,13 @@ export const productPhotosShown = (d: { show_photos?: boolean | null } | null | 
 /** The page's spec line under the title, as the catalogue's (web API CatalogSpecSummary): up to three attribute values
  *  joined with " / ", skipping category / tag attributes and a value that only repeats the category. '' when none. */
 export function productSpecSummary(d: Pick<ProductDetail, 'attributes' | 'categories' | 'category'>): string {
-  const category = ((d.categories?.[0]?.name || d.category || '') + '').trim().toLowerCase();
+  const categoryName = ((d.categories?.[0]?.name || d.category || '') + '').trim();
+  const category = categoryName.toLowerCase();
   const values: string[] = [];
-  for (const a of d.attributes || []) {
-    const v = String(a?.value ?? '').trim();
-    if (!v || /categor|tag/i.test(String(a?.label ?? '')) || (category && v.toLowerCase() === category)) continue;
+  // Placeholder cells ("-", "N/A") never make the line either (Chris 20 Nov 2026, point 20b).
+  for (const a of cleanSpecRows(d.attributes || [], categoryName)) {
+    const v = a.value;
+    if (/categor|tag/i.test(a.label) || (category && v.toLowerCase() === category)) continue;
     values.push(v);
     if (values.length === 3) break;
   }
@@ -752,14 +756,50 @@ export function productSpecSummary(d: Pick<ProductDetail, 'attributes' | 'catego
 }
 
 /** The header's links, in the page's "View on website" style: the product's page on the website / in the Shopify store
- *  (imported products only) and its Buy link. http(s) only, so a stored javascript:/data: URL never becomes a link. */
+ *  (imported products only). http(s) only, so a stored javascript:/data: URL never becomes a link. The Buy link is a
+ *  button of its own since Chris 20 Nov 2026 (productBuyButton). */
 export function productPageLinks(d: Pick<ProductDetail, 'origin' | 'url' | 'buy_url'>): Array<{ label: string; href: string }> {
-  const web = (u: string | null | undefined): u is string => Boolean(u && /^https?:\/\//i.test(u));
   const imported = d.origin === 'website' || d.origin === 'shopify';
-  return [
-    ...(imported && web(d.url) ? [{ label: d.origin === 'shopify' ? 'View in your store' : 'View on website', href: d.url }] : []),
-    ...(web(d.buy_url) ? [{ label: 'Buy link', href: d.buy_url }] : []),
-  ];
+  return imported && isWebLink(d.url) ? [{ label: d.origin === 'shopify' ? 'View in your store' : 'View on website', href: d.url }] : [];
+}
+
+const isWebLink = (u: string | null | undefined): u is string => Boolean(u && /^https?:\/\/\S+$/i.test(u.trim()));
+
+/** Chris 20 Nov 2026 (point 15): the buy link's button words — the owner's ("Book now", "Checkout" …), else "Buy now". */
+export const DEFAULT_BUY_LABEL = 'Buy now';
+export const BUY_LABEL_MAX = 40;
+export const BUY_LABEL_HINT = 'The words on the button, e.g. Buy now, Book now or Checkout.';
+
+/** The product page's Buy button: its link (http(s) only) in the owner's words. null = no usable link. */
+export function productBuyButton(d: Pick<ProductDetail, 'buy_url'> & { buy_label?: string | null; buy_button?: string | null }): { label: string; href: string } | null {
+  if (!isWebLink(d.buy_url)) return null;
+  const label = (d.buy_label || '').trim() || (d.buy_button || '').trim() || DEFAULT_BUY_LABEL;
+  return { label: label.slice(0, BUY_LABEL_MAX), href: d.buy_url.trim() };
+}
+
+/** A product photo's name on its page (point 19: never "Untitled moment" / a file's UUID): the product's title for the
+ *  first photo, "Photo N" for the others. */
+export function productPhotoName(title: string | null | undefined, index: number): string {
+  const t = (title || '').trim();
+  return index === 0 && t ? t : `Photo ${index + 1}`;
+}
+
+/** The product page's cover (Chris 20 Nov 2026, point 16): its first media item — a photo or its video — by the
+ *  editor's order (Edit Cover makes the picked one first). null with "Show photos" off or no media at all. */
+export function productPageCover(d: Pick<ProductDetail, 'media' | 'main_image' | 'show_photos'>): string | null {
+  if (!productPhotosShown(d)) return null;
+  const first = [...(d.media || [])].filter((m) => m.url).sort((a, b) => a.sort_order - b.sort_order)[0];
+  return first?.url || d.main_image || null;
+}
+
+/** Edit Cover on a product page: the owner's own product whose media the API lets them change (manual products). */
+export const productCoverEditable = (d: Pick<ProductDetail, 'read_only' | 'editable_fields'> | null | undefined): boolean =>
+  Boolean(d && !d.read_only && d.editable_fields.includes('media'));
+
+/** The media order that puts `firstId` first, the others keeping their order. */
+export function mediaOrderWithFirst(media: ReadonlyArray<{ id: number; sort_order: number }>, firstId: number): number[] {
+  const ids = [...media].sort((a, b) => a.sort_order - b.sort_order).map((m) => m.id);
+  return ids.includes(firstId) ? [firstId, ...ids.filter((id) => id !== firstId)] : ids;
 }
 
 /** The header's notes: where an imported product comes from; whose product a salesperson is looking at. */
@@ -775,33 +815,62 @@ export function productPageDescription(d: Pick<ProductDetail, 'short_description
   return [d.short_description, d.description].map((s) => (s || '').trim()).filter(Boolean).join('\n\n');
 }
 
+/** Values that only stand in for "nothing" (a website's placeholder cells). */
+const PLACEHOLDER_VALUES = new Set(['-', '–', '—', '--', 'n/a', 'na', 'none', 'null', 'undefined', 'tbd', '.', '0.00']);
+
 /**
- * The page's details/specs grid (the block a Serpa car shows its mileage, stock # and engine in): everything the old
- * product details screen listed — its facts (SKU, brand, type, barcode, quantity, weight, dimensions), the compare-at
- * price, the Enquire button and Photos lines, every category, the specifications, and one row per variant (price,
- * SKU, stock, quantity). Only what the product has.
+ * A details grid as viewers should see it (Chris 20 Nov 2026, point 20b): no empty or placeholder value, no value that
+ * only repeats its label, one row per label (the first wins: "Category" twice showed twice), and no other row that
+ * only repeats the category (a website's spec cells all reading "Sheet Stock").
+ */
+export function cleanSpecRows(rows: ReadonlyArray<{ label?: unknown; value?: unknown }>, category?: string | null): Array<{ label: string; value: string }> {
+  const cat = (category || '').trim().toLowerCase();
+  const seen = new Set<string>();
+  const out: Array<{ label: string; value: string }> = [];
+  for (const r of rows) {
+    const label = String(r?.label ?? '').replace(/\s+/g, ' ').trim();
+    const value = String(r?.value ?? '').trim();
+    const key = label.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (!label || !value || PLACEHOLDER_VALUES.has(value.toLowerCase()) || value.toLowerCase() === label.toLowerCase()) continue;
+    const categoryRow = key === 'category' || key === 'categories';
+    if (cat && !categoryRow && value.toLowerCase() === cat) continue;
+    if (seen.has(categoryRow ? 'category' : key)) continue;
+    seen.add(categoryRow ? 'category' : key);
+    out.push({ label, value });
+  }
+  return out;
+}
+
+/**
+ * The page's details/specs grid (the block a Serpa car shows its mileage, stock # and engine in): what a viewer may see —
+ * the price (and compare-at price), the facts (SKU, brand, type, barcode, quantity, weight, dimensions), every
+ * category, the specifications, one row per variant (price, SKU, stock, quantity), the tags and collections. Only what
+ * the product has. Never the owner's own settings (Enquire button / Photos switches, a hidden price, internal notes:
+ * Chris 20 Nov 2026).
  */
 export function productPageSpecs(d: ProductDetail): Array<{ label: string; value: string }> {
   const price = priceLine(d);
-  const hidesPrice = d.price_on_request || !d.show_price;
-  const out: Array<{ label: string; value: string }> = [
+  const priceShown = !d.price_on_request && d.show_price !== false;
+  const categories = (d.categories || []).map((c) => (c?.name || '').trim()).filter(Boolean);
+  const rows: Array<{ label: string; value: string }> = [
+    ...(d.price_on_request ? [{ label: 'Price', value: 'Price on request' }] : priceShown && price.main ? [{ label: 'Price', value: price.main }] : []),
+    ...(priceShown && price.was ? [{ label: 'Compare-at price', value: price.was }] : []),
     ...detailFacts(d),
-    ...(price.was ? [{ label: 'Compare-at price', value: price.was }] : []),
-    enquireFact(d),
-    ...photosFacts(d),
-    ...(d.categories?.length ? [{ label: d.categories.length === 1 ? 'Category' : 'Categories', value: d.categories.map((c) => c.name).join(', ') }] : []),
+    ...(categories.length ? [{ label: categories.length === 1 ? 'Category' : 'Categories', value: categories.join(', ') }] : []),
     ...(d.attributes || []).map((a) => ({ label: String(a.label ?? '').trim(), value: String(a.value ?? '').trim() })),
     ...(d.variants || []).map((v) => ({
       label: variantLabel(v.options || {}) || v.title || 'Variant',
       value: [
-        hidesPrice ? price.main : v.price_label || v.price || '',
+        d.price_on_request ? 'Price on request' : priceShown ? v.price_label || v.price || '' : '',
         v.sku ? `SKU ${v.sku}` : '',
         v.stock_status === 'out_of_stock' ? 'Out of stock' : 'In stock',
         v.quantity != null ? `Qty ${v.quantity}` : '',
       ].filter(Boolean).join(' · '),
     })),
+    ...((d.tags || []).length ? [{ label: 'Tags', value: d.tags.join(', ') }] : []),
+    ...((d.collections || []).length ? [{ label: 'Collections', value: d.collections.join(', ') }] : []),
   ];
-  return out.filter((s) => s.label && s.value);
+  return cleanSpecRows(rows, categories[0] || d.category);
 }
 
 /** The page's photos (videos are not page photos, as on the catalogue item page); none with "Show photos" off. */

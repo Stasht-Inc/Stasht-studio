@@ -8,6 +8,7 @@ import { loadShopifyForBrowsing, SHOPIFY_PRODUCT_MARKER } from "../services/shop
 import { SHOPIFY_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { runWhenIdle } from "../utils/deferIdle";
 import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
+import ProductBrandThumb from './products/ProductBrandThumb';
 
 // One of the website's own categories, built client-side from the flat item list.
 interface ItemGroup {
@@ -64,7 +65,8 @@ function ItemLeaf({ item, color, onOpen }: { item: CatalogueItemSummary; color: 
           </span>
         </ImageHoverPopover>
       ) : (
-        <span className="flex w-8 h-8 rounded-md overflow-hidden flex-shrink-0">{thumbFallback}</span>
+        // No photo: the account's brand (Chris 20 Nov 2026, point 17), not a grey box.
+        <span className="flex w-8 h-8 rounded-md overflow-hidden flex-shrink-0"><ProductBrandThumb owner={item.owner} /></span>
       )}
 
       <span className="flex-1 min-w-0">

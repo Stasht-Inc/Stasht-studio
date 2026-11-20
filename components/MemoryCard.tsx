@@ -110,8 +110,9 @@ const generateAvatarColor = (name: string): string => {
 
 // Remove local getCategoryColor function - now using the consistent one from mediaConstants
 
-// User Fallback Avatar Component for memory card backgrounds
-function UserFallbackAvatar({
+// User Fallback Avatar Component for memory card backgrounds — the account's brand cover (also the Products grid's
+// photo-less cards, Chris 20 Nov 2026 point 17)
+export function UserFallbackAvatar({
   user,
   className = ''
 }: {

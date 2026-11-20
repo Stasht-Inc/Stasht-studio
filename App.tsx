@@ -1203,6 +1203,22 @@ function MainApp() {
 
   // Products shows only when /products/status says it is available for this account / view.
   const { status: productsStatus } = useProductsStatus();
+  // A product's page has its own address, /products/<id> (Chris 20 Nov 2026: reload shows the same product); the
+  // Products page is /products again once it closes. Only while the address is a Products one.
+  useEffect(() => {
+    if (currentPage !== 'products') return undefined;
+    const id = selectedMemoryId ? productPageIdOf(selectedMemoryId) : null;
+    const want = id ? `/products/${id}` : '/products';
+    const sync = () => {
+      const path = window.location.pathname;
+      if ((path === '/products' || path.startsWith('/products/')) && path !== want) window.history.replaceState(window.history.state, '', want);
+    };
+    sync();
+    // The product editor closes with history.back() (useBackToClose), which can land on the entry before: sync again.
+    const onPop = () => setTimeout(sync, 0);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [currentPage, selectedMemoryId]);
   const productsNavShown = showsProductsNav(productsStatus, viewType, inventoryViewPropertyId(viewType, currentProperty, user) !== null);
   // With Products the phone bar has a 7th item: smaller labels so none clips or collides at 320-390px. Other accounts keep text-xs.
   const phoneItemClass = productsNavShown ? 'flex-auto min-w-0 py-2 px-0' : 'flex-1 min-w-0 py-2 px-0.5';
@@ -1683,6 +1699,13 @@ function MainApp() {
       handleNavigation('csv-upload');
     } else if (pathname === '/products' || pathname.startsWith('/products/')) {
       handleNavigation('products');
+      // A product's page keeps its address (/products/<id>, Chris 20 Nov 2026): a reload opens it again.
+      const productId = Number(/^\/products\/(\d+)\/?$/.exec(pathname)?.[1]);
+      if (productId > 0) {
+        handleProductSelect(productPageId(productId));
+        // handleNavigation just set the address to /products: put the product's back (this check can run twice).
+        window.history.replaceState(window.history.state, '', pathname);
+      }
     } else if (pathname === '/marketplace' || pathname.startsWith('/marketplace/')) {
       console.log('🔍 Detected /marketplace URL - setting currentPage to marketplace');
       handleNavigation('marketplace');

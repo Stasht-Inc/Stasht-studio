@@ -78,8 +78,8 @@ import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
 import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI";
 import { shopifyItemsAPI, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
 import { productsAPI, type ProductDetail } from "../services/productsAPI";
-import { priceLine, productPageDescription, productPageIdOf, productPageLinks, productPageNotes, productPagePhotos, productPagePills, productPageSpecs, productPhotosShown, productSpecSummary } from "../utils/products";
-import { ProductPageActions, ProductPageDetails, useProductPageControls } from "../components/products/ProductPageControls";
+import { cleanSpecRows, priceLine, productPageCover, productPageDescription, productPageIdOf, productPageLinks, productPageNotes, productPagePhotos, productPagePills, productPageSpecs, productPhotoName, productPhotosShown, productSpecSummary } from "../utils/products";
+import { ProductBuyButton, ProductPageActions, ProductPageDetails, useProductPageControls } from "../components/products/ProductPageControls";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
@@ -3307,17 +3307,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       try {
         let res: { ok: boolean; data?: CatalogueItemDetail; error?: string } | null;
         let productTags: string[] | null = null;
+        // A product page's cover: its first media item (photo or video; Edit Cover puts the picked one first).
+        let productCover: string | null | undefined;
         if (isProductPage) {
           // A Products page product: GET /products/{id}, in the catalogue item's shape. Its details grid (productPageSpecs)
           // goes in as the attributes (the SKU is one of them), its description is the short + full description.
           const r = await productsAPI.get(catalogItemId!);
           const d = r.ok ? r.data : undefined;
-          if (d) { setProductDetail(d); productTags = d.tags.length ? d.tags : null; }
+          if (d) { setProductDetail(d); productTags = d.tags.length ? d.tags : null; productCover = productPageCover(d); }
           res = d ? { ok: true, data: {
             id: d.id, title: d.title, price: d.price, currency: d.currency,
             price_label: priceLine(d).main, // "Price on request" / "Price hidden" as the old screen said
             category: d.categories[0]?.name || d.category || null,
-            url: productPageLinks(d).find((l) => l.label !== 'Buy link')?.href || null,
+            url: productPageLinks(d)[0]?.href || null,
             main_image: productPhotosShown(d) ? d.main_image : null, images_count: d.images_count,
             spec_summary: productSpecSummary(d), user_id: d.user_id, read_only: d.read_only, ...(d.owner ? { owner: d.owner } : {}),
             description: productPageDescription(d) || null, sku: null, brand: d.brand, availability: d.availability,
@@ -3342,7 +3344,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           const itemOwner = inventoryOwnerAuthor(item);
           const itemAuthor = itemOwner
             ? { ...itemOwner, profile_image: itemOwner.avatar || undefined }
-            : { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
+            // profile_image too (Chris 20 Nov 2026, point 17): a product with no photo shows the account's brand cover
+            // (campaignCover's brand = this author's profile_image), as a campaign with no cover does.
+            : { name: user?.name, avatar: user?.avatar, profile_image: user?.avatar || undefined, profile_color: user?.profile_color };
           // Strictly-decreasing synthesized dates so the default "latest" sort keeps sort_order
           // (see the car branch above); hidden on the page via is_catalog_item / isCarCampaign().
           const now = Date.now();
@@ -3357,6 +3361,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 ? (img.id != null ? `shopify_image_${img.id}` : `shopify_photo_${i}`)
                 : (img.id != null ? `catalog_image_${img.id}` : `catalog_photo_${i}`),
               image_link: img.url,
+              // Point 19 (Chris 20 Nov 2026): a readable name, never "Untitled moment" / the file's UUID — the product's
+              // title for the first photo, "Photo N" for the others (timeline, Media panel, viewer).
+              name: productPhotoName(item.title, i),
               type: 'image',
               parent_id: null,
               user: itemAuthor,
@@ -3381,7 +3388,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             website_url: item.url || null,
             // A product page: its tags show beside the category and price badges, as a campaign's do.
             ...(productTags ? { tags: productTags } : {}),
-            last_update_img: posts[0]?.image_link || null,
+            last_update_img: (isProductPage ? productCover : undefined) ?? posts[0]?.image_link ?? null,
+            // A product page re-read after Edit Cover / a photo change keeps the product's own photo order (the
+            // timeline otherwise keeps the old order and appends new photos at the end).
+            ...(isProductPage ? { unified_order: posts.map((p) => ({ type: 'post', id: p.id })) } : {}),
             linked_memories: [],
             new_images: 0,
           });
@@ -4379,6 +4389,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     onBack,
     onOpenProduct,
   });
+  // Edit Cover's owner check: a campaign's owner, or the owner of a product whose photos can change (point 16).
+  const coverOwner = isProductPage ? productControls.coverEditable : isOwner;
   const productLinks = isProductPage && productDetail ? productPageLinks(productDetail) : [];
   const productNotes = isProductPage && productDetail ? productPageNotes(productDetail) : [];
   const productPills = isProductPage && productDetail ? productPagePills(productDetail) : [];
@@ -5894,6 +5906,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (!prepared) return;
       const { isVideo } = prepared;
       file = prepared.file;
+      // A product page (Chris 20 Nov 2026, point 16): the pick becomes the product's first photo / its video, its cover.
+      if (isProductPage) { await productControls.setCoverFile(file); return; }
 
       try {
         console.log('🚀 Starting cover photo upload...');
@@ -6047,6 +6061,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const prepared = await prepareCoverFile(file);
     if (!prepared) return;
     const { isVideo, file: coverFile } = prepared;
+    // A product page (Chris 20 Nov 2026, point 16): the pick becomes the product's first photo / its video, its cover.
+    if (isProductPage) { await productControls.setCoverFile(coverFile); return; }
 
     try {
       setCoverUploadType(isVideo ? 'video' : 'photo');
@@ -6136,6 +6152,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   };
 
   const handleUpdateCoverPhotoFromLibrary = async (imageUrl: string) => {
+    // A product page (Chris 20 Nov 2026, point 16): the Media Library photo is added to the product and put first.
+    if (isProductPage) {
+      setIsMediaLibraryOpen(false);
+      setMediaLibrarySelectedItems([]);
+      setIsCoverPhotoSelectionMode(false);
+      await productControls.setCoverFromUrl(imageUrl, toProxiedUrl(imageUrl));
+      return;
+    }
     try {
       console.log('🖼️ Updating cover photo from media library...');
       console.log('Memory ID:', memoryId);
@@ -7105,10 +7129,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       { label: 'Trim', value: carDetailData.trim_details || '' },
     ].filter(spec => spec.value) : [];
     // A catalogue product's details grid is its own attributes (plus SKU, as the old item modal showed).
-    const catalogItemSpecs = isCatalogItemDetail && catalogItemData ? [
+    // Chris 20 Nov 2026 (point 20b): one row per label, no empty / placeholder value, nothing that only repeats the category.
+    const catalogItemSpecs = isCatalogItemDetail && catalogItemData ? cleanSpecRows([
       ...(Array.isArray(catalogItemData.attributes) ? catalogItemData.attributes : []),
       { label: 'SKU', value: catalogItemData.sku || '' },
-    ].filter(spec => spec.label && spec.value) : [];
+    ], catalogItemData.category) : [];
 
     // Open the ImageViewer modal with proper timeline metadata
     console.log('🔍 handleTimelineImageView - finalImageId:', finalImageId, 'memoryId:', memoryId);
@@ -11723,13 +11748,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </Button>
                               {/* A product page: Back · Edit · ⋯, in these pills (a campaign's Back · Edit Cover · ⋯) */}
                               {isProductPage && <ProductPageActions controls={productControls} variant="phone" />}
-                              {/* Edit Cover: none on read-only inventory (cars, catalogue products) */}
-                              {!isInventoryDetail && (
+                              {/* Edit Cover: none on read-only inventory (cars, catalogue products); a product page's owner has it
+                                  when the product's photos can change (Chris 20 Nov 2026, point 16) */}
+                              {(!isInventoryDetail || productControls.coverEditable) && (
                               <div className="flex items-center gap-1">
                                 {/* Edit Cover - directly opens file picker on mobile (no intermediate modal) */}
                                 <label
-                                  htmlFor={isOwner ? "cover-upload-input" : undefined}
-                                  className={`inline-flex items-center bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto py-1.5 px-4 rounded-full ${isOwner ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed pointer-events-none'}`}
+                                  htmlFor={coverOwner ? "cover-upload-input" : undefined}
+                                  data-testid="phone-edit-cover"
+                                  className={`inline-flex items-center bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto py-1.5 px-4 rounded-full ${coverOwner ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed pointer-events-none'}`}
                                 >
                                   <Edit className="w-3 h-3 mr-1" />
                                   Edit Cover
@@ -11738,7 +11765,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  disabled={!isOwner}
+                                  disabled={!coverOwner}
+                                  aria-label="More cover options"
                                   className="bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto !py-1.5 !px-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                                   onClick={() => setShowEditCoverModal(prev => !prev)}
                                 >
@@ -11760,8 +11788,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         boxShadow: '0 2px 8px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.10)',
                                       }}
                                     >
-                                      {/* Option 1: Record a Video (mobile only) */}
-                                      <button
+                                      {/* Option 1: Record a Video (mobile only; not for a product: its cover is one of its own photos / its video) */}
+                                      {!isProductPage && <button
                                         type="button"
                                         className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left md:hidden"
                                         onClick={() => { setShowEditCoverModal(false); handleStartRecording(); }}
@@ -11778,7 +11806,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           <span className="text-[14px] font-medium text-[#101828]">Record a Video</span>
                                           <span className="text-[12px] text-[#6A7282]">Record up to 1 minute</span>
                                         </div>
-                                      </button>
+                                      </button>}
                                       {/* Option 3: Add from Media Library */}
                                       <button
                                         type="button"
@@ -11799,8 +11827,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           </div>
                                           
                                       </button>
-                                      {/* Option 4: YouTube Video */}
-                                      <button
+                                      {/* Option 4: YouTube Video (not for a product: its media are its own files) */}
+                                      {!isProductPage && <button
                                         type="button"
                                         className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
                                         onClick={() => { setShowEditCoverModal(false); setYoutubeUrlInput(''); setIsYoutubeInputOpen(true); }}
@@ -11816,9 +11844,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           <span className="text-[14px] font-medium text-[#101828]">YouTube Video</span>
                                           <span className="text-[12px] text-[#6A7282]">Paste a YouTube video URL</span>
                                         </div>
-                                      </button>
+                                      </button>}
                                       {/* Edit Campaign: was in the white scrolled header's ⋯, which the pinned bar replaces (Chris, 9 Nov 2026) */}
-                                      <button
+                                      {!isProductPage && <button
                                         type="button"
                                         className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left md:hidden"
                                         onClick={() => { setShowEditCoverModal(false); setTimeout(() => handleEdit(), 100); }}
@@ -11830,7 +11858,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           <span className="text-[14px] font-medium text-[#101828]">Edit Campaign</span>
                                           <span className="text-[12px] text-[#6A7282]">Title, moments and sending</span>
                                         </div>
-                                      </button>
+                                      </button>}
                                     </div>
                                   </>
                                 )}
@@ -11915,8 +11943,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 )}
                               </div>
                             )}
-                            {/* Desktop - popover with options (no cover edits on read-only inventory) */}
-                            {!isInventoryDetail && (
+                            {/* Desktop - popover with options (no cover edits on read-only inventory; a product's owner: point 16) */}
+                            {(!isInventoryDetail || productControls.coverEditable) && (
                             <Popover open={isCoverPhotoMenuOpen} onOpenChange={setIsCoverPhotoMenuOpen}>
                               <PopoverTrigger asChild>
                                 <Button
@@ -11960,7 +11988,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <div className="text-xs text-gray-500 mt-0.5">Choose from uploaded media</div>
                                     </div>
                                   </button>
-                                  <button
+                                  {!isProductPage && <button
                                     onClick={() => {
                                       setIsCoverPhotoMenuOpen(false);
                                       setYoutubeUrlInput('');
@@ -11975,7 +12003,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <div className="text-sm font-medium text-gray-900 text-left">YouTube Video</div>
                                       <div className="text-xs text-gray-500 mt-0.5">Paste a YouTube video URL</div>
                                     </div>
-                                  </button>
+                                  </button>}
                                 </div>
                               </PopoverContent>
                             </Popover>
@@ -12168,6 +12196,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </div>
                             )}
                             {productNotes.map((note) => <p key={note} className="text-sm text-gray-200">{note}</p>)}
+                            {/* A product's Buy link: a real button in the owner's words (Chris 20 Nov 2026, point 15) */}
+                            {isProductPage && productDetail && <ProductBuyButton detail={productDetail} className="pt-1" />}
                             {/* Author - mobile only (on cover) */}
                             <div className="flex items-center gap-2.5 md:hidden pt-1">
                               <Avatar className="w-8 h-8">
@@ -12224,6 +12254,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
               {/* MOBILE: ref for scroll detection */}
               <div className="md:hidden" ref={mobileInfoRef} />
+
+              {/* Tablet: a product's details under its cover (Chris 20 Nov 2026, points 13, 14) */}
+              {isProductPage && productDetail && !productPhotosHidden && (
+                <div className="hidden md:block lg:hidden mt-6"><ProductPageDetails detail={productDetail} /></div>
+              )}
 
               {/* MOBILE: Sticky Header - appears after scrolling past cover; not while the pinned phone bar is shown (one bar) */}
               {mobileHeaderMode !== 'hidden' && !phonePillBarShown && (
@@ -12398,7 +12433,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               {/* DESKTOP: Two-column layout - Left metadata+timeline, Center scrollable memory cards */}
               <div className="hidden lg:flex gap-2 h-[73vh] justify-start" data-timeline-list>
                 {/* LEFT PANEL - Metadata + Timeline List */}
-                <div className={`${productPhotosHidden ? 'flex-1 max-w-4xl' : 'flex-[0_1_400px]'} min-w-[240px] flex flex-col h-full overflow-hidden p-4`}>
+                <div className={`${productPhotosHidden ? 'flex-1 max-w-4xl' : 'flex-[0_1_400px]'} min-w-[240px] flex flex-col h-full ${isProductPage && !productPhotosHidden ? 'overflow-y-auto' : 'overflow-hidden'} p-4`} data-testid={isProductPage ? 'product-page-left' : undefined}>
                   {/* Tags Row */}
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     <Badge className="text-white border-0 px-3 py-1.5 text-sm rounded-2xl" style={{ backgroundColor: categoryColorHex || '#6C60FF' }}>
@@ -12509,6 +12544,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     </div>
                   )}
                   {productNotes.map((note) => <p key={note} className="mb-2 text-sm text-gray-500">{note}</p>)}
+                  {/* A product's Buy link: a real button in the owner's words (Chris 20 Nov 2026, point 15) */}
+                  {isProductPage && productDetail && <ProductBuyButton detail={productDetail} className="mb-3" />}
 
                   {/* Author Info */}
                   <div className="flex items-center justify-between gap-3 mb-3">
@@ -12583,6 +12620,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       </>
                     )}
                   </div>
+
+                  {/* A product's details on the page itself, above its photos' timeline (Chris 20 Nov 2026, points 13, 14);
+                      the panel then scrolls as one (product-page-left), the timeline at its natural height. */}
+                  {isProductPage && productDetail && !productPhotosHidden && (
+                    <ProductPageDetails detail={productDetail} className="mb-6 flex-shrink-0" />
+                  )}
 
                   {/* A product with its photos hidden: its details in place of the (empty) timeline */}
                   {productPhotosHidden && productDetail && (
@@ -12669,7 +12712,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </div>
 
                   {/* Timeline Items - Scrollable */}
-                  <div ref={timelineScrollRef} className={`space-y-0 flex-1 overflow-y-auto overflow-x-visible pr-2 pl-4 ${productPhotosHidden ? 'hidden' : ''}`}>
+                  <div ref={timelineScrollRef} className={`space-y-0 ${isProductPage ? 'flex-none' : 'flex-1 overflow-y-auto'} overflow-x-visible pr-2 pl-4 ${productPhotosHidden ? 'hidden' : ''}`}>
                     {/* Introduction Item */}
                     <div
                       className="relative pl-10 pb-4 transition-all duration-200"
@@ -13052,9 +13095,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         const isActive = activeMemoryIndex === postIndex && isHeaderImageScrolled;
                       const postDate = post.capture_date || post.date;
                       const isCaptionHidden = post.hide_caption === 1 || post.hide_caption === true;
+                      // A product's photo has no caption: its name (the product's title / "Photo N"), never "Untitled moment".
+                      const untitled = (isCatalogItemDetail && post.name) || 'Untitled moment';
                       const description = isCaptionHidden
-                        ? (post.title || 'Untitled moment')
-                        : (post.description || post.title || 'Untitled moment');
+                        ? (post.title || untitled)
+                        : (post.description || post.title || untitled);
                       const widgetsAfterThisPost = htmlWidgets.filter(w => w.afterPostId === post.id?.toString());
 
                       return (
@@ -13574,8 +13619,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         )}
                       </div>
 
-                      {/* Edit Introduction Button - Outside overflow-hidden so popover isn't clipped (none on read-only inventory) */}
-                      {!isSuggestedCategory && !isInventoryDetail && (
+                      {/* Edit Introduction Button - Outside overflow-hidden so popover isn't clipped (none on read-only inventory;
+                          a product page's owner has it when the product's photos can change: Chris 20 Nov 2026, point 16) */}
+                      {!isSuggestedCategory && (!isInventoryDetail || productControls.coverEditable) && (
                         <div className="absolute top-0 left-0 right-0 p-4 z-10">
                           <div className="flex items-start justify-end">
                             <Popover open={isCenterCoverPhotoMenuOpen} onOpenChange={setIsCenterCoverPhotoMenuOpen}>
@@ -13583,6 +13629,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  data-testid="desktop-edit-cover"
                                   className="bg-black/30 backdrop-blur-sm border-white/30 text-white hover:bg-black/40 hover:text-white shadow-lg text-xs lg:text-sm"
                                 >
                                   <ImageIcon className="w-3 h-3 lg:w-4 lg:h-4 mr-1 lg:mr-2" />
@@ -13618,7 +13665,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <p className="text-xs text-gray-500">Choose from uploaded media</p>
                                     </div>
                                   </button>
-                                  <button
+                                  {!isProductPage && <button
                                     onClick={() => {
                                       setIsCenterCoverPhotoMenuOpen(false);
                                       setYoutubeUrlInput('');
@@ -13631,7 +13678,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <p className="text-sm font-medium text-gray-900 text-left">YouTube Video</p>
                                       <p className="text-xs text-gray-500">Paste a YouTube video URL</p>
                                     </div>
-                                  </button>
+                                  </button>}
                                 </div>
                               </PopoverContent>
                             </Popover>
@@ -14178,6 +14225,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
             {/* Mobile Timeline Section - Only visible on mobile when Timeline tab is active */}
             <div className={`md:hidden -mt-[100px] md:mt-0 ${activeTab === "overview" && !productPhotosHidden ? "block" : "hidden"}`}>
+              {/* Phone: a product's details first, then its photos (Chris 20 Nov 2026, points 13, 14) */}
+              {isProductPage && productDetail && !productPhotosHidden && (
+                <div className="relative rounded-t-3xl bg-white pb-2"><ProductPageDetails detail={productDetail} /></div>
+              )}
               <div className="bg-white">
                 {/* Timeline Content */}
                 <div className="p-0 lg:p-4 space-y-4 bg-white lg:bg-gray-50">

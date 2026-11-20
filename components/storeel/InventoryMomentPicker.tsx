@@ -11,6 +11,7 @@ import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from '../
 import { PRODUCTS_CHANGED_EVENT } from '../../hooks/useProductsStatus';
 import { vehiclePrice, vehicleTags } from './lib/previewMoments';
 import type { CampaignPick } from './lib/momentCampaigns';
+import ProductBrandThumb from '../products/ProductBrandThumb';
 
 /** Add a Moment's sources: photos & videos (the modal's own), the Website Catalogue's products, a dealer's vehicles. */
 export type MomentSource = 'media' | 'product' | 'vehicle';
@@ -200,7 +201,8 @@ export default function InventoryMomentPicker({ kind, gate = 'ready', items, loa
                     {on ? <Check className="h-3.5 w-3.5" /> : null}
                   </span>
                   <span className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-gray-100">
-                    {item.main_image ? <img src={item.main_image} alt="" className="h-full w-full object-cover" /> : null}
+                    {/* No photo: the account's brand (Chris 20 Nov 2026, point 17), not a grey box. */}
+                    {item.main_image ? <img src={item.main_image} alt="" className="h-full w-full object-cover" /> : <ProductBrandThumb />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-gray-900">{item.title}</span>

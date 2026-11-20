@@ -3,7 +3,8 @@
 // `product:<id>`), not a screen of its own. Everything the old details screen let an owner do is here, placed the way
 // that page places its actions: Edit and ⋯ (Edit settings, Duplicate, Archive / Unarchive, Delete with its confirm) —
 // same rules as before (utils/products detailActions: none in a salesperson's External view). Edit opens the same
-// product editor. ProductPageDetails is the page's details/specs block for a product whose photos are hidden.
+// product editor. ProductPageDetails is the page's details/specs block (Chris 20 Nov 2026: always on the page, so
+// everything entered in the editor shows there); ProductBuyButton its Buy link as a button; setCover* its Edit Cover.
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Archive, ArchiveRestore, Copy, Edit, MoreHorizontal, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,7 +13,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { productsAPI, type ProductCategory, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
 import { announceProductsChanged, useProductsStatus } from '../../hooks/useProductsStatus';
-import { DEFAULT_CURRENCY, detailActions, productPageDescription, productPageSpecs } from '../../utils/products';
+import { DEFAULT_CURRENCY, detailActions, mediaOrderWithFirst, productBuyButton, productCoverEditable, productPageDescription, productPageSpecs } from '../../utils/products';
+import ProductCardButton from '../ProductCardButton';
 import { TEXT_CLASS, renderTextNodes } from '../newsletters/blocks/TextBlockEditor';
 import { parseTextHtml } from '../newsletters/lib/textHtml';
 import ProductEditor from './ProductEditor';
@@ -28,6 +30,12 @@ export interface ProductPageControls {
   askDelete(): void;
   /** The editor and the delete confirm: render once on the page. */
   layers: ReactElement | null;
+  /** Edit Cover (Chris 20 Nov 2026, point 16): offered for the owner's own product whose media can change. */
+  coverEditable: boolean;
+  /** Add this photo / video to the product and make it the first media item (the cover). Resolves true when done. */
+  setCoverFile(file: File): Promise<boolean>;
+  /** The same from a Media Library item's web address (read through the page's own /s3-proxy for S3 files). */
+  setCoverFromUrl(url: string, fetchUrl?: string): Promise<boolean>;
 }
 
 /**
@@ -77,6 +85,43 @@ export function useProductPageControls({ detail, onReload, onBack, onOpenProduct
     onBack();
   }, [detail, onBack]);
 
+  // Edit Cover: upload the pick to the product's media (the editor's own route, same limits: 20 photos, one video), then
+  // put it first, so it is the product's main photo / cover everywhere. One toast per step, the page re-read after.
+  const coverEditable = productCoverEditable(detail);
+  const setCoverFile = useCallback(async (file: File): Promise<boolean> => {
+    if (!detail || !coverEditable) return false;
+    const before = new Set((detail.media || []).map((m) => m.id));
+    const toastId = toast.loading('Updating the cover…');
+    const up = await productsAPI.uploadMedia(detail.id, file);
+    if (!up.ok || !up.data) { toast.error(up.error || 'The cover could not be changed. Please try again.', { id: toastId }); return false; }
+    const added = up.data.media.find((m) => !before.has(m.id));
+    if (added) {
+      const order = mediaOrderWithFirst(up.data.media, added.id);
+      if (order[0] !== [...up.data.media].sort((a, b) => a.sort_order - b.sort_order)[0]?.id) {
+        const r = await productsAPI.orderMedia(detail.id, order);
+        if (!r.ok) { toast.error(r.error || 'The photo was added, but it could not be made the cover. Drag it first in the editor.', { id: toastId }); announceProductsChanged(); onReload(); return false; }
+      }
+    }
+    toast.success('Cover updated.', { id: toastId });
+    announceProductsChanged();
+    onReload();
+    return true;
+  }, [detail, coverEditable, onReload]);
+  const setCoverFromUrl = useCallback(async (url: string, fetchUrl?: string): Promise<boolean> => {
+    let file: File;
+    try {
+      const res = await fetch(fetchUrl || url);
+      if (!res.ok) throw new Error(String(res.status));
+      const blob = await res.blob();
+      const name = decodeURIComponent((url.split('?')[0].split('/').pop() || 'cover').slice(0, 120)) || 'cover';
+      file = new File([blob], /\.[a-z0-9]{2,5}$/i.test(name) ? name : `${name}.${(blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`, { type: blob.type || 'image/jpeg' });
+    } catch {
+      toast.error('That file could not be read. Please try again, or upload it from your computer.');
+      return false;
+    }
+    return setCoverFile(file);
+  }, [setCoverFile]);
+
   // Closing the copy's editor (saved or not) shows the copy's page, as the old screen showed its details.
   const closeEditor = (saved: boolean) => {
     const was = layer;
@@ -110,6 +155,7 @@ export function useProductPageControls({ detail, onReload, onBack, onOpenProduct
     setArchived: (archived) => { void setArchived(archived); },
     askDelete: () => setLayer({ kind: 'delete' }),
     layers: detail ? layers : null,
+    coverEditable, setCoverFile, setCoverFromUrl,
   };
 }
 
@@ -174,26 +220,47 @@ export function ProductPageActions({ controls, variant, edit = true }: { control
   );
 }
 
+/** The product's Buy link as a button (Chris 20 Nov 2026, point 15), in the owner's words ("Buy now" when none) — the
+ *  same button a product moment's "View on website" is (components/ProductCardButton). Nothing without a usable link. */
+export function ProductBuyButton({ detail, className = '' }: { detail: ProductDetail; className?: string }) {
+  const buy = productBuyButton(detail);
+  if (!buy) return null;
+  return (
+    <div data-testid="product-buy-button" className={className}>
+      <ProductCardButton button={{ id: 'buy', buttonText: buy.label, buttonLink: buy.href, icon: 'ExternalLink' }} />
+    </div>
+  );
+}
+
 /**
  * The page's details/specs block — the photo viewer's Description and spec grid (components/ImageViewer, where a car
- * shows its mileage and engine), in the same markup — shown on the page itself when the product's photos are hidden
- * ("Show photos" off): there are no photos to open the viewer from.
+ * shows its mileage and engine), in the same markup. Chris 20 Nov 2026 (points 13, 14): always on the product page, so
+ * what was entered in the editor shows there (short + full description, price, facts, categories, specifications,
+ * variants, tags) — never the owner's own settings. Nothing when the product has none of it.
  */
-export function ProductPageDetails({ detail }: { detail: ProductDetail }) {
+export function ProductPageDetails({ detail, className = '' }: { detail: ProductDetail; className?: string }) {
   const specs = productPageSpecs(detail);
   const nodes = useMemo(() => (detail.description_html ? renderTextNodes(parseTextHtml(detail.description_html)) : null), [detail.description_html]);
+  const short = (detail.short_description || '').trim();
+  const full = (detail.description || '').trim();
   const plain = productPageDescription(detail);
+  const hasDescription = Boolean(short || nodes?.length || full || plain);
+  if (!hasDescription && !specs.length) return null;
   return (
-    <section data-testid="product-page-details" aria-label="Details" className="bg-white rounded-2xl md:border md:border-gray-200 p-5 md:p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Description</h3>
-      {detail.short_description && <p className="text-base text-gray-700 leading-relaxed mb-3 break-words whitespace-pre-wrap">{detail.short_description}</p>}
-      {nodes?.length
-        ? <div className={`${TEXT_CLASS} mb-4`}>{nodes}</div>
-        : (detail.description || (!detail.short_description && plain)) && <p className="text-base text-gray-700 leading-relaxed mb-4 break-words whitespace-pre-wrap">{detail.description || plain}</p>}
+    <section data-testid="product-page-details" aria-label="Details" className={`bg-white rounded-2xl md:border md:border-gray-200 p-5 md:p-6 ${className}`}>
+      {hasDescription && (
+        <>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Description</h3>
+          {short && <p data-testid="product-page-short" className="text-base text-gray-900 font-medium leading-relaxed mb-3 break-words whitespace-pre-wrap">{short}</p>}
+          {nodes?.length
+            ? <div data-testid="product-page-full" className={`${TEXT_CLASS} mb-4`}>{nodes}</div>
+            : (full || (!short && plain)) && <p data-testid="product-page-full" className="text-base text-gray-700 leading-relaxed mb-4 break-words whitespace-pre-wrap">{full || plain}</p>}
+        </>
+      )}
       {specs.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-4 border-t border-gray-200">
+        <div className={`grid grid-cols-2 gap-x-4 gap-y-3 ${hasDescription ? 'pt-4 border-t border-gray-200' : ''}`}>
           {specs.map((spec, i) => (
-            <div key={`${i}-${spec.label}`}>
+            <div key={`${i}-${spec.label}`} data-testid="product-page-spec">
               <p className="text-xs text-gray-500 uppercase tracking-wide">{spec.label}</p>
               <p className="text-sm text-gray-900 font-medium break-words">{spec.value}</p>
             </div>
