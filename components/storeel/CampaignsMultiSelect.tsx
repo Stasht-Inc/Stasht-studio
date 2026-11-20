@@ -45,15 +45,17 @@ function useCampaignSearch(enabled: boolean, search: string, exclude: string | n
  * account's campaigns. The ticked ones are linked into the campaign as campaign moments ("a Storeel can be a series of
  * Storeels"), exactly as Create Campaign's "Select from Existing Campaigns" links them. Already linked: ticked, fixed.
  */
-export default function CampaignsMultiSelect({ picked, onToggle, alreadyLinked = [], exclude = null }: {
+export default function CampaignsMultiSelect({ picked, onToggle, alreadyLinked = [], exclude = null, defaultOpen = false }: {
   /** The ticked campaigns (kept whatever the search shows). */
   picked: ReadonlyArray<CampaignPick>;
   onToggle(campaign: CampaignPick): void;
   alreadyLinked?: ReadonlyArray<string>;
   /** The campaign being built: never offered. */
   exclude?: string | number | null;
+  /** Opened from Storeel step 2's "+ Campaigns" (Chris, 20 Nov 2026, I9): the list starts open. */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [search, setSearch] = useState('');
   const found = useCampaignSearch(open, search, exclude);
   const done = new Set(alreadyLinked.map(String));

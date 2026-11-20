@@ -384,9 +384,9 @@ try {
       expect(await cards.count() === 3, `${tag}: three product cards`);
       const chair = cards.filter({ hasText: 'Walnut Chair' }).first();
       expect(await chair.getByText('Active', { exact: true }).isVisible(), `${tag}: status badge Active`);
-      expect(await chair.getByText('Manual', { exact: true }).isVisible(), `${tag}: source badge Manual`);
+      expect(!(await chair.getByText('Manual', { exact: true }).count()), `${tag}: no source badge Manual (Chris 20 Nov, I4)`);
       expect(await chair.getByText('$500 CAD').evaluate((el) => getComputedStyle(el).textDecorationLine.includes('line-through')), `${tag}: the sale price is struck through`);
-      expect(await cards.filter({ hasText: 'Harbour Sofa' }).getByText('Website', { exact: true }).isVisible(), `${tag}: source badge Website`);
+      expect(!(await cards.filter({ hasText: 'Harbour Sofa' }).getByText('Website', { exact: true }).count()), `${tag}: no source badge Website (I4)`);
       expect(await cards.filter({ hasText: 'Draft Stool' }).getByText('Draft', { exact: true }).isVisible(), `${tag}: status badge Draft`);
       await page.screenshot({ path: `${OUT}/${tag}-01-grid.png`, fullPage: true });
 
@@ -697,7 +697,7 @@ try {
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
       await pageHeading(page, 'Walnut Chair').waitFor({ timeout: 15000 });
       expect(!(await editor.count()) && !(await page.getByTestId('product-details').count()), `${tag}: a card opens the product page, not the editor or the old details screen`);
-      expect(await pageText(page, '$450 CAD').count() > 0 && await pageText(page, 'Active').count() > 0 && await pageText(page, 'Manual').count() > 0, `${tag}: … price, status and source badges`);
+      expect(await pageText(page, '$450 CAD').count() > 0 && await pageText(page, 'Active').count() > 0 && !(await pageText(page, 'Manual').count()), `${tag}: … price and status badges, no source badge (I4)`);
       expect(await pageText(page, 'Chairs').count() > 0 && await pageText(page, 'solid wood').count() > 0, `${tag}: … category and tag badges`);
       expect(await pageText(page, 'Oil').count() > 0, `${tag}: … the spec line under the title (its specifications)`);
       // Chris 20 Nov (point 15): the Buy link is a button, "Buy now" when no words were set.
@@ -732,7 +732,7 @@ try {
       // A website product: no Edit, the sync line, View on website, ⋯ without Delete.
       await cards.filter({ hasText: 'Harbour Sofa' }).getByRole('button').first().click();
       await pageHeading(page, 'Harbour Sofa').waitFor({ timeout: 15000 });
-      expect(await pageText(page, 'Website').count() > 0 && await pageText(page, 'This product comes from your website and updates each time it syncs.').count() > 0, `${tag}: website product: Website tag and the sync line`);
+      expect(!(await pageText(page, 'Website').count()) && await pageText(page, 'This product comes from your website and updates each time it syncs.').count() > 0, `${tag}: website product: the sync line, no Website badge (I4)`);
       expect(!(await details.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).count()) && await pageButton(page, 'More actions').isVisible(), `${tag}: … no Edit, ⋯ stays`);
       expect(await details.getByRole('link', { name: /View on website/ }).filter({ visible: true }).first().getAttribute('href') === 'https://royalwood.example.ca/harbour', `${tag}: … View on website`);
       await page.screenshot({ path: `${OUT}/${tag}-02-website.png` });
@@ -1173,7 +1173,7 @@ try {
 
       // C8: Import from your website in the Website Catalogue connector's teal.
       const importBg = await page.getByTestId('products-import').filter({ visible: true }).first().evaluate((el) => getComputedStyle(el).backgroundColor);
-      expect(importBg === 'rgb(15, 118, 110)', `${tag}: C8 Import from your website is the connector's teal (${importBg})`);
+      expect(importBg === 'rgb(255, 255, 255)', `${tag}: Import from your website is the outlined secondary (Chris 20 Nov I5, was C8 teal) (${importBg})`);
       // C6: a card with a category shows it as a pill.
       expect((await pill('Walnut Chair').textContent())?.trim() === 'Chairs' && !(await pill('Draft Stool').count()), `${tag}: C6 Walnut Chair shows its Chairs pill; Draft Stool has none`);
       const sofaBg = await pill('Harbour Sofa').locator('span').first().evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -1466,8 +1466,9 @@ try {
         return { button: bg(b), text: b ? getComputedStyle(b).color : null, website: bg(website) };
       });
       expect((await btn.innerText()).trim() === 'Import active', `${tag}: the button says "Import active"`);
-      expect(colours.button === 'rgb(21, 128, 61)' && colours.text === 'rgb(255, 255, 255)', `${tag}: Import button is #15803D with white text (${JSON.stringify(colours)})`);
-      expect(colours.website === 'rgb(15, 118, 110)' && colours.website !== colours.button, `${tag}: … no longer the Website badge's teal (${colours.website})`);
+      // Chris 20 Nov (I5): now the secondary outlined button (white, grey border, grey text) — no fill.
+      expect(colours.button === 'rgb(255, 255, 255)' && colours.text === 'rgb(55, 65, 81)', `${tag}: Import button is the outlined secondary (${JSON.stringify(colours)})`);
+      expect(colours.website === null, `${tag}: … and the cards have no Website badge (I4)`);
       await page.screenshot({ path: `${OUT}/${tag}-01-import-green.png` });
       await btn.click();
       await page.getByRole('heading', { name: 'Connectors' }).filter({ visible: true }).first().waitFor({ timeout: 20000 });
@@ -1507,7 +1508,7 @@ try {
       await openCard('Walnut Chair');
       expect(!(await page.getByTestId('product-details').count()) && await pageOf.isVisible(), `${tag}: a manual product opens the Serpa-style page, not the old details screen`);
       expect(w.calls.some((c) => c.p === '/products/601' && c.m === 'GET'), `${tag}: … read from GET /products/601`);
-      for (const t of ['Chairs', '$450 CAD', 'Active', 'Manual', 'solid wood']) expect(await pageOf.getByText(t, { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … header shows "${t}"`);
+      for (const t of ['Chairs', '$450 CAD', 'Active', 'solid wood']) expect(await pageOf.getByText(t, { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … header shows "${t}"`);
       expect(await pageOf.getByRole('link', { name: 'Buy now' }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the Buy link (a "Buy now" button since Chris 20 Nov)`);
       expect(await pageOf.getByText(/3 moments/).filter({ visible: true }).count() > 0, `${tag}: … its 3 photos are the timeline, as a car's`);
       for (const name of ['Edit', 'More actions']) {
@@ -1538,7 +1539,7 @@ try {
       await openCard('Harbour Sofa');
       expect(!(await pageOf.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).count()), `${tag}: website product: no Edit`);
       expect(await pageOf.getByRole('link', { name: /View on website/ }).filter({ visible: true }).first().getAttribute('href') === 'https://royalwood.example.ca/harbour', `${tag}: … View on website`);
-      expect(await pageOf.getByText('This product comes from your website and updates each time it syncs.').filter({ visible: true }).count() > 0 && await pageOf.getByText('Website', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … the sync line and the Website pill`);
+      expect(await pageOf.getByText('This product comes from your website and updates each time it syncs.').filter({ visible: true }).count() > 0 && !(await pageOf.getByText('Website', { exact: true }).filter({ visible: true }).count()), `${tag}: … the sync line, no Website pill (I4)`);
       await pageOf.getByRole('button', { name: 'More actions' }).filter({ visible: true }).first().click();
       const wItems = (await page.getByRole('menu').getByRole('menuitem').allTextContents()).map((t) => t.trim()).join(',');
       expect(wItems === 'Edit settings,Duplicate,Archive', `${tag}: … its ⋯ (${wItems})`);
@@ -1550,7 +1551,7 @@ try {
       // Shopify product: View in your store, the Shopify pill.
       await openCard('Cedar Planter');
       expect(await pageOf.getByRole('link', { name: /View in your store/ }).filter({ visible: true }).first().getAttribute('href') === 'https://royalwood.myshopify.com/products/cedar', `${tag}: Shopify product: View in your store`);
-      expect(await pageOf.getByText('Shopify', { exact: true }).filter({ visible: true }).count() > 0 && await pageOf.getByText('This product comes from your Shopify store and updates each time it syncs.').filter({ visible: true }).count() > 0, `${tag}: … the Shopify pill and sync line`);
+      expect(!(await pageOf.getByText('Shopify', { exact: true }).filter({ visible: true }).count()) && await pageOf.getByText('This product comes from your Shopify store and updates each time it syncs.').filter({ visible: true }).count() > 0, `${tag}: … the sync line, no Shopify pill (I4)`);
       await shoot('04-shopify');
       await back();
 

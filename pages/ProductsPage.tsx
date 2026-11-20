@@ -68,13 +68,10 @@ export default function ProductsPage({ onNavigate, onOpenProduct, detailOpen = f
 // Same look as the Campaigns search box and filter selects (gray-50 fill, gray-200 border, white on focus).
 const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:bg-white focus-visible:ring-2 focus-visible:ring-[#6C60FF]/20';
 
-// C8 (Chris, 16 Nov): the Website Catalogue connector's brand (components/connectors/catalog.ts brandColors →
-// WEBSITE_CATALOG_COLOR #0F766E, white Globe on it, ConnectorIcon), on the primary button's shape.
-// Spelled out (review minor 7: no String.replace on BUTTON_PRIMARY); hover dims it slightly, as the connector has no hover shade.
-// Chris, 20 Nov 2026 (call 00:00:20): "make this a different green so it doesn't look too much like this" — the button
-// was the same teal (#0F766E) as every card's "Website" badge and website category pill. It is now a true green
-// (#15803D, Tailwind green-700; white text 5:1), so the button no longer reads as one of the Website badges.
-const IMPORT_BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#15803D] px-5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#15803D] focus-visible:ring-offset-2';
+// Chris, 20 Nov 2026 (I5, supersedes the 16 Nov teal / 20 Nov green fill): "Import from your website" is a SECONDARY
+// outlined button (no fill) — the page's own BUTTON_SECONDARY (Categories, Previous / Next) — so "+ Add a product" is the
+// one primary action.
+const IMPORT_BUTTON = BUTTON_SECONDARY;
 
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 

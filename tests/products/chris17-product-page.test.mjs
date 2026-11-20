@@ -49,10 +49,10 @@ test('notes: where an imported product comes from; who shared a read-only one', 
   assert.deepEqual(productPageNotes(detail()), []);
 });
 
-test('pills: status (plus Out of stock), then the source', () => {
-  assert.deepEqual(productPagePills(detail()).map((p) => p.label), ['Active', 'Manual']);
-  assert.deepEqual(productPagePills(detail({ stock_status: 'out_of_stock', origin: 'website' })).map((p) => p.label), ['Active', 'Out of stock', 'Website']);
-  assert.deepEqual(productPagePills(detail({ badge: 'out_of_stock', stock_status: 'out_of_stock', origin: 'shopify' })).map((p) => p.label), ['Out of stock', 'Shopify']);
+test('pills: status (plus Out of stock), no source pill (I4)', () => {
+  assert.deepEqual(productPagePills(detail()).map((p) => p.label), ['Active']);
+  assert.deepEqual(productPagePills(detail({ stock_status: 'out_of_stock', origin: 'website' })).map((p) => p.label), ['Active', 'Out of stock']);
+  assert.deepEqual(productPagePills(detail({ badge: 'out_of_stock', stock_status: 'out_of_stock', origin: 'shopify' })).map((p) => p.label), ['Out of stock']);
 });
 
 test('the spec line is up to three attribute values, as the catalogue page shows it', () => {

@@ -237,6 +237,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
+  // I9 (Chris, 20 Nov 2026): which list Add a Moment opens on ("+ Products" / "+ Campaigns"); cleared when it closes,
+  // so every other way in still opens on Media.
+  const [addMomentOpenOn, setAddMomentOpenOn] = useState<'product' | 'campaigns' | undefined>(undefined);
+  useEffect(() => { if (!isAddMomentOpen) setAddMomentOpenOn(undefined); }, [isAddMomentOpen]);
   // Chris, 7 Nov 2026 (points 6, 7): the moments' order before the campaign exists (keys; [] = the API's own order),
   // the products / vehicles added with Add a Moment (beside step 1's picks), and where a preview "+" adds moments
   // (a moment's key, null = first; undefined = the Moments card's Add a Moment, at the end).
@@ -2624,10 +2628,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Send made it) moments save straight to it, as step 2 Moments already does there.
 
   /** Open the original Add a Moment: from a preview "+" (`anchor`: the moment it follows, null = first), or the card. */
-  const openAddMoment = (anchor: string | null | undefined) => {
+  const openAddMoment = (anchor: string | null | undefined, openOn?: 'product' | 'campaigns') => {
     addAnchorRef.current = anchor;
     setEditingPhotoIndex(null);
     setMomentFiles(null);
+    setAddMomentOpenOn(openOn);
     setIsAddMomentOpen(true);
   };
 
@@ -3875,6 +3880,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               note={view.momentsNote}
               busy={isSubmitting}
               onAddMoment={() => openAddMoment(undefined)}
+              // Chris, 20 Nov 2026 (I9): "+ Products" / "+ Campaigns" beside Add a Moment open Add a Moment's own
+              // Products list / Campaigns list; the picks are added at the end, as Add a Moment adds them.
+              onAddProducts={editNotReady ? undefined : () => openAddMoment(undefined, 'product')}
+              onAddCampaigns={editNotReady ? undefined : () => openAddMoment(undefined, 'campaigns')}
               addChooser={{ options: chooserOptions, onPick: (kind) => pickWidget(kind, undefined) }}
               captionRequest={captionRequest}
               onDropFiles={savedMoments ? undefined : (files) => {
@@ -4045,6 +4054,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           capturedFiles={editingPhotoIndex !== null ? null : momentFiles}
           // Products / vehicles too (Chris, 7 Nov 2026, point 7).
           inventory={momentInventory}
+          openOn={addMomentOpenOn}
           // Step 2 Moments' Add a Moment (Storeel flow v2): before the campaign exists the moments are held here and
           // sent with Save as Draft; on a saved campaign the original UI adds them to it directly, as on its page.
           memoryId={flowCampaign ? String(flowCampaign.id) : undefined}

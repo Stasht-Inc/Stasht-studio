@@ -786,8 +786,8 @@ export function productPhotoName(title: string | null | undefined, index: number
 
 /** The product page's cover (Chris 20 Nov 2026, point 16): its first media item — a photo or its video — by the
  *  editor's order (Edit Cover makes the picked one first). null with "Show photos" off or no media at all. */
-export function productPageCover(d: Pick<ProductDetail, 'media' | 'main_image' | 'show_photos'>): string | null {
-  if (!productPhotosShown(d)) return null;
+export function productPageCover(d: Pick<ProductDetail, 'media' | 'main_image' | 'show_photos' | 'cover_removed'>): string | null {
+  if (!productPhotosShown(d) || d.cover_removed) return null; // I10: Remove cover → the brand
   const first = [...(d.media || [])].filter((m) => m.url).sort((a, b) => a.sort_order - b.sort_order)[0];
   return first?.url || d.main_image || null;
 }
@@ -795,6 +795,10 @@ export function productPageCover(d: Pick<ProductDetail, 'media' | 'main_image' |
 /** Edit Cover on a product page: the owner's own product whose media the API lets them change (manual products). */
 export const productCoverEditable = (d: Pick<ProductDetail, 'read_only' | 'editable_fields'> | null | undefined): boolean =>
   Boolean(d && !d.read_only && d.editable_fields.includes('media'));
+
+/** Remove cover (I10): an editable product that has a cover now (media, cover not removed) and a web API that knows it. */
+export const productCoverRemovable = (d: Pick<ProductDetail, 'read_only' | 'editable_fields' | 'media' | 'cover_removed' | 'show_photos'> | null | undefined): boolean =>
+  Boolean(d && productCoverEditable(d) && d.cover_removed === false && (d.media || []).length > 0 && productPhotosShown(d));
 
 /** The media order that puts `firstId` first, the others keeping their order. */
 export function mediaOrderWithFirst(media: ReadonlyArray<{ id: number; sort_order: number }>, firstId: number): number[] {
@@ -881,12 +885,12 @@ export function productPagePhotos(d: Pick<ProductDetail, 'media' | 'main_image' 
   return d.main_image ? [{ url: d.main_image }] : [];
 }
 
-/** The status / source pills beside the category and price badges: the product's status (plus "Out of stock" when an
- *  active product has none left) and where it comes from. */
-export function productPagePills(d: Pick<ProductDetail, 'badge' | 'stock_status' | 'origin'>): Array<{ label: string; className?: string; color?: string }> {
+/** The status pills beside the category and price badges: the product's status (plus "Out of stock" when an
+ *  active product has none left). Chris, 20 Nov 2026 (I4): no source pill ("Manual" / "Website" / "Shopify") — "we dont
+ *  need a badge for that". The source is still a filter in Filters. */
+export function productPagePills(d: Pick<ProductDetail, 'badge' | 'stock_status'>): Array<{ label: string; className?: string; color?: string }> {
   return [
     { label: BADGE_LABEL[d.badge], className: BADGE_CLASS[d.badge] },
     ...(d.stock_status === 'out_of_stock' && d.badge !== 'out_of_stock' ? [{ label: BADGE_LABEL.out_of_stock, className: BADGE_CLASS.out_of_stock }] : []),
-    { label: sourceLabel(d), color: sourceColor(d) },
   ];
 }
