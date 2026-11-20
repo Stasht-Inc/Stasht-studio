@@ -44,3 +44,26 @@ test('own External account is not the business', () => {
   assert.equal(isOwnBusinessProperty({ is_creator: false, account_type: 'internal' }), false);
   assert.equal(isOwnBusinessProperty(null), false);
 });
+
+// "Send as" the business itself (Chris, 20 Nov 2026: "Where is Royal Woodshop? Shouldn't it say Choose a Sender?").
+test('the business is offered in the main view when there is a choice, and starts picked when nothing else fits', async () => {
+  const { offersBusiness, SEND_AS_BUSINESS } = await import('../../utils/sendAsDefault.ts');
+  const andrew = { id: '14', row: { id: 14, is_creator: true, account_type: 'external', name: 'Andrew S.' } };
+  const lindsay = { id: '15', row: { id: 15, is_creator: true, account_type: 'external', name: 'Lindsay H.' } };
+  const business = { id: SEND_AS_BUSINESS };
+
+  // Royal Wood: only staff External accounts — the business is offered and is the default.
+  assert.equal(offersBusiness([chrisBecks, andrew, lindsay], false), true);
+  assert.equal(defaultSendAs([business, chrisBecks, andrew, lindsay]), SEND_AS_BUSINESS);
+  // One External account only: still a choice (filing under someone's own account is not "the business").
+  assert.equal(offersBusiness([chrisBecks], false), true);
+  assert.equal(defaultSendAs([business, chrisBecks]), SEND_AS_BUSINESS);
+  // The business's own internal property stands for the business (16 Nov rule): no second "TheRoyalWoodShop".
+  assert.equal(offersBusiness([teamProp, chrisBecks, ownShop], false), false);
+  assert.equal(defaultSendAs([teamProp, chrisBecks, ownShop]), '10');
+  // A salesperson on one dealership: no picker, as before.
+  assert.equal(offersBusiness([teamProp], false), false);
+  // Property view: not offered; no properties: nothing to choose.
+  assert.equal(offersBusiness([chrisBecks, andrew], true), false);
+  assert.equal(offersBusiness([], false), false);
+});

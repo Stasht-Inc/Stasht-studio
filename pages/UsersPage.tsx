@@ -38,7 +38,7 @@ import { propertyImageErrorMessage, propertyRowAvatar } from '../utils/propertyI
 import { countLabel } from '../utils/countLabel';
 import { adminSeatLimit, featurePlanKey } from '../utils/effectivePlan';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
-import { usersTabCounts } from '../utils/usersTabCounts.ts';
+import { usersTabCounts, USERS_COUNT_EVENT } from '../utils/usersTabCounts.ts';
 import { toast } from 'sonner';
 
 interface User {
@@ -353,6 +353,11 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
         console.log('🎯 SETTING USERS STATE with', allUsers.length, 'users');
         setUsers(allUsers);
         markCountLoaded('users');
+        // The full list (no search, no property): the sidebar badge shows the same total.
+        if (!searchQuery && !propertyId) {
+          const total = response.data.data?.pagination?.total ?? response.data.pagination?.total;
+          window.dispatchEvent(new CustomEvent(USERS_COUNT_EVENT, { detail: { count: typeof total === 'number' ? total : allUsers.length } }));
+        }
         console.log('✅ Users state has been set');
         
         // Also fetch shared memories count
@@ -1162,7 +1167,14 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const activeUsers = users.filter(user => user.status === 1).length;
   // Same mapping as the row badge: anything not active (0, 'invited', 'pending') is PENDING.
   const pendingInvites = users.filter(user => getDisplayStatus(user.status) === 'pending').length;
-  const collaborators = users.filter(user => user.is_user_collaborator).length;
+  // Collaborations = the campaigns shared with someone who has accepted (Chris 20 Nov 2026: an invited Admin made it 1
+  // while Total Campaigns was 0). Account Admins (all campaigns, no single one) and pending invites don't add any.
+  const collaborations = new Set(
+    users
+      .filter(user => getDisplayStatus(user.status) === 'active')
+      .flatMap(user => [user.memory?.id, ...(user.memories ?? []).map(m => m.memory_id)])
+      .filter((id): id is number => typeof id === 'number' && id > 0),
+  ).size;
   const adminCount = users.filter(user => ['admin', 'partial_admin'].includes(user.collaborator_role || user.role || '')).length;
   // The server's seat number (with the account's Admin Portal override) when known; else the plan's, Enterprise as
   // Business (utils/effectivePlan adminSeatLimit; Deepak, 11 Nov 2026). null = unlimited.
@@ -1172,7 +1184,6 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   // Use the same memory count source as sidebar + add shared memories count
   // Total memories = sidebar total_memories + shared memories count
   const totalMemories = (memoryCounts?.total_memories || 0) + sharedMemoriesCount;
-  const collaborations = collaborators;
 
   // Filter users based on role and status filters (search is handled by API)
   const filteredUsers = users.filter(user => {
@@ -1909,7 +1920,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                         {getTimeAgo(user.last_active_at)}
                       </td>
                       <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(user.created_at)}
+                        {displayStatus === 'pending'
+                          ? <span title={`Invited ${formatDate(user.created_at)}`}>—</span>
+                          : formatDate(user.created_at)}
                       </td>
                       <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-right text-sm font-medium bg-white">
                         <DropdownMenu>
@@ -2037,7 +2050,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                               </span>
                               <span className="text-[12px] text-gray-400">•</span>
                               <span className="text-[12px] text-gray-500">
-                                Joined: {formatDate(user.created_at)}
+                                {getDisplayStatus(user.status) === 'pending' ? 'Invited' : 'Joined'}: {formatDate(user.created_at)}
                               </span>
                             </div>
                           </div>

@@ -233,6 +233,8 @@ export interface StartConversationPayload {
   // May be '' when car_ids is set — the server then uses Share New Cars' wording.
   body: string;
   property_id?: number | string;
+  // 'account': sent as the business itself (filed under no property, signed by the account) — "Send as" (20 Nov 2026).
+  send_as?: 'account';
   memory_id?: number | string;
   // "+ Campaign": cars for a NEW campaign whose link goes out with the message.
   car_ids?: number[];
