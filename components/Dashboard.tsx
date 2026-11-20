@@ -12,7 +12,7 @@ import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
-import { ADD_CARD_NOTICE, cardOnFileFrom, pickTrial, showAddCardNotice, trialBannerFrom, trialEndDate } from '../utils/trialBanner';
+import { ADD_CARD_NOTICE, cardOnFileFrom, pickTrial, showAddCardNotice, trialBannerFrom, trialBannerText, trialEndDate } from '../utils/trialBanner';
 import { cachedPaymentMethods } from '../utils/paymentMethodsCache';
 import { stripeApi } from '../utils/stripeApi';
 import { planCoveredBy } from '../utils/effectivePlan';
@@ -422,9 +422,7 @@ export default function Dashboard({
               {trialBanner.ended ? 'Trial ended' : 'Free trial'}
             </AlertTitle>
             <AlertDescription className="text-amber-700 !text-left">
-              {trialBanner.ended
-                ? `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ended on ${trialBanner.endDate}. Your account has moved to the Starter plan.`
-                : `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ends on ${trialBanner.endDate} (${trialBanner.daysLeft} ${trialBanner.daysLeft === 1 ? 'day' : 'days'} left). After that your account moves to the Starter plan.`}
+              {trialBannerText(trialBanner)}
               {addCardNotice && (
                 <span>
                   {ADD_CARD_NOTICE}
