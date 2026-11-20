@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { productsAPI, type ProductCategory, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
 import { announceProductsChanged, useProductsStatus } from '../../hooks/useProductsStatus';
-import { DEFAULT_CURRENCY, detailActions, mediaOrderWithFirst, productBuyButton, productCoverEditable, productPageDescription, productPageSpecs } from '../../utils/products';
+import { DEFAULT_CURRENCY, detailActions, mediaOrderWithFirst, productBuyButton, productCoverEditable, productCoverRemovable, productPageDescription, productPageSpecs } from '../../utils/products';
 import ProductCardButton from '../ProductCardButton';
 import { TEXT_CLASS, renderTextNodes } from '../newsletters/blocks/TextBlockEditor';
 import { parseTextHtml } from '../newsletters/lib/textHtml';
@@ -36,6 +36,10 @@ export interface ProductPageControls {
   setCoverFile(file: File): Promise<boolean>;
   /** The same from a Media Library item's web address (read through the page's own /s3-proxy for S3 files). */
   setCoverFromUrl(url: string, fetchUrl?: string): Promise<boolean>;
+  /** Remove cover (Chris 20 Nov 2026, I10): offered while the product shows one of its photos / its video as cover. */
+  coverRemovable: boolean;
+  /** Show the brand as the cover; every photo / video stays (moments, gallery). Resolves true when done. */
+  removeCover(): Promise<boolean>;
 }
 
 /**
@@ -122,6 +126,18 @@ export function useProductPageControls({ detail, onReload, onBack, onOpenProduct
     return setCoverFile(file);
   }, [setCoverFile]);
 
+  // Remove cover (I10): the brand shows instead, on the page and the Products card; the photos stay where they are.
+  const coverRemovable = productCoverRemovable(detail);
+  const removeCover = useCallback(async (): Promise<boolean> => {
+    if (!detail || !coverRemovable) return false;
+    const r = await productsAPI.removeCover(detail.id);
+    if (!r.ok) { toast.error(r.error || 'The cover could not be removed. Please try again.'); return false; }
+    toast.success('Cover removed.');
+    announceProductsChanged();
+    onReload();
+    return true;
+  }, [detail, coverRemovable, onReload]);
+
   // Closing the copy's editor (saved or not) shows the copy's page, as the old screen showed its details.
   const closeEditor = (saved: boolean) => {
     const was = layer;
@@ -155,7 +171,7 @@ export function useProductPageControls({ detail, onReload, onBack, onOpenProduct
     setArchived: (archived) => { void setArchived(archived); },
     askDelete: () => setLayer({ kind: 'delete' }),
     layers: detail ? layers : null,
-    coverEditable, setCoverFile, setCoverFromUrl,
+    coverEditable, setCoverFile, setCoverFromUrl, coverRemovable, removeCover,
   };
 }
 

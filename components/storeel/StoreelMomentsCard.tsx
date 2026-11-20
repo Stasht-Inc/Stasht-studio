@@ -8,6 +8,13 @@ import { stepNumber } from './lib/storeelFlow';
 import type { PreviewMoment } from './lib/previewMoments';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
+import { campaignPill, productsPill } from '../leads/CampaignPickButtons';
+
+// Chris, 20 Nov 2026 (I9): "+ Products" (green) and "+ Campaigns" (purple) beside Add a Moment — the message composer's
+// pair (CampaignPickButtons), both with a stroke (I8: "They need the same pattern!"). The purple pill gets its border
+// here until the composer's own pill has one (then the replace finds nothing and the shared look applies as is).
+const PRODUCTS_BUTTON = productsPill();
+const CAMPAIGNS_BUTTON = campaignPill().replace('border-transparent', 'border-purple-200');
 
 export const MOMENTS_STEP_ID = 'st-step-moments';
 
@@ -37,13 +44,17 @@ export interface MomentRow {
  * moment editor on the pencil, and "Add a Moment", which opens the original Add a Moment UI (AddMomentModal).
  * Photos can be dropped on the card, as on the old Media box.
  */
-export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false, note = null, captionRequest = null, addChooser }: {
+export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, onAddCampaigns, onDropFiles, busy = false, note = null, captionRequest = null, addChooser }: {
   rows: MomentRow[];
   /** The preview's Edit Moment on a saved moment (Chris, 7 Nov 2026): open this row's caption editor, scrolled to. */
   captionRequest?: { key: string; n: number } | null;
   /** On a saved campaign: "Moments and captions save straight to your campaign." */
   note?: string | null;
   onAddMoment(): void;
+  /** I9: Add a Moment's Products list (the same picker), straight away. */
+  onAddProducts?(): void;
+  /** I9: Add a Moment's Campaigns list (the same picker), straight away. */
+  onAddCampaigns?(): void;
   onDropFiles?(files: FileList): void;
   busy?: boolean;
   /** Chris, 8 Nov 2026 (point 1): "Add a Moment" opens the campaign page's Add Widget chooser (at the end). */
@@ -69,15 +80,27 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, bus
         ) : (
           <p className="text-sm text-gray-500">No moments yet. Add photos or videos with Add a Moment, or pick items in step 1.</p>
         )}
-        {addChooser ? (
-          <Popover>
-            <PopoverTrigger asChild>{addButton}</PopoverTrigger>
-            {/* Above the Storeel page (z 99999). */}
-            <PopoverContent side="top" align="start" className={ADD_WIDGET_PANEL} style={{ zIndex: 100002 }} sideOffset={8}>
-              <AddWidgetMenu options={addChooser.options} onPick={addChooser.onPick} />
-            </PopoverContent>
-          </Popover>
-        ) : addButton}
+        <div className="flex flex-wrap items-center gap-2" data-testid="storeel-moments-actions">
+          {addChooser ? (
+            <Popover>
+              <PopoverTrigger asChild>{addButton}</PopoverTrigger>
+              {/* Above the Storeel page (z 99999). */}
+              <PopoverContent side="top" align="start" className={ADD_WIDGET_PANEL} style={{ zIndex: 100002 }} sideOffset={8}>
+                <AddWidgetMenu options={addChooser.options} onPick={addChooser.onPick} />
+              </PopoverContent>
+            </Popover>
+          ) : addButton}
+          {onAddProducts ? (
+            <button type="button" onClick={onAddProducts} disabled={busy} className={`${PRODUCTS_BUTTON} disabled:opacity-50`} data-testid="storeel-moments-products">
+              <Plus className="h-4 w-4" aria-hidden="true" />Products
+            </button>
+          ) : null}
+          {onAddCampaigns ? (
+            <button type="button" onClick={onAddCampaigns} disabled={busy} className={`${CAMPAIGNS_BUTTON} disabled:opacity-50`} data-testid="storeel-moments-campaigns">
+              <Plus className="h-4 w-4" aria-hidden="true" />Campaigns
+            </button>
+          ) : null}
+        </div>
       </div>
     </StepCard>
   );

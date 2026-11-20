@@ -5,7 +5,7 @@ import { ImageWithFallback } from '../figma/ImageWithFallback';
 import { UserFallbackAvatar } from '../MemoryCard';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ProductSummary } from '../../services/productsAPI';
-import { BADGE_CLASS, BADGE_LABEL, cardCategories, priceLine, productCategoryColor, sourceColor, sourceLabel } from '../../utils/products';
+import { BADGE_CLASS, BADGE_LABEL, cardCategories, priceLine, productCategoryColor } from '../../utils/products';
 
 export default function ProductCard({ product, selectable, selected, onToggle, onOpen, websiteCategoryIds, shopifyCategoryIds }: {
   /** The account's website categories (teal pills). */
@@ -59,12 +59,10 @@ export default function ProductCard({ product, selectable, selected, onToggle, o
               )}
             </span>
           )}
-          {/* Status over source, stacked, so the two never collide on a narrow card; the checkbox sits top-right. */}
+          {/* The status pill; the checkbox sits top-right. Chris, 20 Nov 2026 (I4): no source pill ("Manual" / "Website" /
+              "Shopify") under it any more — the source stays a filter in Filters. */}
           <span className="absolute left-2 top-2 flex flex-col items-start gap-1">
             <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${BADGE_CLASS[product.badge]}`}>{BADGE_LABEL[product.badge]}</span>
-            <span className="rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: sourceColor(product) }}>
-              {sourceLabel(product)}
-            </span>
           </span>
         </div>
         <div className="space-y-1 p-3">

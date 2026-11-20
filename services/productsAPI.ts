@@ -41,6 +41,8 @@ export interface ProductSummary {
   price_on_request: boolean;
   show_price: boolean;
   main_image: string | null;
+  /** Remove cover (Chris 20 Nov 2026, I10): the brand shows as the cover; the photos stay. Absent on an older web API. */
+  cover_removed?: boolean;
   images_count: number;
   category: string | null;
   categories: ProductCategoryRef[];
@@ -197,6 +199,8 @@ export const productsAPI = {
     run<{ updated: number; deleted: number; skipped_ids: number[] }>(apiRequest('/products/bulk', json('POST', body))),
   uploadMedia,
   orderMedia: (id: number, ids: number[]) => run<ProductDetail>(apiRequest(`${path(id)}/media/order`, json('PUT', { ids }))),
+  /** Remove cover (I10): DELETE /products/{id}/cover — every photo / video stays; the product shows the brand. */
+  removeCover: (id: number) => run<ProductDetail>(apiRequest(`${path(id)}/cover`, json('DELETE'))),
   removeMedia: (id: number, mediaId: number) => run<ProductDetail>(apiRequest(`${path(id)}/media/${encodeURIComponent(String(mediaId))}`, json('DELETE'))),
   // can_hide: the API has product_categories.hidden (Show / Hide, 16 Nov); absent / false = no Show / Hide control.
   categories: () => run<{ categories: ProductCategory[]; total: number; can_hide?: boolean }>(apiRequest('/product-categories', { method: 'GET', skipCache: true } as RequestInit)),

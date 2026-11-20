@@ -3310,12 +3310,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         let productTags: string[] | null = null;
         // A product page's cover: its first media item (photo or video; Edit Cover puts the picked one first).
         let productCover: string | null | undefined;
+        let productCoverRemoved = false; // I10: Remove cover → the brand, not the first photo
         if (isProductPage) {
           // A Products page product: GET /products/{id}, in the catalogue item's shape. Its details grid (productPageSpecs)
           // goes in as the attributes (the SKU is one of them), its description is the short + full description.
           const r = await productsAPI.get(catalogItemId!);
           const d = r.ok ? r.data : undefined;
-          if (d) { setProductDetail(d); productTags = d.tags.length ? d.tags : null; productCover = productPageCover(d); }
+          if (d) { setProductDetail(d); productTags = d.tags.length ? d.tags : null; productCover = productPageCover(d); productCoverRemoved = Boolean(d.cover_removed); }
           res = d ? { ok: true, data: {
             id: d.id, title: d.title, price: d.price, currency: d.currency,
             price_label: priceLine(d).main, // "Price on request" / "Price hidden" as the old screen said
@@ -3389,7 +3390,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             website_url: item.url || null,
             // A product page: its tags show beside the category and price badges, as a campaign's do.
             ...(productTags ? { tags: productTags } : {}),
-            last_update_img: (isProductPage ? productCover : undefined) ?? posts[0]?.image_link ?? null,
+            last_update_img: productCoverRemoved ? null : (isProductPage ? productCover : undefined) ?? posts[0]?.image_link ?? null,
             // A product page re-read after Edit Cover / a photo change keeps the product's own photo order (the
             // timeline otherwise keeps the old order and appends new photos at the end).
             ...(isProductPage ? { unified_order: posts.map((p) => ({ type: 'post', id: p.id })) } : {}),
@@ -4481,6 +4482,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Check if memory has "Suggested" category - make it read-only
   const isSuggestedCategory = uiMemory.category === 'Suggested';
+  // Edit Cover → Remove cover (Chris 20 Nov 2026, I10). A product: while one of its photos / its video is the cover (the
+  // photo stays a moment; the brand shows). A campaign: while it has a cover of its own (the same confirm and call as
+  // the timeline's Introduction ⋮ → Delete), so it can be removed from the cover itself, on phones too.
+  const removeCoverShown = isProductPage
+    ? productControls.coverRemovable
+    : Boolean(coverOwner && !isInventoryDetail && !isSuggestedCategory && !isShopifyCollection && apiMemoryData?.last_update_img
+      && !campaignCover({ chosen: apiMemoryData.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image }).isBrand);
 
   // A catalogue product's page on the customer's website — the header's "View on website" link.
   // http(s) only, so a stored javascript:/data: URL can never become a link.
@@ -6329,6 +6337,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // 2026-10-16); the header then shows the default cover (first photo / property / profile).
   const handleRemoveCoverConfirm = async () => {
     setIsRemovingCover(true);
+    if (isProductPage) {
+      // I10: the product's own route; its photos stay (the page is re-read after).
+      try {
+        if (await productControls.removeCover()) setShowRemoveCoverConfirm(false);
+      } finally {
+        setIsRemovingCover(false);
+      }
+      return;
+    }
     try {
       const res = await apiRequest(`/memories/${memoryId}`, {
         method: 'PUT',
@@ -11862,6 +11879,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           <span className="text-[12px] text-[#6A7282]">Title, moments and sending</span>
                                         </div>
                                       </button>}
+                                      {/* Remove cover (Chris 20 Nov 2026, I10): the brand shows; a product keeps the photo */}
+                                      {removeCoverShown && <button
+                                        type="button"
+                                        data-testid="phone-remove-cover"
+                                        className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
+                                        onClick={() => { setShowEditCoverModal(false); setShowRemoveCoverConfirm(true); }}
+                                      >
+                                        <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8.75px] bg-red-50 flex items-center justify-center">
+                                          <Trash2 className="w-4 h-4 text-red-500" />
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-[14px] font-medium text-red-600">Remove cover</span>
+                                          <span className="text-[12px] text-[#6A7282]">{isProductPage ? 'Show your logo; keep the photo' : 'Show the default cover'}</span>
+                                        </div>
+                                      </button>}
                                     </div>
                                   </>
                                 )}
@@ -12005,6 +12037,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <div className="flex-1">
                                       <div className="text-sm font-medium text-gray-900 text-left">YouTube Video</div>
                                       <div className="text-xs text-gray-500 mt-0.5">Paste a YouTube video URL</div>
+                                    </div>
+                                  </button>}
+                                  {/* Remove cover (Chris 20 Nov 2026, I10) */}
+                                  {removeCoverShown && <button
+                                    data-testid="tablet-remove-cover"
+                                    onClick={() => { setIsCoverPhotoMenuOpen(false); setShowRemoveCoverConfirm(true); }}
+                                    className="flex items-start gap-3 px-3 py-3 hover:bg-red-50 rounded-lg text-left transition-colors"
+                                  >
+                                    <div className="flex-shrink-0 mt-0.5">
+                                      <Trash2 className="w-5 h-5 text-red-500" />
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="text-sm font-medium text-red-600 text-left">Remove cover</div>
+                                      <div className="text-xs text-gray-500 mt-0.5">{isProductPage ? 'Show your logo; keep the photo' : 'Show the default cover'}</div>
                                     </div>
                                   </button>}
                                 </div>
@@ -13680,6 +13726,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <div>
                                       <p className="text-sm font-medium text-gray-900 text-left">YouTube Video</p>
                                       <p className="text-xs text-gray-500">Paste a YouTube video URL</p>
+                                    </div>
+                                  </button>}
+                                  {/* Remove cover (Chris 20 Nov 2026, I10) */}
+                                  {removeCoverShown && <button
+                                    data-testid="desktop-remove-cover"
+                                    onClick={() => { setIsCenterCoverPhotoMenuOpen(false); setShowRemoveCoverConfirm(true); }}
+                                    className="flex items-center gap-3 px-3 py-3 text-gray-700 hover:bg-red-50 rounded-lg transition-colors"
+                                  >
+                                    <Trash2 className="w-5 h-5 text-red-500" />
+                                    <div>
+                                      <p className="text-sm font-medium text-red-600 text-left">Remove cover</p>
+                                      <p className="text-xs text-gray-500">{isProductPage ? 'Show your logo; keep the photo' : 'Show the default cover'}</p>
                                     </div>
                                   </button>}
                                 </div>
@@ -17783,7 +17841,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           <AlertDialogHeader>
             <AlertDialogTitle>Remove cover</AlertDialogTitle>
             <AlertDialogDescription>
-              Remove this campaign's cover? The campaign will show its default cover instead.
+              {isProductPage
+                ? "Remove this product's cover? Its photos stay; the product shows your logo instead."
+                : "Remove this campaign's cover? The campaign will show its default cover instead."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

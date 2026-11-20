@@ -84,6 +84,11 @@ interface AddMomentModalProps {
   };
   /** Chris, 7 Nov 2026: also offer the account's Website Catalogue products and a dealer's vehicles. */
   inventory?: MomentInventory;
+  /**
+   * Chris, 20 Nov 2026 (I9): Storeel step 2's "+ Products" / "+ Campaigns" open this same window straight on its
+   * Products list, or with its "Campaigns" list first and open. Unset: as before (Media).
+   */
+  openOn?: 'product' | 'campaigns';
 }
 
 // HEIC/HEIF has no browser decoder, so it can never be shown as an <img> preview —
@@ -117,7 +122,8 @@ export function AddMomentModal({
   getInsertAtStart,
   libraryMode = false,
   editPhotoData,
-  inventory
+  inventory,
+  openOn
 }: AddMomentModalProps) {
   const { user } = useAuth();
   const { viewType } = useProperty();
@@ -187,7 +193,19 @@ export function AddMomentModal({
     setList((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   useEffect(() => {
     if (!isOpen) { setSource('media'); setPickedProducts([]); setPickedVehicles([]); setPickedCampaigns([]); }
-  }, [isOpen]);
+    else if (openOn === 'product' && inventory && !editPhotoData && !libraryMode) setSource('product'); // I9: "+ Products"
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, openOn]);
+  const campaignsFirst = openOn === 'campaigns' && campaignsShown; // I9: "+ Campaigns"
+  const campaignsBlock = campaignsShown ? (
+    <CampaignsMultiSelect
+      picked={pickedCampaigns}
+      onToggle={toggleCampaign}
+      alreadyLinked={inventory?.alreadyAdded?.campaigns}
+      exclude={inventory?.campaigns?.exclude ?? null}
+      defaultOpen={campaignsFirst}
+    />
+  ) : null;
 
   // Handle media library images when they're passed in
   useEffect(() => {
@@ -1315,6 +1333,7 @@ export function AddMomentModal({
               onSeePlans={inventory?.onSeePlans ? () => { handleCancel(); inventory.onSeePlans?.(); } : undefined}
             />
           ) : (<>
+          {campaignsFirst ? campaignsBlock : null}
           {/* Photos & Videos */}
           <div>
             <label className="flex items-center gap-2 text-[14px] md:text-sm font-medium text-gray-700 mb-2">
@@ -1661,14 +1680,7 @@ export function AddMomentModal({
             )}
           </div>
 
-          {campaignsShown ? (
-            <CampaignsMultiSelect
-              picked={pickedCampaigns}
-              onToggle={toggleCampaign}
-              alreadyLinked={inventory?.alreadyAdded?.campaigns}
-              exclude={inventory?.campaigns?.exclude ?? null}
-            />
-          ) : null}
+          {campaignsFirst ? null : campaignsBlock}
 
           {/* Memory Hierarchy Section */}
           {!libraryMode && memoryId && memoryTitle && (
