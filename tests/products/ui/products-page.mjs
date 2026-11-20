@@ -700,7 +700,8 @@ try {
       expect(await pageText(page, '$450 CAD').count() > 0 && await pageText(page, 'Active').count() > 0 && await pageText(page, 'Manual').count() > 0, `${tag}: … price, status and source badges`);
       expect(await pageText(page, 'Chairs').count() > 0 && await pageText(page, 'solid wood').count() > 0, `${tag}: … category and tag badges`);
       expect(await pageText(page, 'Oil').count() > 0, `${tag}: … the spec line under the title (its specifications)`);
-      expect(await details.getByRole('link', { name: /Buy link/ }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the buy link`);
+      // Chris 20 Nov (point 15): the Buy link is a button, "Buy now" when no words were set.
+      expect(await details.getByRole('link', { name: 'Buy now' }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the buy link`);
       expect(await details.getByText(/3 moments/).filter({ visible: true }).count() > 0, `${tag}: … its photos as the page's moments`);
       const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
       expect(fits, `${tag}: no sideways scroll`);
@@ -1367,7 +1368,8 @@ try {
       await cards.filter({ hasText: 'Draft Stool' }).getByRole('button').first().click();
       await pageHeading(page, 'Draft Stool').waitFor({ timeout: 15000 });
       await page.waitForTimeout(600);
-      expect(await moments() > 0 && !(await block()), `${tag}: older web API: photos show (as moments), no details block`);
+      // Chris 20 Nov: the details are on the page whatever the photos (Draft Stool has a price + SKU).
+      expect(await moments() > 0 && (await block()) === 1, `${tag}: older web API: photos show (as moments), and its details`);
       await pageButton(page, 'Edit').click();
       await editor.waitFor({ timeout: 10000 });
       expect(!(await editor.getByTestId('product-show-photos').count()), `${tag}: … and the editor offers no switch`);
@@ -1394,7 +1396,8 @@ try {
       expect(patch && patch.body.show_photos === false, `${tag}: Save sends show_photos: false (${JSON.stringify(patch?.body?.show_photos)})`);
       expect(!(await moments()) && await block() === 1, `${tag}: the product page has no photo area, its details instead`);
       expect(!(await page.getByText('Drag images to change the order').filter({ visible: true }).count()), `${tag}: … no media column`);
-      expect(await details.getByTestId('product-page-details').filter({ visible: true }).getByText('Hidden', { exact: true }).isVisible(), `${tag}: … and its details say Photos: Hidden`);
+      // Chris 20 Nov (point 20b): an owner's own setting is never shown to viewers — no "Photos: Hidden" line.
+      expect(!(await details.getByTestId('product-page-details').filter({ visible: true }).getByText('Hidden', { exact: true }).count()), `${tag}: … and its details never say Photos: Hidden`);
       await page.screenshot({ path: `${OUT}/${tag}-02-hidden.png` });
 
       await pageButton(page, 'Edit').click();
@@ -1403,7 +1406,7 @@ try {
       await editor.getByTestId('product-show-photos').click();
       await editor.getByRole('button', { name: 'Save' }).last().click();
       await page.waitForTimeout(1500);
-      expect(await moments() > 0 && !(await block()), `${tag}: on again: the photo is back`);
+      expect(await moments() > 0 && (await block()) === 1, `${tag}: on again: the photo is back (the details stay on the page)`);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       expect(!overflow, `${tag}: no horizontal page scroll`);
       await context.close();
@@ -1480,7 +1483,7 @@ try {
       expect(!(await page.getByTestId('product-details').count()) && await pageOf.isVisible(), `${tag}: a manual product opens the Serpa-style page, not the old details screen`);
       expect(w.calls.some((c) => c.p === '/products/601' && c.m === 'GET'), `${tag}: … read from GET /products/601`);
       for (const t of ['Chairs', '$450 CAD', 'Active', 'Manual', 'solid wood']) expect(await pageOf.getByText(t, { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … header shows "${t}"`);
-      expect(await pageOf.getByRole('link', { name: /Buy link/ }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the Buy link`);
+      expect(await pageOf.getByRole('link', { name: 'Buy now' }).filter({ visible: true }).first().getAttribute('href') === 'https://shop.example.ca/walnut-chair', `${tag}: … the Buy link (a "Buy now" button since Chris 20 Nov)`);
       expect(await pageOf.getByText(/3 moments/).filter({ visible: true }).count() > 0, `${tag}: … its 3 photos are the timeline, as a car's`);
       for (const name of ['Edit', 'More actions']) {
         const b = await pageOf.getByRole('button', { name, exact: true }).filter({ visible: true }).first().boundingBox();
@@ -1531,7 +1534,8 @@ try {
       const block = pageOf.getByTestId('product-page-details').filter({ visible: true });
       expect(await block.count() === 1, `${tag}: photos hidden: the details block shows on the page`);
       const blockText = await block.innerText();
-      expect(['A plain three-leg stool.', 'MAPLE', 'HIDDEN'].every((t) => blockText.toUpperCase().includes(t.toUpperCase())), `${tag}: … description, specs and Photos: Hidden (${blockText.replace(/\n/g, ' | ').slice(0, 160)})`);
+      // Chris 20 Nov (point 20b): the owner's "Photos" setting is no longer listed to viewers.
+      expect(['A plain three-leg stool.', 'MAPLE'].every((t) => blockText.toUpperCase().includes(t.toUpperCase())) && !/HIDDEN/i.test(blockText), `${tag}: … description and specs, no Photos: Hidden (${blockText.replace(/\n/g, ' | ').slice(0, 160)})`);
       expect(!(await pageOf.getByText(/\d+ moments/).filter({ visible: true }).count()) && !(await page.getByText('Drag images to change the order').filter({ visible: true }).count()), `${tag}: … no timeline and no media column`);
       if (width >= 1024) {
         const bw = (await block.boundingBox())?.width || 0;

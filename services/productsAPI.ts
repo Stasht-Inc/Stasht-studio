@@ -85,6 +85,10 @@ export interface ProductDetail extends ProductSummary {
   collections: string[];
   seo: { slug: string | null; title: string | null; description: string | null; share_image: string | null };
   buy_url: string | null;
+  // Chris 20 Nov 2026: the buy link's button words. buy_label = what the owner typed (null = none); buy_button = what the
+  // button says ("Buy now" when none). Both missing on an older web API: "Buy now".
+  buy_label?: string | null;
+  buy_button?: string;
   show_enquire: boolean;
   // Chris 17 Nov 2026: "Show photos" off hides the photo area on the details page. can_hide_photos: the switch is
   // offered (the web API has the column). Both missing on an older web API: photos show, no switch.

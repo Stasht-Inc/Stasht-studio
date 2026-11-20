@@ -11,7 +11,7 @@ import { productsAPI, type ProductCategory, type ProductDetail } from '../../ser
 import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
-  ENQUIRE_HELP, PHOTOS_HELP, SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
+  BUY_LABEL_HINT, BUY_LABEL_MAX, DEFAULT_BUY_LABEL, ENQUIRE_HELP, PHOTOS_HELP, SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
@@ -27,7 +27,7 @@ const CHECK_FIELDS = 'Check the highlighted fields.';
 const OPEN_LAYER = '[role="alertdialog"], [role="listbox"], [role="menu"]';
 
 /** Error keys the editor shows under a field; anything else (an unexpected API key) is listed at the bottom of the card. */
-const PLACED = /^(title|short_description|description_html|brand|product_type|price|compare_at_price|currency|sku|barcode|quantity|weight|weight_unit|dimensions(\.(length|width|height|unit))?|slug|seo_title|seo_description|share_image|buy_url|internal_notes|status|category_ids(\.\d+)?|tags(\.\d+)?|collections(\.\d+)?|attributes(\.\d+\.(label|value))?|options(\.\d+\.(name|values(\.\d+)?))?|variants(\.\d+\.(price|compare_at_price|sku|quantity|image_id))?)$/;
+const PLACED = /^(title|short_description|description_html|brand|product_type|price|compare_at_price|currency|sku|barcode|quantity|weight|weight_unit|dimensions(\.(length|width|height|unit))?|slug|seo_title|seo_description|share_image|buy_url|buy_label|internal_notes|status|category_ids(\.\d+)?|tags(\.\d+)?|collections(\.\d+)?|attributes(\.\d+\.(label|value))?|options(\.\d+\.(name|values(\.\d+)?))?|variants(\.\d+\.(price|compare_at_price|sku|quantity|image_id))?)$/;
 
 const under = (errors: Record<string, string>, key: string): string | undefined =>
   errors[key] ?? Object.entries(errors).find(([k]) => k.startsWith(`${key}.`))?.[1];
@@ -404,7 +404,12 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 <Field id="p-share" label="Share image" error={errors.share_image} hint="A web address of the picture link previews show."><input id="p-share" placeholder="e.g. https://example.com/chair.jpg" value={form.share_image} disabled={!can('share_image')} onChange={(e) => set('share_image', e.target.value)} className={inputClass(Boolean(errors.share_image))} /></Field>
               </Section>
               <Section title="Links">
-                <Field id="p-buy" label='External "Buy" link (optional)' error={errors.buy_url} hint="For products you also sell somewhere else."><input id="p-buy" placeholder="e.g. https://yourstore.com/walnut-chair" value={form.buy_url} disabled={!can('buy_url')} onChange={(e) => set('buy_url', e.target.value)} className={inputClass(Boolean(errors.buy_url))} /></Field>
+                <Field id="p-buy" label='External "Buy" link (optional)' error={errors.buy_url} hint="For products you also sell or book somewhere else. Shows as a button on the product."><input id="p-buy" placeholder="e.g. https://yourstore.com/walnut-chair" value={form.buy_url} disabled={!can('buy_url')} onChange={(e) => set('buy_url', e.target.value)} className={inputClass(Boolean(errors.buy_url))} /></Field>
+                {/* Chris 20 Nov 2026: "the Buy now link should be editable … maybe they want it as Checkout". Offered once the
+                    web API has the column (an existing product's editable_fields); empty = "Buy now". */}
+                {can('buy_label') && (
+                  <Field id="p-buy-label" label="Button text" error={errors.buy_label} hint={BUY_LABEL_HINT}><input id="p-buy-label" data-testid="product-buy-label" placeholder={DEFAULT_BUY_LABEL} maxLength={BUY_LABEL_MAX} value={form.buy_label} onChange={(e) => set('buy_label', e.target.value)} className={inputClass(Boolean(errors.buy_label))} /></Field>
+                )}
               </Section>
               {!readOnly && (
                 <Section title="Internal notes">

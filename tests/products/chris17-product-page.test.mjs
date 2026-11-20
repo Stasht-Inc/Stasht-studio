@@ -35,9 +35,9 @@ test('"Show photos" off hides every photo; missing (older web API) shows them; v
   assert.equal(productPhotosShown(detail({ show_photos: false })), false);
 });
 
-test('links: the website / store page for imported products, the Buy link for any; http(s) only', () => {
+test('links: the website / store page for imported products; http(s) only (the Buy link is a button since 20 Nov)', () => {
   assert.deepEqual(productPageLinks(detail({ origin: 'website', url: 'https://shop.test/a', buy_url: 'https://buy.test/a' })),
-    [{ label: 'View on website', href: 'https://shop.test/a' }, { label: 'Buy link', href: 'https://buy.test/a' }]);
+    [{ label: 'View on website', href: 'https://shop.test/a' }]);
   assert.deepEqual(productPageLinks(detail({ origin: 'shopify', url: 'https://s.myshopify.com/products/a' })), [{ label: 'View in your store', href: 'https://s.myshopify.com/products/a' }]);
   assert.deepEqual(productPageLinks(detail({ origin: 'manual', url: 'https://shop.test/a', buy_url: 'javascript:alert(1)' })), []);
 });
@@ -67,7 +67,7 @@ test('description: the short description, then the description', () => {
   assert.equal(productPageDescription(detail()), '');
 });
 
-test('the details grid keeps everything the old details screen listed', () => {
+test('the details grid keeps everything a viewer may see, never the owner\'s own settings (Chris 20 Nov)', () => {
   const specs = productPageSpecs(detail({
     brand: 'Royal Wood', weight: '7.5', weight_unit: 'kg', compare_at_label: '$500 CAD', can_hide_photos: true, show_photos: false, show_enquire: false,
     categories: [{ id: 1, name: 'Chairs' }, { id: 2, name: 'Dining' }], attributes: [{ label: 'Finish', value: 'Oil' }],
@@ -77,15 +77,17 @@ test('the details grid keeps everything the old details screen listed', () => {
     ],
   }));
   assert.deepEqual(specs, [
+    { label: 'Price', value: '$450 CAD' }, { label: 'Compare-at price', value: '$500 CAD' },
     { label: 'SKU', value: 'SKU-601' }, { label: 'Brand', value: 'Royal Wood' }, { label: 'Weight', value: '7.5 kg' },
-    { label: 'Compare-at price', value: '$500 CAD' }, { label: 'Enquire button', value: 'Off' }, { label: 'Photos', value: 'Hidden' },
     { label: 'Categories', value: 'Chairs, Dining' }, { label: 'Finish', value: 'Oil' },
     { label: 'Small', value: '$450 CAD · SKU WC-S · In stock · Qty 4' }, { label: 'Large', value: '$520 CAD · Out of stock' },
   ]);
 });
 
-test('a hidden price / price on request stays hidden in the variant rows (as the old variants table)', () => {
+test('a hidden price stays hidden (no "Price hidden" line either); price on request says so', () => {
   const variants = [{ id: 1, title: 'Small', options: { Size: 'Small' }, sku: null, price: '450.00', price_label: '$450 CAD', stock_status: 'in_stock', quantity: null }];
-  assert.equal(productPageSpecs(detail({ show_price: false, variants })).at(-1).value, 'Price hidden · In stock');
+  const hidden = productPageSpecs(detail({ show_price: false, variants }));
+  assert.equal(hidden.at(-1).value, 'In stock');
+  assert.ok(!hidden.some((s) => s.label === 'Price' || /hidden/i.test(s.value)));
   assert.equal(productPageSpecs(detail({ price_on_request: true, variants })).at(-1).value, 'Price on request · In stock');
 });
