@@ -6,7 +6,7 @@
 // property's trial_ends_at, so TheRoyalWoodShop (Business, trial ends 2027-01-28, no property of its own) saw nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pickTrial, trialBannerFrom, trialEndDate } from '../../utils/trialBanner.ts';
+import { pickTrial, showAddCardNotice, trialBannerFrom, trialBannerText, trialEndDate } from '../../utils/trialBanner.ts';
 
 const NOW = new Date(2026, 10, 1, 10, 0, 0); // 1 Nov 2026, 10:00 local
 
@@ -140,4 +140,35 @@ test('payment methods are fetched once per token; a failure is not kept; clearin
   await cachedPaymentMethods('tok-4', boom);
   assert.equal(throws, 2, 'and is not kept either');
   assert.equal(await cachedPaymentMethods(null, ok), null, 'no token: nothing asked');
+});
+
+// Chris 19-20 Nov 2026 (Admin Portal point 9): Royal Wood's trial moved to its custom plan's Terms. The same row arrives as
+// account_trial with custom_plan; the banner shows exactly as the Enterprise trial did, but says billing starts after it.
+const customPlan = {
+  owned_properties: [],
+  account_trial: {
+    trial_ends_at: '2026-12-30T23:59:59+00:00', trial_ends_on: '2026-12-30', trial_ended: false,
+    custom_plan: { name: 'TheRoyalWoodShop', collection_method: 'send_invoice' },
+  },
+};
+
+test('a custom plan trial shows the same banner, ending with billing instead of Starter', () => {
+  const b = trialBannerFrom(customPlan, NOW, 'en-US');
+  assert.deepEqual(b, { ended: false, daysLeft: 59, endDate: 'Dec 30, 2026', name: undefined,
+    customPlan: { name: 'TheRoyalWoodShop', collection_method: 'send_invoice' } });
+  assert.equal(trialBannerText(b), 'Your trial ends on Dec 30, 2026 (59 days left). After that, billing for your TheRoyalWoodShop plan starts.');
+  // Emailed invoices: no "add a card" line; a plan charged to the card still asks for one.
+  assert.equal(showAddCardNotice(b, false), false);
+  assert.equal(showAddCardNotice({ ...b, customPlan: { name: 'X', collection_method: 'charge_automatically' } }, false), true);
+});
+
+test('an ended custom plan trial never says the account moved to Starter', () => {
+  const data = { ...customPlan, account_trial: { ...customPlan.account_trial, trial_ended: true } };
+  assert.equal(trialBannerText(trialBannerFrom(data, NOW, 'en-US')), 'Your trial ended on Dec 30, 2026.');
+});
+
+test('a plain plan trial keeps its Starter wording', () => {
+  const b = trialBannerFrom(royalwood, NOW, 'en-US');
+  assert.equal(trialBannerText(b), 'Your trial ends on Jan 28, 2027 (88 days left). After that your account moves to the Starter plan.');
+  assert.equal(trialBannerText({ ...b, ended: true }), 'Your trial ended on Jan 28, 2027. Your account has moved to the Starter plan.');
 });

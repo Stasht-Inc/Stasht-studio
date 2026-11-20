@@ -6,11 +6,20 @@
 // TheRoyalWoodShop) showed nothing. The account trial comes first; without one, the first owned property with a trial
 // date shows as before (with its name).
 
+// A custom plan's trial (Admin Portal: custom subscription -> Terms -> Add trial date; Chris 19-20 Nov 2026) arrives in the
+// same account_trial, with custom_plan { name, collection_method }. It shows the same banner as an Enterprise trial did,
+// but its end starts billing for the custom plan: the account does not move to Starter.
+export interface CustomPlanInfo {
+  name: string;
+  collection_method: string;
+}
+
 export interface TrialSource {
   trial_ends_at?: string | null;
   trial_ends_on?: string | null;
   trial_ended?: boolean | null;
   name?: string;
+  custom_plan?: CustomPlanInfo | null;
 }
 
 export interface TrialBanner {
@@ -18,6 +27,7 @@ export interface TrialBanner {
   daysLeft: number;
   endDate: string;
   name?: string;
+  customPlan?: CustomPlanInfo;
 }
 
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -45,7 +55,12 @@ export function pickTrial(propertiesData: any): TrialSource | null {
   const d = propertiesData || {};
   const account = d.account_trial;
   if (account && (account.trial_ends_on || account.trial_ends_at)) {
-    return { trial_ends_at: account.trial_ends_at, trial_ends_on: account.trial_ends_on, trial_ended: account.trial_ended };
+    return {
+      trial_ends_at: account.trial_ends_at,
+      trial_ends_on: account.trial_ends_on,
+      trial_ended: account.trial_ended,
+      ...(account.custom_plan && typeof account.custom_plan.name === 'string' ? { custom_plan: account.custom_plan } : {}),
+    };
   }
   const owned: any[] = Array.isArray(d.owned_properties) ? d.owned_properties : [];
   const withTrial = owned.find((p: any) => p?.trial_ends_at);
@@ -63,7 +78,22 @@ export function trialBannerFrom(propertiesData: any, now: Date = new Date(), loc
   const daysLeft = Math.round((endsOn.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
   const ended = Boolean(trial.trial_ended) || daysLeft < 0;
   const endDate = endsOn.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
-  return { ended, daysLeft, endDate, name: trial.name };
+  return { ended, daysLeft, endDate, name: trial.name, ...(trial.custom_plan ? { customPlan: trial.custom_plan } : {}) };
+}
+
+/** The banner's sentence: a plan trial ends on Starter; a custom plan's trial ends with its billing starting. */
+export function trialBannerText(banner: TrialBanner): string {
+  const what = `Your trial${banner.name ? ` for ${banner.name}` : ''}`;
+  const left = `${banner.daysLeft} ${banner.daysLeft === 1 ? 'day' : 'days'} left`;
+  if (banner.customPlan) {
+    const plan = banner.customPlan.name.trim();
+    return banner.ended
+      ? `${what} ended on ${banner.endDate}.`
+      : `${what} ends on ${banner.endDate} (${left}). After that, billing for ${plan ? `your ${plan} plan` : 'your plan'} starts.`;
+  }
+  return banner.ended
+    ? `${what} ended on ${banner.endDate}. Your account has moved to the Starter plan.`
+    : `${what} ends on ${banner.endDate} (${left}). After that your account moves to the Starter plan.`;
 }
 
 // Add a card (Chris, 4 Nov 2026): while the trial runs and no card is on file, the banner adds this line with an
@@ -93,5 +123,7 @@ export function cardOnFileFrom(response: any, validThrough: Date | null = null):
 
 /** The add-card line: only while the trial runs and the account is known to have no card (never on a failed check). */
 export function showAddCardNotice(banner: TrialBanner | null | undefined, cardOnFile: boolean | null): boolean {
+  // A custom plan paid by emailed invoice needs no card on file (Stasht emails the invoices).
+  if (banner?.customPlan && banner.customPlan.collection_method !== 'charge_automatically') return false;
   return Boolean(banner && !banner.ended && cardOnFile === false);
 }
