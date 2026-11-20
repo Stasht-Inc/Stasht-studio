@@ -17,6 +17,7 @@ import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '.
 import { Switch } from '../ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import ProductMediaField, { type PendingMedia } from './ProductMediaField';
+import ProductCoverField from './ProductCoverField';
 import ProductSelect from './ProductSelect';
 import ProductVariantsField from './ProductVariantsField';
 import ProductRichText from './ProductRichText';
@@ -320,6 +321,10 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                   <Field id="p-brand" label="Brand" error={errors.brand}><input id="p-brand" placeholder="e.g. Mill & Co" maxLength={191} value={form.brand} disabled={!can('brand')} onChange={(e) => set('brand', e.target.value)} className={inputClass(Boolean(errors.brand))} /></Field>
                   <Field id="p-type" label="Product type" error={errors.product_type}><input id="p-type" placeholder="e.g. Chair" maxLength={191} value={form.product_type} disabled={!can('product_type')} onChange={(e) => set('product_type', e.target.value)} className={inputClass(Boolean(errors.product_type))} /></Field>
                 </div>
+              </Section>
+              {/* Chris 21 Nov: Cover photo or Intro Video, same as Create Campaign. UI only; saved once the API is connected. */}
+              <Section title="Cover">
+                <ProductCoverField disabled={readOnly || website} />
               </Section>
               <Section title="Media">
                 <ProductMediaField productId={productId ?? createdHere} media={detail?.media || []} disabled={readOnly || website} onChange={mediaChanged} onSettled={() => void onChanged() /* the grid card's main photo and count */}
