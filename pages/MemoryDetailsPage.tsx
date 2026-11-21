@@ -12245,8 +12245,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </div>
                             )}
                             {productNotes.map((note) => <p key={note} className="text-sm text-gray-200">{note}</p>)}
-                            {/* A product's Buy link: a real button in the owner's words (Chris 20 Nov 2026, point 15) */}
-                            {isProductPage && productDetail && <ProductBuyButton detail={productDetail} className="pt-1" />}
+                            {/* A product's Buy link sits under its Description card, not here (Chris 21 Nov 2026, P2) */}
                             {/* Author - mobile only (on cover) */}
                             <div className="flex items-center gap-2.5 md:hidden pt-1">
                               <Avatar className="w-8 h-8">
@@ -12306,7 +12305,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
               {/* Tablet: a product's details under its cover (Chris 20 Nov 2026, points 13, 14) */}
               {isProductPage && productDetail && !productPhotosHidden && (
-                <div className="hidden md:block lg:hidden mt-6"><ProductPageDetails detail={productDetail} /></div>
+                <div className="hidden md:block lg:hidden mt-6">
+                  <ProductPageDetails detail={productDetail} />
+                  {/* Buy link under the Description card, before the Timeline (Chris 21 Nov 2026, P2) */}
+                  <ProductBuyButton detail={productDetail} className="mt-4" />
+                </div>
               )}
 
               {/* MOBILE: Sticky Header - appears after scrolling past cover; not while the pinned phone bar is shown (one bar) */}
@@ -12593,8 +12596,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     </div>
                   )}
                   {productNotes.map((note) => <p key={note} className="mb-2 text-sm text-gray-500">{note}</p>)}
-                  {/* A product's Buy link: a real button in the owner's words (Chris 20 Nov 2026, point 15) */}
-                  {isProductPage && productDetail && <ProductBuyButton detail={productDetail} className="mb-3" />}
 
                   {/* Author Info */}
                   <div className="flex items-center justify-between gap-3 mb-3">
@@ -12673,12 +12674,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   {/* A product's details on the page itself, above its photos' timeline (Chris 20 Nov 2026, points 13, 14);
                       the panel then scrolls as one (product-page-left), the timeline at its natural height. */}
                   {isProductPage && productDetail && !productPhotosHidden && (
-                    <ProductPageDetails detail={productDetail} className="mb-6 flex-shrink-0" />
+                    <>
+                      <ProductPageDetails detail={productDetail} className="mb-4 flex-shrink-0" />
+                      {/* A product's Buy link (Chris 20 Nov 2026, point 15), under its Description card and above the
+                          Timeline (Chris 21 Nov 2026, P2) */}
+                      <ProductBuyButton detail={productDetail} className="mb-6 flex-shrink-0" />
+                    </>
                   )}
 
                   {/* A product with its photos hidden: its details in place of the (empty) timeline */}
                   {productPhotosHidden && productDetail && (
-                    <div className="flex-1 overflow-y-auto pr-2"><ProductPageDetails detail={productDetail} /></div>
+                    <div className="flex-1 overflow-y-auto pr-2"><ProductPageDetails detail={productDetail} /><ProductBuyButton detail={productDetail} className="mt-4" /></div>
                   )}
 
                   {/* Timeline Header */}
@@ -14281,6 +14287,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {productPhotosHidden && productDetail && activeTab === "overview" && (
               <div className="lg:hidden relative -mt-[100px] md:mt-6 rounded-t-3xl md:rounded-none bg-white px-0 md:px-0 pb-6">
                 <ProductPageDetails detail={productDetail} />
+                <ProductBuyButton detail={productDetail} className="px-5 md:px-0 md:mt-4" />
               </div>
             )}
 
@@ -14288,7 +14295,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             <div className={`md:hidden -mt-[100px] md:mt-0 ${activeTab === "overview" && !productPhotosHidden ? "block" : "hidden"}`}>
               {/* Phone: a product's details first, then its photos (Chris 20 Nov 2026, points 13, 14) */}
               {isProductPage && productDetail && !productPhotosHidden && (
-                <div className="relative rounded-t-3xl bg-white pb-2"><ProductPageDetails detail={productDetail} /></div>
+                <div className="relative rounded-t-3xl bg-white pb-2">
+                  <ProductPageDetails detail={productDetail} />
+                  {/* Buy link under the Description card, before the Timeline (Chris 21 Nov 2026, P2) */}
+                  <ProductBuyButton detail={productDetail} className="px-5 pb-4" />
+                </div>
               )}
               <div className="bg-white">
                 {/* Timeline Content */}

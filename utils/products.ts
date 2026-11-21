@@ -894,3 +894,27 @@ export function productPagePills(d: Pick<ProductDetail, 'badge' | 'stock_status'
     ...(d.stock_status === 'out_of_stock' && d.badge !== 'out_of_stock' ? [{ label: BADGE_LABEL.out_of_stock, className: BADGE_CLASS.out_of_stock }] : []),
   ];
 }
+
+// ---- Chris 21 Nov 2026 (P1): the editor's "Cover photo or Intro Video" field, saved ----
+// A product's cover is the SAME stored value the product page's Edit Cover changes (20 Nov, point 16): its first media
+// item (a photo = the cover photo, a video = the intro video, which the page plays as a campaign plays its intro video),
+// unless the cover was removed (I10: the account's brand shows, every photo / video stays). No new column.
+export type EditorCoverKind = 'photo' | 'video';
+export interface EditorCover { kind: EditorCoverKind; url: string; id: number | null }
+
+/** What the editor's Cover field shows for a saved product: its first media item, none once the cover was removed. */
+export function editorCoverOf(media: ReadonlyArray<{ id: number; url: string; type: 'photo' | 'video'; sort_order: number }> | null | undefined, coverRemoved: boolean | undefined): EditorCover | null {
+  if (coverRemoved) return null;
+  const first = [...(media || [])].filter((m) => m.url).sort((a, b) => a.sort_order - b.sort_order)[0];
+  return first ? { kind: first.type === 'video' ? 'video' : 'photo', url: first.url, id: first.id } : null;
+}
+
+/** A NEW product's picks with the cover pick first (it uploads first, so it is the first media item). A product has one
+ *  video: an intro video replaces a video already picked. */
+export function pendingWithCover<T extends { type: 'photo' | 'video' }>(pending: readonly T[], pick: T): T[] {
+  return [pick, ...pending.filter((m) => !(pick.type === 'video' && m.type === 'video'))];
+}
+
+/** Picking an intro video on a saved product: the product's one video must go first (the API allows one), unless none. */
+export const videoToReplace = (media: ReadonlyArray<{ id: number; type: 'photo' | 'video' }> | null | undefined): number | null =>
+  (media || []).find((m) => m.type === 'video')?.id ?? null;

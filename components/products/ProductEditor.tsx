@@ -90,6 +90,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const [pending, setPending] = useState<PendingMedia[]>([]);
   const [uploadingPending, setUploadingPending] = useState(0);
   const [mediaNotes, setMediaNotes] = useState<string[]>([]); // files that failed to upload after the first save
+  // P1 (Chris 21 Nov): a new product's Cover field Remove — the brand shows once the product and its picks are saved.
+  const [pendingCoverRemoved, setPendingCoverRemoved] = useState(false);
   // The product this editor created when some of its picks failed: the editor stays open on it (no second POST).
   const [createdHere, setCreatedHere] = useState<number | null>(null);
   const pendingRef = useRef<PendingMedia[]>([]);
@@ -179,6 +181,12 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
       }
       picks.forEach((m) => URL.revokeObjectURL(m.url));
       setPending([]);
+      // P1: Remove was pressed in the Cover field before this first save: the brand shows; the photos stay in Media.
+      if (pendingCoverRemoved && uploaded?.media?.length) {
+        const rc = await productsAPI.removeCover(r.data.id);
+        if (rc.ok && rc.data && Array.isArray(rc.data.media)) uploaded = rc.data;
+      }
+      setPendingCoverRemoved(false);
     }
     if (!r.ok || !r.data) {
       savingRef.current = false;
@@ -322,9 +330,13 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                   <Field id="p-type" label="Product type" error={errors.product_type}><input id="p-type" placeholder="e.g. Chair" maxLength={191} value={form.product_type} disabled={!can('product_type')} onChange={(e) => set('product_type', e.target.value)} className={inputClass(Boolean(errors.product_type))} /></Field>
                 </div>
               </Section>
-              {/* Chris 21 Nov: Cover photo or Intro Video, same as Create Campaign. UI only; saved once the API is connected. */}
+              {/* Chris 21 Nov: Cover photo or Intro Video, same as Create Campaign — saved as the product's first media item,
+                  the value the product page's Edit Cover changes (P1). */}
               <Section title="Cover">
-                <ProductCoverField disabled={readOnly || website} />
+                <ProductCoverField disabled={readOnly || website} productId={productId ?? createdHere} media={detail?.media || []} coverRemoved={Boolean(detail?.cover_removed)}
+                  onChange={mediaChanged} onSettled={() => void onChanged()} locked={uploadingPending > 0}
+                  pending={pending} onPendingChange={(next) => { setPending(next); setMediaNotes([]); }}
+                  pendingRemoved={pendingCoverRemoved} onPendingRemovedChange={setPendingCoverRemoved} />
               </Section>
               <Section title="Media">
                 <ProductMediaField productId={productId ?? createdHere} media={detail?.media || []} disabled={readOnly || website} onChange={mediaChanged} onSettled={() => void onChanged() /* the grid card's main photo and count */}
