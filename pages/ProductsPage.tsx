@@ -8,6 +8,7 @@ import ProductCategoryNav from '../components/products/ProductCategoryNav';
 import ProductFilters from '../components/products/ProductFilters';
 import ProductBulkBar from '../components/products/ProductBulkBar';
 import ProductEditor from '../components/products/ProductEditor';
+import ProductButtonColorSetting from '../components/products/ProductButtonColorSetting';
 import { useBackToClose } from '../components/newsletters/hooks/useBackToClose';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import ProductSelect, { FILTER_TRIGGER } from '../components/products/ProductSelect';
@@ -220,6 +221,8 @@ function ProductsReady({ onNavigate, onOpenProduct, detailOpen = false, onCloseD
   // On a phone the two buttons don't fit one row, so each wraps onto its own full-width row; from sm up they sit side by side.
   const createButtons = (align: string) => canCreate && (
     <div className={`flex w-full flex-wrap gap-2 sm:w-auto ${align}`}>
+      {/* Chris 21 Nov 2026 (R2-2): the account's button colour for every product's buttons (default: the brand colour). */}
+      <ProductButtonColorSetting info={status?.button_color} className="flex-auto sm:flex-none" />
       {/* Chris, 17 Nov 2026: once products came in from a website or a Shopify store, the button says so ("Import active"); it
           still opens Connectors, where each import is managed. */}
       <button type="button" className={`${IMPORT_BUTTON} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}

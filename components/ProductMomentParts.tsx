@@ -1,5 +1,6 @@
 import { MessageSquare } from 'lucide-react';
 import { Badge } from './ui/badge';
+import { outlineColors } from '../utils/buttonColor';
 
 /**
  * Chris 21 Nov 2026 (P3): the pieces a product moment's card shares between the Storeel preview and the published
@@ -15,14 +16,17 @@ export function ProductPriceBadge({ price, className = '' }: { price: string; cl
   );
 }
 
-export function ProductEnquireButton({ onClick, postId, className = 'mt-3' }: { onClick?: () => void; postId?: string; className?: string }) {
+/** color: the product's button colour (Chris 21 Nov 2026, R2-2: the brand colour, not purple); none = purple. */
+export function ProductEnquireButton({ onClick, postId, className = 'mt-3', color }: { onClick?: () => void; postId?: string; className?: string; color?: string | null }) {
+  const c = outlineColors(color);
   return (
     <button
       type="button"
       data-enquire-post={postId}
       data-testid="product-enquire-button"
       onClick={(e) => { e.stopPropagation(); onClick?.(); }}
-      className={`flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#6C60FF] bg-white px-6 py-2.5 text-base font-semibold text-[#6C60FF] transition-colors hover:bg-[#6C60FF]/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 ${className}`}
+      className={`flex w-full items-center justify-center gap-2 rounded-xl border-2 bg-white px-6 py-2.5 text-base font-semibold transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 ${className}`}
+      style={{ borderColor: c.border, color: c.text }}
     >
       <MessageSquare className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
       Enquire

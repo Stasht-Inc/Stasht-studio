@@ -4,7 +4,7 @@ import type { CampaignColumns, CampaignItem, CampaignsBlockData, CardOverride } 
 import SegmentedSwitch from '../SegmentedSwitch';
 import { contrastInk } from '../lib/colors';
 import {
-  CAMPAIGNS_MAX, EDIT_ITEMS_LABEL, campaignButtonColor, campaignColumns, cardEditPatch, cardEditorAfter, cardHasEdits, cardResetPatch, displayCard,
+  CAMPAIGNS_MAX, EDIT_ITEMS_LABEL, campaignButtonColor, campaignColumns, cardButtonColor, cardEditPatch, cardEditorAfter, cardHasEdits, cardResetPatch, displayCard,
   missingItemsNote, previewColumns, resolveCampaignItems, selectionKey,
 } from '../lib/campaignsBlock';
 import { campaignSelections } from '../lib/blocks';
@@ -58,7 +58,6 @@ export default function CampaignsBlockEditor({ blockId, data, selected, readOnly
   const selections = campaignSelections(data);
   const cards = resolveCampaignItems(selections, serverItems, data.items).filter((c) => c.url);
   const color = campaignButtonColor(accent);
-  const ink = contrastInk(color);
   const canPick = !readOnly && Boolean(onPick);
   const columns = campaignColumns(data);
   const two = previewColumns(data, phone) === 2;
@@ -114,7 +113,7 @@ export default function CampaignsBlockEditor({ blockId, data, selected, readOnly
                 {c.price_text ? <p className="mb-1 break-words text-[0.9375rem] font-bold leading-[1.375rem] text-gray-900">{c.price_text}</p> : null}
                 {c.meta ? <p className="mb-2 break-words text-[0.8125rem] leading-5 text-gray-500">{c.meta}</p> : null}
                 {card.description ? <p className="mb-3.5 break-words text-[0.9375rem] leading-[1.375rem] text-gray-600">{card.description}</p> : null}
-                <span className={`inline-block max-w-full break-words rounded-[10px] px-6 py-3 text-[0.9375rem] font-bold leading-5 ${card.description ? '' : 'mt-2'}`} style={{ backgroundColor: color, color: ink }}>{card.button}</span>
+                <span className={`inline-block max-w-full break-words rounded-[10px] px-6 py-3 text-[0.9375rem] font-bold leading-5 ${card.description ? '' : 'mt-2'}`} style={{ backgroundColor: cardButtonColor(c, color), color: contrastInk(cardButtonColor(c, color)) }}>{card.button}</span>
               </div>
               {editable ? (
                 <div className="flex items-center justify-between gap-2 border-t border-dashed border-gray-200 px-4 py-2">

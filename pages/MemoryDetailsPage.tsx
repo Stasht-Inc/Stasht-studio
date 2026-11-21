@@ -94,7 +94,7 @@ import { campaignPageInventory } from "../components/storeel/campaignPageInvento
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
 import ProductCardButton from "../components/ProductCardButton";
 import { isInCardProductButton, productButtonsByPost } from "../utils/productCardButton";
-import { enquirePostMap } from "../utils/productEnquiry";
+import { enquireColorMap, enquirePostMap } from "../utils/productEnquiry";
 import { isProductPost, splitProductCaption } from "../utils/productMoment";
 import { ProductEnquireButton } from "../components/ProductMomentParts";
 import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind } from "../components/widgets/AddWidgetChooser";
@@ -321,6 +321,10 @@ type CtaWidget = {
   // A Website Catalogue product's own "View on website" button: drawn inside the moment card it follows, not as a
   // card of its own (Chris, 8 Nov 2026; utils/productCardButton). The owner's sidebar entry (Edit / Duplicate / Delete) stays.
   inCard?: boolean;
+  // Such a button's colours as the web API works them out (Chris 21 Nov 2026, R2-2: the product's / brand colour, not
+  // purple). Drawn with these; the button editor keeps showing what the widget itself holds.
+  cardColor?: string | null;
+  cardTextColor?: string | null;
   widget_order: number;
   createdAt: number;
 };
@@ -2275,16 +2279,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Product moments whose product shows "Enquire" on the published page (Chris 21 Nov 2026): the owner sees the card as
   // recipients do; tapping it here only says what it does (an owner can't enquire on their own campaign).
   const ownerEnquirePosts = useMemo(() => enquirePostMap(apiMemoryData?.enquire_products), [apiMemoryData?.enquire_products]);
+  const ownerEnquireColors = useMemo(() => enquireColorMap(apiMemoryData?.enquire_products), [apiMemoryData?.enquire_products]);
   const renderProductCardButton = (postId: string | undefined, opts: { owner?: boolean; anchor?: boolean; className?: string } = {}) => {
     const w = postId ? productCardButtons.get(postId) : undefined;
+    // In the product's / brand colour from the web API (Chris 21 Nov 2026, R2-2), as the recipient sees them.
+    const shown = w ? (w.cardColor ? { ...w, buttonColor: w.cardColor, textColor: w.cardTextColor || '' } : w) : undefined;
     const enquire = postId !== undefined && ownerEnquirePosts.has(postId)
-      ? <ProductEnquireButton postId={postId} onClick={() => toast.info('Visitors tap Enquire to ask about this product.')} />
+      ? <ProductEnquireButton postId={postId} color={ownerEnquireColors.get(postId) ?? w?.cardColor} onClick={() => toast.info('Visitors tap Enquire to ask about this product.')} />
       : null;
-    if (!w) return enquire;
+    if (!w || !shown) return enquire;
     return (
       <>
       <ProductCardButton
-        button={w}
+        button={shown}
         memoryId={memoryId}
         className={opts.className}
         isActive={!!opts.anchor && (activeCtaWidgetId === w.id || selectedCardButton?.id === w.id)}
@@ -3172,6 +3179,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             borderRadius: w.widget_data?.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS,
             pinToBottom: !!w.widget_data?.pinToBottom,
             inCard: isInCardProductButton(w),
+            cardColor: typeof w.button_color === 'string' ? w.button_color : null,
+            cardTextColor: typeof w.button_text_color === 'string' ? w.button_text_color : null,
             afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
             widget_order: w.widget_order,
             createdAt: new Date(w.created_at).getTime(),

@@ -18,6 +18,8 @@ import { Switch } from '../ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import ProductMediaField, { type PendingMedia } from './ProductMediaField';
 import ProductCoverField from './ProductCoverField';
+import ProductButtonColorField from './ProductButtonColorField';
+import { useProductsStatus } from '../../hooks/useProductsStatus';
 import ProductSelect from './ProductSelect';
 import ProductVariantsField from './ProductVariantsField';
 import ProductRichText from './ProductRichText';
@@ -127,6 +129,9 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
 
   const editable = useMemo(() => editableFor(detail), [detail]);
   const can = (field: string) => editable.includes(field);
+  // The account's button colour ("Use brand colour"): the product's answer, else the account's (a new product).
+  const { status: productsStatus } = useProductsStatus();
+  const brandButtonColor = detail?.brand_button_color || productsStatus?.button_color?.color || '#6C60FF';
   const failed = productId !== null && !loading && !detail; // couldn't be opened: nothing to edit or save
   const readOnly = Boolean(detail?.read_only);
   // Show / Hide (16 Nov): a hidden category is not offered, unless the product already has it (so nothing is lost).
@@ -394,6 +399,13 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                     <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_photos} disabled={!can('show_photos')} onCheckedChange={(v) => set('show_photos', v)} aria-label="Show photos" aria-describedby="p-photos-help" data-testid="product-show-photos" />Show photos</label>
                     <p id="p-photos-help" className="mt-1 text-xs text-gray-500">{PHOTOS_HELP}</p>
                   </div>
+                )}
+                {/* Chris 21 Nov 2026 (R2-2): the colour of this product's buttons (buy button, "View on website", Enquire) —
+                    the brand colour unless one is picked. Offered once the web API has the column. */}
+                {can('button_color') && (
+                  <ProductButtonColorField idPrefix="p-button-color" value={form.button_color} brand={brandButtonColor} disabled={readOnly}
+                    previewText={(form.buy_label || '').trim() || (detail && detail.origin !== 'manual' ? 'View on website' : DEFAULT_BUY_LABEL)}
+                    onChange={(c) => set('button_color', c)} />
                 )}
               </Section>
               <Section title="Organisation">

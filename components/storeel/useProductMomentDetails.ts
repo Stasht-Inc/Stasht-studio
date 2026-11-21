@@ -25,6 +25,8 @@ export interface ProductMomentDetail {
   image: string | null;
   /** The price a viewer may see (shownPrice), or null to keep the list's. */
   price: string | null;
+  /** Its buttons' colours as the web API works them out (Chris 21 Nov 2026, R2-2); null on an older web API. */
+  buttonStyle: { background: string; text: string } | null;
 }
 
 const cache = new Map<string, ProductMomentDetail | null>();
@@ -40,6 +42,7 @@ function fromProduct(d: ProductDetail): ProductMomentDetail {
     manual: d.origin === 'manual',
     image: photo || d.main_image || null,
     price: shownPrice(d),
+    buttonStyle: d.button_style ?? null,
   };
 }
 
@@ -53,6 +56,7 @@ function fromCatalogue(d: CatalogueItemDetail): ProductMomentDetail {
     manual: false,
     image: photo || d.main_image || null,
     price: null,
+    buttonStyle: (d as any).button_style ?? null,
   };
 }
 
@@ -136,6 +140,7 @@ export function withProductDetails(moments: PreviewMoment[], details: ReadonlyMa
       cta: Boolean(d.buyLabel) || d.hasPage || m.cta,
       enquire: d.enquire,
       manual: d.manual,
+      ...(d.buttonStyle ? { buttonColor: d.buttonStyle.background, buttonTextColor: d.buttonStyle.text } : {}),
     };
   });
 }

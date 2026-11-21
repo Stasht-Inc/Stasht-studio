@@ -243,7 +243,8 @@ export function ProductBuyButton({ detail, className = '' }: { detail: ProductDe
   if (!buy) return null;
   return (
     <div data-testid="product-buy-button" className={className}>
-      <ProductCardButton button={{ id: 'buy', buttonText: buy.label, buttonLink: buy.href, icon: 'ExternalLink' }} />
+      {/* In the product's / brand colour (Chris 21 Nov 2026, R2-2), never purple by default. */}
+      <ProductCardButton button={{ id: 'buy', buttonText: buy.label, buttonLink: buy.href, icon: 'ExternalLink', buttonColor: detail.button_style?.background, textColor: detail.button_style?.text }} />
     </div>
   );
 }

@@ -24,6 +24,21 @@ export function enquirePostMap(list: unknown): Map<string, string> {
   return out;
 }
 
+/** post id (string) → the product's button colour (Chris 21 Nov 2026, R2-2: `button_color` on each entry), for the
+ *  outlined Enquire button. Entries without one (an older web API) are left out: the button stays purple. */
+export function enquireColorMap(list: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!Array.isArray(list)) return out;
+  for (const row of list) {
+    if (!row || typeof row !== 'object') continue;
+    const id = (row as any).post_id;
+    const color = (row as any).button_color;
+    if (id === null || id === undefined || id === '' || id === 0 || typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) continue;
+    out.set(String(id), color.toUpperCase());
+  }
+  return out;
+}
+
 /** A failed send as field errors (under their field) and one general line (bottom of the card). */
 export function enquiryErrors(status: number, body: any): { fields: { name?: string; contact?: string; message?: string }; general: string } {
   const fields: { name?: string; contact?: string; message?: string } = {};

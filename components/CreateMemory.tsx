@@ -59,7 +59,8 @@ import { senderLabelFor } from './storeel/lib/storeelSms';
 import { sentMessage, type StoreelSendSummary } from './storeel/lib/storeelSend';
 import { requestOpenCampaign } from './storeel/lib/openCampaign';
 import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './widgets/addWidgetOptions';
-import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
+import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewCardButton, type PreviewWidget } from './storeel/lib/storeelWidgets';
+import { useProductsStatus } from '../hooks/useProductsStatus';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { opensAtTarget, type StepperOpensAt } from './storeel/lib/publishing';
 import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkChanges, savedLinkedCampaignIds, selectVisible, deselectVisible, tickedLinks, toggleLink, type LinkChanges } from './storeel/lib/editLinks';
@@ -94,7 +95,7 @@ interface CreateMemoryProps {
   onAddWidget?: (kind: AddWidgetKind, afterPostId: string | null) => void;
   widgetOptions?: AddWidgetOption[]; // The chooser's options (default: every option but DocuSign, which needs the page)
   previewWidgets?: PreviewWidget[]; // A saved campaign's widgets, shown in the preview like the campaign page
-  previewCardButtons?: ReadonlyMap<string, { buttonText: string }>; // Product moments' in-card buttons, by post id
+  previewCardButtons?: ReadonlyMap<string, PreviewCardButton>; // Product moments' in-card buttons (words, colours), by post id
   widgetEditorOpen?: boolean; // One of the campaign page's widget editors is open over this page
   // Chris, 8 Nov 2026 (b), point 2: the campaign page's Send opens this page at the Send card (Edit: at the top), and
   // the old Publish options are the "Publishing" section at the top of the Send card (the campaign page renders it).
@@ -1502,6 +1503,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     ? [...(isCatalogCategory ? selectedMemoryIds : []), ...extraCatalog.map((p) => String(p.id))]
     : []);
 
+  // A picked product's buttons before its details load: the account's button colour (Chris 21 Nov 2026, R2-2).
+  // (A hook: above the early return.)
+  const { status: productsStatus } = useProductsStatus();
   if (!open && !showSuccessDialog) return null;
 
   // Debug current state when modal is open
@@ -3971,6 +3975,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               controls={flowLoading || flowLoadError ? undefined : previewControls}
               widgets={savedMomentsList ? previewWidgets : undefined}
               cardButtons={savedMomentsList ? previewCardButtons : undefined}
+              productButtonColor={productsStatus?.button_color?.color ?? null}
             />
           </aside>
           )}

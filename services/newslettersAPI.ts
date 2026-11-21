@@ -83,6 +83,9 @@ export interface CampaignItem {
   date: string | null;
   price_text: string | null;
   meta: string | null;
+  /** A product's chosen button colour (Chris 21 Nov 2026, R2-2: its own, else the account's "Button colour"); absent =
+   *  the section's button colour (the header colour), as before. */
+  button_color?: string;
 }
 /** Studio sends selections (0–6, in order) and campaign_ids (the campaign-kind ids, for older readers; the API
  *  ignores them when selections is there). The API drops what the owner can't share and answers with `items`,
@@ -121,6 +124,8 @@ export interface CampaignOption {
   price_text?: string | null;
   meta?: string | null;
   category?: string | null;
+  /** A product's chosen button colour (R2-2), as on CampaignItem. */
+  button_color?: string;
 }
 
 export type NewsletterBlock =

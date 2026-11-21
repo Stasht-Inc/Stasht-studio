@@ -21,7 +21,9 @@ export type PreviewMoment =
   | { kind: 'product'; key: string; sourceId: string; image: string | null; title: string; price: string; cta: boolean; location: string; date: string;
     /** Chris 21 Nov 2026 (P3), from the product itself once loaded: its description (the card's caption), its buy
      *  button's words (none: "View on website" when it has a website page) and whether it shows "Enquire". */
-    description?: string; buyLabel?: string; enquire?: boolean; manual?: boolean }
+    description?: string; buyLabel?: string; enquire?: boolean; manual?: boolean;
+    /** Chris 21 Nov 2026 (R2-2): its buttons' colour (the product's / brand colour) and the words on it, once loaded. */
+    buttonColor?: string; buttonTextColor?: string }
   | { kind: 'vehicle'; key: string; sourceId: string; image: string | null; title: string; price: string; tags: string[] }
   | { kind: 'campaign'; key: string; sourceId: string; image: string | null; title: string; meta: string };
 

@@ -138,10 +138,19 @@ export function previewWidgetsFrom(lists: {
   ];
 }
 
-/** Each product moment's in-card button (its post id → the button), drawn inside that moment's card in the preview. */
-export function previewCardButtons(ctas: ReadonlyArray<any> | undefined): Map<string, { buttonText: string }> {
-  const out = new Map<string, { buttonText: string }>();
-  for (const [post, w] of inCardByPost(ctas)) out.set(post, { buttonText: str(w.buttonText) || 'View on website' });
+/** A product moment's in-card button in the preview: its words and, when the web API sent them, its colours. */
+export interface PreviewCardButton { buttonText: string; buttonColor?: string; textColor?: string }
+
+/** Each product moment's in-card button (its post id → the button), drawn inside that moment's card in the preview, in
+ *  the product's / brand colour the campaign page got from the web API (cardColor; Chris 21 Nov 2026, R2-2). */
+export function previewCardButtons(ctas: ReadonlyArray<any> | undefined): Map<string, PreviewCardButton> {
+  const out = new Map<string, PreviewCardButton>();
+  for (const [post, w] of inCardByPost(ctas)) {
+    out.set(post, {
+      buttonText: str(w.buttonText) || 'View on website',
+      ...(w.cardColor ? { buttonColor: str(w.cardColor), ...(w.cardTextColor ? { textColor: str(w.cardTextColor) } : {}) } : {}),
+    });
+  }
   return out;
 }
 
