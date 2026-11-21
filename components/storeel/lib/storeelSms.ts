@@ -1,6 +1,7 @@
 // The text a Storeel send's person gets (Chris, 4 Nov 2026, point 9, step 3 Send), built as the web API builds it
 // (StoreelBroadcastText::text → LeadDeliveryService::buildSmsBody): the first-text intro, the personal message, the
-// person's tracked campaign link, the YES/NO question, the reply line. Studio counts it the way the API's estimate
+// person's tracked campaign link and "Reply STOP to unsubscribe." (Chris 21 Nov 2026, P10: no YES / NO question and no
+// "Reply to this message to respond directly." any more). Studio counts it the way the API's estimate
 // does (a 30-character first name: StoreelBroadcastText::WORST_NAME) with the newsletter text rules (smsParts.ts:
 // at most MAX_SMS_PARTS parts and Twilio's 1,600 characters), and says the API's own words when it is too long.
 // The API checks again on Send. Pure, so `node --test` loads it.
@@ -13,10 +14,8 @@ const TOKEN_STAND_IN = 'x'.repeat(22);
 /** A typical slug when the campaign has none yet. */
 const SLUG_STAND_IN = 'x'.repeat(24);
 
-/** config/storeels.php: vehicles for a car campaign, campaign-neutral for every other (Chris, 4 Nov 2026). */
-export function storeelQuestion(isCar: boolean): string {
-  return isCar ? 'Want to see more vehicles like this? Reply YES. Reply NO to stop.' : 'Want to see more like this? Reply YES. Reply NO to stop.';
-}
+/** LeadDeliveryService::SMS_FOOTER: the last line of a first text (Chris 21 Nov 2026, P10: the STOP line only). */
+export const STOREEL_SMS_FOOTER = 'Reply STOP to unsubscribe.';
 
 /** StoreelSendService::senderLabel: the sender's name, and the business in its property view. */
 export function senderLabelFor(name: string | null | undefined, business: string | null | undefined): string {
@@ -34,11 +33,11 @@ export interface StoreelTextInput {
   viewOnly: boolean;
 }
 
-/** The whole text, as the API's estimate builds it. */
-export function storeelSmsText({ sender, message, slug, isCar, viewOnly }: StoreelTextInput): string {
+/** The whole text, as the API's estimate builds it. isCar no longer changes it (the YES / NO question is gone). */
+export function storeelSmsText({ sender, message, slug, viewOnly }: StoreelTextInput): string {
   const link = `${API_PUBLIC_BASE}/share/memory/${slug || SLUG_STAND_IN}${viewOnly ? '?viewonly=1&s=' : '?s='}${TOKEN_STAND_IN}`;
-  const body = `${String(message ?? '').trim()}\n\n${link}`.replace(/\s+$/, '') + `\n\n${storeelQuestion(isCar)}`;
-  return `Hi ${STOREEL_WORST_NAME},\nThis message came from ${sender}.\n\n${body}\n\nReply to this message to respond directly. Reply STOP to unsubscribe.`;
+  const body = `${String(message ?? '').trim()}\n\n${link}`.replace(/\s+$/, '');
+  return `Hi ${STOREEL_WORST_NAME},\nThis message came from ${sender}.\n\n${body}\n\n${STOREEL_SMS_FOOTER}`;
 }
 
 const count = (n: number) => n.toLocaleString('en-US');
@@ -58,7 +57,10 @@ export function storeelSmsParts(input: StoreelTextInput, maxParts: number | null
   return { parts, unicode: s.encoding === 'UCS-2', length, tooLong: problem !== null, problem };
 }
 
-/** "People get:" under the Message box when Text message is ticked. */
-export function storeelSmsPreview(sender: string, message: string, isCar: boolean): string {
-  return `Hi (their first name), this message came from ${sender}. ${String(message ?? '').trim() || 'Your message'} (link to your campaign) ${storeelQuestion(isCar)} Reply STOP to unsubscribe.`;
+/** "People get:" under the Message box when Text message is ticked. isCar is kept for callers; it changes nothing now. */
+export function storeelSmsPreview(sender: string, message: string, _isCar = false): string {
+  return `Hi (their first name), this message came from ${sender}. ${String(message ?? '').trim() || 'Your message'} (link to your campaign) ${STOREEL_SMS_FOOTER}`;
 }
+
+/** Under the Message box when Text message is ticked. */
+export const STOREEL_SMS_HELP = `We add their link and "${STOREEL_SMS_FOOTER}"`;

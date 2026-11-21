@@ -11,7 +11,8 @@ import StoreelSendConfirmDialog from './StoreelSendConfirmDialog';
 import { stepNumber, type CampaignSeed } from './lib/storeelFlow';
 import { PUBLISHING_SECTION_ID, choiceSendProblem, sendRoleFor } from './lib/publishing';
 import { usePublishChoice } from './PublishChoice';
-import { storeelSmsParts, storeelSmsPreview } from './lib/storeelSms';
+import { DEFAULT_MESSAGE_ERROR, useNewsletterBrand } from '../newsletters/hooks/useNewsletterBrand';
+import { STOREEL_SMS_HELP, storeelSmsParts, storeelSmsPreview } from './lib/storeelSms';
 import { sendProblem, type SendFailure, type StoreelCount, type StoreelSendSummary } from './lib/storeelSend';
 
 export const SEND_STEP_ID = 'st-step-send';
@@ -92,6 +93,17 @@ export default function StoreelSendStep(
   const audienceRef = useRef(audience);
   audienceRef.current = audience;
 
+  // "Save as default" under the Message box (Chris 21 Nov 2026, P6): the account's default message, the same one the
+  // newsletter composer's "Set as my default message" keeps (GET/PUT /newsletter-brand default_message). It pre-fills
+  // an empty Message box until the person types in it; ticked while the box shows it, ticking saves the box's text.
+  const brand = useNewsletterBrand(active && canSend);
+  const savedDefault = brand.loaded ? brand.brand?.default_message ?? null : undefined;
+  const messageTouched = useRef(false);
+  useEffect(() => {
+    if (!savedDefault || messageTouched.current) return;
+    setMessage((current) => (current.trim() ? current : savedDefault));
+  }, [savedDefault]);
+
   // The Publishing card's choice (Chris 9 Nov 2026), on the campaign page's stepper only: Save & Send applies it.
   const publishChoice = usePublishChoice()?.role ?? null;
   const campaignId = campaign?.id ?? 0;
@@ -114,7 +126,7 @@ export default function StoreelSendStep(
     if (!p) return;
     if (p.audience) setAudience(p.audience);
     if (p.channels) setChannels(p.channels);
-    if (p.sms_text !== undefined) setMessage(p.sms_text);
+    if (p.sms_text !== undefined) { messageTouched.current = true; setMessage(p.sms_text); }
     // An answer from the API is about what was sent then: it goes once that part is changed.
     setServerErrors((errors) => Object.fromEntries(Object.entries(errors).filter(([key]) => {
       const root = key.split('.')[0];
@@ -198,6 +210,13 @@ export default function StoreelSendStep(
         fieldErrors={fieldErrors}
         stepError={problem ?? serverStepError ?? unavailable ?? undefined}
         onChange={change}
+        defaultMessage={savedDefault}
+        defaultMessageLabel="Save as default"
+        onDefaultMessageChange={async (text) => {
+          const res = await brand.saveDefaultMessage(text);
+          if (!res.ok) toast.error(res.error ?? DEFAULT_MESSAGE_ERROR);
+          return res.ok;
+        }}
         intro={publishing ? (
           <>
             <PublishingSection>{publishing}</PublishingSection>
@@ -208,7 +227,7 @@ export default function StoreelSendStep(
           required: true,
           hint: 'Your note to each person. We add their own link to your campaign after it.',
           placeholder: 'Come see our spring open house this weekend.',
-          smsHelp: 'We add their link, a YES / NO question and "Reply STOP to unsubscribe."',
+          smsHelp: STOREEL_SMS_HELP, // Chris 21 Nov 2026 (P10): no YES / NO question any more
           parts,
           preview: storeelSmsPreview(sender, message, Boolean(campaign?.isCar)),
         }}

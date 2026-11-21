@@ -5,7 +5,7 @@ import { storeelBroadcastAPI } from '../../services/storeelBroadcastAPI';
 import ComposerDialog from '../newsletters/ComposerDialog';
 import { SendCountRows, SendNote } from '../newsletters/SendSummary';
 import { formatCount, skippedSummary } from '../newsletters/lib/audience';
-import { allowanceLine, sendAllowance, sendBlockedReason } from '../newsletters/lib/sendChecks';
+import { allowanceLine, sendAllowance, sendBlockedReason, smsAllowanceDetail } from '../newsletters/lib/sendChecks';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from '../newsletters/lib/ui';
 import { newIdempotencyKey, sendPayload } from './lib/storeelFlow';
 import { sendFailure, type SendFailure, type StoreelLimit, type StoreelSendSummary } from './lib/storeelSend';
@@ -62,6 +62,8 @@ export default function StoreelSendConfirmDialog({
   const aboutAllowance = blockedReason ? blockedReason === (allowanceError ?? check.problem) : Boolean(skipNote);
   const skipped = skippedSummary(counts, channels);
   const messages = limit ? limit.needed : null;
+  // Too few text parts: say why (Chris 21 Nov 2026, P5: "0 left" alone didn't say if the plan has none or they're used).
+  const smsDetail = channels.includes('sms') && counts && counts.sms > 0 ? smsAllowanceDetail(allowance, counts.sms * Math.max(1, smsParts)) : null;
 
   const confirm = async () => {
     setError(null);
@@ -98,6 +100,7 @@ export default function StoreelSendConfirmDialog({
       <SendCountRows channels={channels} counts={counts} countsLoading={countsLoading} smsParts={smsParts} />
       {skipped ? <p className="mt-3 text-sm text-gray-600">{skipped}</p> : null}
       {allowance ? <p className="mt-3 text-sm text-gray-600">{allowanceLine(allowance, channels)}</p> : null}
+      {smsDetail ? <p data-sms-allowance-detail className="mt-3 text-sm text-gray-600">{smsDetail}</p> : null}
       {messages !== null && limit ? (
         <p className="mt-3 text-sm text-gray-600">{`${formatCount(messages)} ${messages === 1 ? 'message' : 'messages'} (up to ${formatCount(limit.max_messages)} per send).`}</p>
       ) : null}
