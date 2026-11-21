@@ -20,6 +20,19 @@ export default function ProductButtonColorSetting({ info, className = '' }: { in
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const timer = useRef<number | null>(null);
+  // Controlled, and Escape closes it ourselves too: Radix only lets the TOP-most layer take Escape, and another Radix
+  // layer mounted later on the page (seen after a reload) can sit above it, so Escape did nothing and the panel stayed
+  // over the product cards. The Custom picker's own Escape still comes first (it closes, the panel stays).
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector('[data-nl-color-picker]')) return;
+      setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
   const latest = useRef(0);
   // A newer answer from the web API (another tab, a reload) when nothing is waiting to be saved.
   useEffect(() => {
@@ -54,7 +67,7 @@ export default function ProductButtonColorSetting({ info, className = '' }: { in
   };
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" data-testid="products-button-color" className={`${BUTTON_SECONDARY} whitespace-nowrap ${className}`}>
           <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border border-gray-200" style={{ backgroundColor: shown }} />

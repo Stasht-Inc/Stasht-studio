@@ -263,6 +263,7 @@ try {
     expect(await panel.getByTestId('account-button-color-preview').evaluate((el) => getComputedStyle(el).backgroundColor) === rgb(BLUE), `${tag} B: the preview button is Blue`);
     await page.screenshot({ path: `${OUT}/${tag}-B3-panel-blue.png` });
     await page.keyboard.press('Escape');
+    expect(await panel.waitFor({ state: 'hidden', timeout: 3000 }).then(() => true, () => false), `${tag} B: Escape closes the Button colour panel (after picking)`);
     await page.reload();
     await page.waitForTimeout(3000);
     const trig2 = visible(page.getByTestId('products-button-color')).first();
@@ -272,6 +273,7 @@ try {
     expect(await page.getByTestId('account-button-color-use-brand').getAttribute('data-state') === 'unchecked', `${tag} B: … "Use brand colour" stays off`);
     expect(await page.getByTestId('products-button-color-panel').getByRole('radio', { name: 'Blue' }).getAttribute('aria-checked') === 'true', `${tag} B: … Blue is the picked colour`);
     await page.keyboard.press('Escape');
+    expect(await page.getByTestId('products-button-color-panel').waitFor({ state: 'hidden', timeout: 3000 }).then(() => true, () => false), `${tag} B: Escape closes the panel after a reload`);
 
     // ── C. Full Arms: Blue → its own Red ────────────────────────────────────────────────────────────────────────
     await page.getByTestId('product-card').filter({ hasText: 'Full Arms' }).locator('button').first().click();
