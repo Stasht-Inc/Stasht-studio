@@ -5,20 +5,26 @@ import { getApiBaseUrl } from '../utils/authUtils';
 interface VideoRecorderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onVideoReady: (fileUrl: string, fileName: string) => void;
+  /** Create Campaign: the recorder uploads the clip (memories/upload-video) and hands back its URL. */
+  onVideoReady?: (fileUrl: string, fileName: string) => void;
+  /** Chris 21 Nov 2026 (R2-1): the caller saves the clip itself (the product editor's Intro Video uploads it to the
+   *  product's media). Given: no upload here; the recorded file is handed back and the recorder closes. Closing with
+   *  X while recording hands back nothing. */
+  onRecorded?: (file: File) => void;
 }
 
 const MAX_SECONDS = 60;
 const CIRCLE_RADIUS = 44;
 const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS;
 
-export function VideoRecorderModal({ isOpen, onClose, onVideoReady }: VideoRecorderModalProps) {
+export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }: VideoRecorderModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelledRef = useRef(false);
 
   const [isRecording, setIsRecording] = useState(false);
   const [timeLeft, setTimeLeft] = useState(MAX_SECONDS);
@@ -37,6 +43,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady }: VideoRecor
   }, []);
 
   const handleClose = useCallback(() => {
+    cancelledRef.current = true;
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
     }
@@ -98,7 +105,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady }: VideoRecor
           try {
             setUploadProgress(100);
             const data = JSON.parse(xhr.responseText);
-            if (data?.fileUrl) onVideoReady(data.fileUrl, fileName);
+            if (data?.fileUrl) onVideoReady?.(data.fileUrl, fileName);
             resolve();
           } catch { reject(new Error('Invalid response')); }
         };
@@ -128,6 +135,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady }: VideoRecor
   const startRecording = useCallback(() => {
     if (!streamRef.current) return;
     chunksRef.current = [];
+    cancelledRef.current = false;
 
     const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
       ? 'video/webm;codecs=vp9'
@@ -143,6 +151,14 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady }: VideoRecor
     };
     mediaRecorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: mimeType });
+      if (onRecorded) {
+        if (cancelledRef.current) return;
+        const type = mimeType.split(';')[0];
+        onRecorded(new File([blob], `intro_${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`, { type }));
+        stopCamera();
+        onClose();
+        return;
+      }
       uploadVideo(blob, mimeType);
     };
 
@@ -159,7 +175,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady }: VideoRecor
     autoStopRef.current = setTimeout(() => {
       stopRecording();
     }, MAX_SECONDS * 1000);
-  }, [uploadVideo, stopRecording]);
+  }, [uploadVideo, stopRecording, onRecorded, stopCamera, onClose]);
 
   if (!isOpen) return null;
 

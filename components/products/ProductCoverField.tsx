@@ -6,8 +6,13 @@
 // pick first; one replaces the other as the cover, as on a campaign. An intro video replaces the product's one video.
 // Remove = the page's Remove cover (I10): the brand shows, every photo / video stays in Media. A NEW product holds the
 // pick first among its Media picks (they upload right after the first save, in order); Remove drops a pick made here.
+// R2-1 (Chris 21 Nov 2026): Add Intro Video offers Record (Create Campaign's own VideoRecorderModal: camera, countdown,
+// auto-stop) or Upload; the recorded clip goes through the same save path as an uploaded one. Add Cover Photo stays as on
+// Create Campaign: one photo picker (on a phone the system picker itself offers Take Photo / Photo Library).
 import React, { useRef, useState } from 'react';
-import { Image as ImageIcon, Video, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Camera, Image as ImageIcon, Upload, Video, X } from 'lucide-react';
+import { VideoRecorderModal } from '../VideoRecorderModal';
 import { productsAPI, type ProductDetail, type ProductMediaItem } from '../../services/productsAPI';
 import { acceptPickedMedia, editorCoverOf, mediaOrderWithFirst, pendingWithCover, videoToReplace, type EditorCoverKind } from '../../utils/products';
 import { HEIC_CONVERT_FAILED, prepareImageForUpload, UploadFileError } from '../../utils/uploadFiles';
@@ -40,6 +45,10 @@ export default function ProductCoverField({
   const [busy, setBusy] = useState<{ kind: EditorCoverKind; name: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [names, setNames] = useState<Record<string, string>>({}); // url → the picked file's name (this visit)
+  const [videoMenu, setVideoMenu] = useState(false);
+  const [recorder, setRecorder] = useState(false);
+  // The browser can record (camera + MediaRecorder): Add Intro Video offers Record or Upload; otherwise it uploads.
+  const canRecord = typeof navigator !== 'undefined' && Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== 'undefined';
   const local = productId === null;
 
   const first = pending[0];
@@ -161,11 +170,34 @@ export default function ProductCoverField({
                     </button>
                   </div>
                 ) : (
-                  <button type="button" disabled={off}
-                    onClick={() => (kind === 'photo' ? photoInput : videoInput).current?.click()}
-                    className="w-full h-12 md:h-10 px-2 border border-gray-300 rounded-lg text-base md:text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors truncate disabled:opacity-50">
-                    {kind === 'photo' ? 'Add Cover Photo' : 'Add Intro Video'}
-                  </button>
+                  <div className="relative">
+                    <button type="button" disabled={off}
+                      aria-haspopup={kind === 'video' && canRecord ? 'menu' : undefined}
+                      aria-expanded={kind === 'video' && canRecord ? videoMenu : undefined}
+                      onClick={() => {
+                        if (kind === 'video' && canRecord) { setVideoMenu((o) => !o); return; }
+                        (kind === 'photo' ? photoInput : videoInput).current?.click();
+                      }}
+                      className="w-full h-12 md:h-10 px-2 border border-gray-300 rounded-lg text-base md:text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors truncate disabled:opacity-50">
+                      {kind === 'photo' ? 'Add Cover Photo' : 'Add Intro Video'}
+                    </button>
+                    {kind === 'video' && videoMenu && !off && (<>
+                      <div className="fixed inset-0 z-20" aria-hidden="true" onClick={() => setVideoMenu(false)} />
+                      <div role="menu" data-testid="product-intro-video-menu"
+                        className="absolute right-0 left-0 top-full z-30 mt-1 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                        <button type="button" role="menuitem" data-testid="product-intro-video-record"
+                          onClick={() => { setVideoMenu(false); setRecorder(true); }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 md:py-2 text-left text-base md:text-sm text-gray-700 hover:bg-gray-100">
+                          <Camera className="h-4 w-4 flex-shrink-0 text-gray-500" /> Record video
+                        </button>
+                        <button type="button" role="menuitem" data-testid="product-intro-video-upload"
+                          onClick={() => { setVideoMenu(false); videoInput.current?.click(); }}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 md:py-2 text-left text-base md:text-sm text-gray-700 hover:bg-gray-100">
+                          <Upload className="h-4 w-4 flex-shrink-0 text-gray-500" /> Upload video
+                        </button>
+                      </div>
+                    </>)}
+                  </div>
                 )}
               </div>
             </React.Fragment>
@@ -173,6 +205,11 @@ export default function ProductCoverField({
         })}
       </div>
       {error && <p role="alert" className="mt-3 text-xs text-red-600" data-testid="product-cover-error">{error}</p>}
+      {/* Create Campaign's recorder, as is; the clip comes back as a file and is saved like an uploaded intro video. */}
+      {recorder && createPortal(
+        <VideoRecorderModal isOpen={recorder} onClose={() => setRecorder(false)} onRecorded={(file) => { setRecorder(false); void pick('video', file); }} />,
+        document.body,
+      )}
     </div>
   );
 }
