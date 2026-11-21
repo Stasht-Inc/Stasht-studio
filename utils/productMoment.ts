@@ -55,3 +55,12 @@ export function shownPrice(p: { price_label?: string | null; show_price?: boolea
   if (p.price_on_request) return PRICE_ON_REQUEST;
   return (p.price_label || '').trim();
 }
+
+/** A moment's text for a photo viewer's Details: a product moment's caption without its price line, and the price for a
+ *  "Price" detail row (the product page's Price / Category block). Other moments: their description, no price. */
+export function viewerDetails(post: { type_id?: unknown; description?: unknown; title?: unknown } | null | undefined): { description: string; price: string } {
+  const raw = typeof post?.description === 'string' ? post.description : '';
+  if (!isProductPost(post)) return { description: raw, price: '' };
+  const { price, caption } = splitProductCaption(raw, post?.title);
+  return { description: caption, price };
+}

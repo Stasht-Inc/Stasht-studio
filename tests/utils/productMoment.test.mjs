@@ -2,7 +2,7 @@
 // Imports the TypeScript source directly — needs Node >= 22.18 (built-in type stripping).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PRICE_ON_REQUEST, isProductPost, plainText, shownPrice, splitProductCaption } from '../../utils/productMoment.ts';
+import { PRICE_ON_REQUEST, isProductPost, plainText, shownPrice, splitProductCaption, viewerDetails } from '../../utils/productMoment.ts';
 
 test('a product moment is told by its catalog_ type_id', () => {
   assert.equal(isProductPost({ type_id: 'catalog_812_0_1763700000' }), true);
@@ -44,4 +44,10 @@ test('the shown price follows Show the price and Price on request', () => {
   assert.equal(shownPrice({ price_label: '$65 CAD', show_price: false }), '');
   assert.equal(shownPrice({ price_label: '$65 CAD', price_on_request: true }), PRICE_ON_REQUEST);
   assert.equal(shownPrice({ price_label: '' }), '');
+});
+
+test('the photo viewer gets the caption and a separate price for a product moment only', () => {
+  assert.deepEqual(viewerDetails({ type_id: 'catalog_81_0_1', title: 'Brazilian (V)', description: 'Hard wax.\nPrice: $80 CAD' }), { description: 'Hard wax.', price: '$80 CAD' });
+  assert.deepEqual(viewerDetails({ type_id: 'web_image_1', description: 'Price: $5 lemonade' }), { description: 'Price: $5 lemonade', price: '' });
+  assert.deepEqual(viewerDetails(null), { description: '', price: '' });
 });

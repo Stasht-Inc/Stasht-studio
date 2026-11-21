@@ -94,6 +94,9 @@ import { campaignPageInventory } from "../components/storeel/campaignPageInvento
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
 import ProductCardButton from "../components/ProductCardButton";
 import { isInCardProductButton, productButtonsByPost } from "../utils/productCardButton";
+import { enquirePostMap } from "../utils/productEnquiry";
+import { isProductPost, splitProductCaption } from "../utils/productMoment";
+import { ProductEnquireButton } from "../components/ProductMomentParts";
 import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind } from "../components/widgets/AddWidgetChooser";
 import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
@@ -2269,10 +2272,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const productCardButtons = useMemo(() => productButtonsByPost(ctaWidgets).byPost, [ctaWidgets]);
   const isCardCta = (w: CtaWidget) => !!w.afterPostId && productCardButtons.get(w.afterPostId)?.id === w.id;
   // owner: the phone timeline's card offered Edit / Delete; anchor: the desktop sidebar entry scrolls to it.
+  // Product moments whose product shows "Enquire" on the published page (Chris 21 Nov 2026): the owner sees the card as
+  // recipients do; tapping it here only says what it does (an owner can't enquire on their own campaign).
+  const ownerEnquirePosts = useMemo(() => enquirePostMap(apiMemoryData?.enquire_products), [apiMemoryData?.enquire_products]);
   const renderProductCardButton = (postId: string | undefined, opts: { owner?: boolean; anchor?: boolean; className?: string } = {}) => {
     const w = postId ? productCardButtons.get(postId) : undefined;
-    if (!w) return null;
+    const enquire = postId !== undefined && ownerEnquirePosts.has(postId)
+      ? <ProductEnquireButton postId={postId} onClick={() => toast.info('Visitors tap Enquire to ask about this product.')} />
+      : null;
+    if (!w) return enquire;
     return (
+      <>
       <ProductCardButton
         button={w}
         memoryId={memoryId}
@@ -2282,6 +2292,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         onEdit={opts.owner ? () => openEditCta(w) : undefined}
         onDelete={opts.owner ? () => deleteCta(w) : undefined}
       />
+      {enquire}
+      </>
     );
   };
   const [addHtmlTitle, setAddHtmlTitle] = useState('');
@@ -3517,6 +3529,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             // so prefer whichever side actually has entries.
             linked_memories: (memoryData?.linked_memories?.length ? memoryData.linked_memories : rawData?.linked_memories) ?? [],
             unified_order: memoryData?.unified_order ?? rawData?.unified_order ?? null,
+            enquire_products: memoryData?.enquire_products ?? rawData?.enquire_products ?? [], // Chris 21 Nov 2026
           };
           setApiMemoryData(mergedMemoryData);
 
@@ -4588,7 +4601,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       is_claim: post.is_claim || null, // Preserve is_claim field for claim status
       claim_user_id: post.claim_user_id || null, // Preserve claim_user_id field
       is_new: post.is_new ?? null, // Preserve is_new field for new badge
-      after_post_id: post.after_post_id ?? null // Preserve after_post_id for chain ordering
+      after_post_id: post.after_post_id ?? null, // Preserve after_post_id for chain ordering
+      type_id: post.type_id ?? null // A product moment's catalog_… id: its card shows the price badge (Chris 21 Nov 2026)
       };
     });
   };
@@ -5062,7 +5076,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           id: (post.user || post.author)?.id?.toString() || (post.user || post.author)?.user_id?.toString()
         },
         content: post.content,
-        description: post.description || post.content || '',
+        // A product moment: its caption without the "Price: …" line (Chris 21 Nov 2026).
+        description: isProductPost(post) ? splitProductCaption(post.description || post.content, post.title).caption : (post.description || post.content || ''),
         dimensions: getImageDimensions(post),
         labels: Array.isArray(post.tags) ? post.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : [],
         rotation_angle: post.rotation_angle || 0,
@@ -13146,7 +13161,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       const isCaptionHidden = post.hide_caption === 1 || post.hide_caption === true;
                       // A product's photo has no caption: its name (the product's title / "Photo N"), never "Untitled moment".
                       const untitled = (isCatalogItemDetail && post.name) || 'Untitled moment';
-                      const description = isCaptionHidden
+                      const description = isCaptionHidden || isProductPost(post) // a product moment: its title, never "Price: …"
                         ? (post.title || untitled)
                         : (post.description || post.title || untitled);
                       const widgetsAfterThisPost = htmlWidgets.filter(w => w.afterPostId === post.id?.toString());

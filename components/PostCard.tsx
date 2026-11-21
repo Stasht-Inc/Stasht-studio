@@ -15,6 +15,9 @@ import ToneSelectionModal from "./ToneSelectionModal";
 import { EditMediaItemPopover } from "./EditMediaItemPopover";
 import { aiCreditsAPI } from "../services/aiCreditsAPI";
 import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
+import { isProductPost, splitProductCaption } from "../utils/productMoment";
+import { ProductPriceBadge } from "./ProductMomentParts";
+import { UserFallbackAvatar as BrandCover } from "./MemoryCard";
 
 /** The bottom-right extra-photos badge (clock icon + count) on a moment photo. Hidden for now — Chris 20 Nov 2026. */
 const SHOW_SUB_IMAGE_COUNT_BADGE = false;
@@ -391,6 +394,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   // A Products page product (`product:<id>`, Chris 17 Nov 2026) is the same page again.
   const isCatalogPost = typeof memoryId === 'string' && (memoryId.startsWith('catalog_item:') || memoryId.startsWith('shopify_product:') || memoryId.startsWith('product:'));
   const isCarPost = (typeof memoryId === 'string' && memoryId.startsWith('cars_detail:')) || isCatalogPost;
+  // A moment made from a product (type_id catalog_…, Chris 21 Nov 2026, P3): its price shows as the product page's badge
+  // and its caption without the "Price: …" line, as on the published page. Editing the caption still edits it whole.
+  const productMoment = isProductPost(post as any);
 
   const newDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -1408,6 +1414,17 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
         </div>
       )}
 
+      {/* A product moment with no photo (Chris 21 Nov 2026, P7): the campaign's brand, as on the published page. */}
+      {!post.image && productMoment && (
+        <div
+          data-testid="post-card-brand"
+          className="relative aspect-[4/3] overflow-hidden cursor-pointer"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onImageClick?.(post.author.avatar || '', 'Post content', post.title, `${post.author.name} • ${post.date}`, post.id); }}
+        >
+          <BrandCover user={{ name: post.author.name, avatar: post.author.avatar || undefined, profile_color: (post.author as any).profile_color || undefined }} scrim={false} />
+        </div>
+      )}
+
       {/* Content Section */}
       <div className={`${
         variant === 'card'
@@ -2122,7 +2139,19 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
         {/* Content/Description */}
         {!isAddingDescription && !isEditingDescription ? (
           <div className={`${variant === 'card' ? 'text-[#101828] text-[17px] md:text-base' : 'text-gray-700 text-sm'}`}>
-            {currentContent ? (
+            {currentContent && productMoment ? (() => {
+              const split = splitProductCaption(currentContent, currentImageTitle || post.title);
+              return (
+                <>
+                  {split.price ? <div className={split.caption && !isCaptionHidden ? 'mb-2' : ''}><ProductPriceBadge price={split.price} /></div> : null}
+                  {split.caption && !isCaptionHidden ? (
+                    <p className="whitespace-pre-line" data-testid="post-card-product-caption">
+                      {searchHighlight ? highlightText(split.caption, searchHighlight) : renderDescriptionWithMentions(split.caption)}
+                    </p>
+                  ) : null}
+                </>
+              );
+            })() : currentContent ? (
               !isCaptionHidden && (
                 <p>
                   {searchHighlight

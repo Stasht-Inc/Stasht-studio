@@ -111,7 +111,7 @@ async function open({ width, height, visitor = false, path = '/memories' }) {
       state.created = true;
       return route.fulfill({ json: { success: true, data: { id: NEW_ID, title: body?.title, slug: 'november-specials', category_id: body?.category_id, catalog: { moments: (body?.catalog_item_ids || []).length, skipped_item_ids: [] } } } });
     }
-    if (p === `/memories/${NEW_ID}` && m === 'GET') { state.detailGets.push(p); return route.fulfill({ json: { status: 'success', data: { memory: NEW_DETAIL, linked_memories: [], unified_order: NEW_DETAIL.unified_order } } }); }
+    if (p === `/memories/${NEW_ID}` && m === 'GET') { state.detailGets.push(p); return route.fulfill({ json: { status: 'success', data: { memory: NEW_DETAIL, linked_memories: [], unified_order: NEW_DETAIL.unified_order, enquire_products: ENQUIRE } } }); }
     if (p === `/memories/${NEW_ID}` && m === 'PUT') return route.fulfill({ json: { success: true, message: 'Memory updated successfully.', data: NEW_CAMPAIGN } });
     if (p === `/memories/${NEW_ID}/widgets` && m === 'GET') return route.fulfill({ json: { success: true, data: WIDGETS } });
     if (p === `/memories/${NEW_ID}/moment-order` || p === `/memories/${NEW_ID}/order`) return route.fulfill({ json: { success: true } });
@@ -241,6 +241,28 @@ try {
     await page.waitForTimeout(800);
     await card.click();
     await page.waitForTimeout(2500);
+
+    // ── The owner's campaign page: the same product cards as the published page ─────────────────────────────────
+    await page.getByText('Brazilian (V)').filter({ visible: true }).first().waitFor({ timeout: 20000 });
+    await page.waitForTimeout(1200);
+    const ownerBrand = page.getByTestId('post-card-brand').filter({ visible: true });
+    expect(await ownerBrand.count() >= 2, `${tag} owner page: photo-less product moments show the brand (${await ownerBrand.count()})`);
+    const ownerBadges = (await page.getByTestId('product-price-badge').filter({ visible: true }).allInnerTexts()).map((x) => x.trim());
+    expect(['$80 CAD', '$65 CAD', '$75 CAD'].every((b) => ownerBadges.includes(b)), `${tag} owner page: prices are yellow badges ${JSON.stringify(ownerBadges)}`);
+    const ownerPriceLines = await page.evaluate(() => [...document.querySelectorAll('body *')].filter((el) => el.children.length === 0 && /Price: \$/.test(el.textContent || '') && el.getClientRects().length).map((el) => `${el.tagName}.${el.className}|${(el.textContent || '').slice(0, 40)}`.slice(0, 200)));
+    expect(!ownerPriceLines.length, `${tag} owner page: no visible "Price: $…" line ${JSON.stringify(ownerPriceLines)}`);
+    expect((await page.getByTestId('post-card-product-caption').filter({ visible: true }).allInnerTexts()).some((t) => t.includes('Includes hands and fingers.')), `${tag} owner page: the description is the caption`);
+    const ownerButtons = await page.locator('[data-product-card-button]').filter({ visible: true }).allInnerTexts();
+    expect(ownerButtons.filter((b) => b.trim().startsWith('Add to Cart')).length >= 3, `${tag} owner page: "Add to Cart" in each card ${JSON.stringify(ownerButtons)}`);
+    expect(await page.getByTestId('product-enquire-button').filter({ visible: true }).count() >= 3, `${tag} owner page: Enquire in each card`);
+    await ownerBrand.first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `${OUT}/${tag}-OWN-01-owner-card-brand.png` });
+    await page.getByTestId('post-card-product-caption').filter({ hasText: 'Includes hands' }).filter({ visible: true }).first().evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: `${OUT}/${tag}-OWN-02-owner-card-photo.png` });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(400);
     if (desktop) await page.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).first().click();
     else await page.getByRole('button', { name: 'Edit Campaign' }).filter({ visible: true }).first().click();
     const edit = page.getByRole('dialog', { name: 'Edit Campaign' });
@@ -284,6 +306,10 @@ try {
     await brand.first().click();
     await pp.waitForTimeout(1200);
     await pp.screenshot({ path: `${OUT}/${tag}-P7-11-published-brand-opened.png` });
+    const viewerPrice = pp.getByTestId('viewer-price-detail').filter({ visible: true });
+    expect(await viewerPrice.count() >= 1 && (await viewerPrice.first().innerText()).includes('$80 CAD'), `${tag} published viewer: the price is a "Price" detail row`);
+    const viewerPriceLines = await pp.evaluate(() => [...document.querySelectorAll('body *')].filter((el) => el.children.length === 0 && /Price: \$/.test(el.textContent || '') && el.getClientRects().length).map((el) => el.tagName));
+    expect(!viewerPriceLines.length, `${tag} published viewer: no "Price: $…" text line ${JSON.stringify(viewerPriceLines)}`);
     await pp.keyboard.press('Escape').catch(() => {});
     await pub.context.close();
   }

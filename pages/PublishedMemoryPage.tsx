@@ -29,7 +29,7 @@ import ProductCardButton, { productButtonData } from "../components/ProductCardB
 import { productButtonsByPost } from "../utils/productCardButton";
 import ProductEnquireModal from "../components/ProductEnquireModal";
 import { enquirePostMap } from "../utils/productEnquiry";
-import { isProductPost, splitProductCaption } from "../utils/productMoment";
+import { isProductPost, splitProductCaption, viewerDetails } from "../utils/productMoment";
 import { ProductEnquireButton, ProductPriceBadge } from "../components/ProductMomentParts";
 import { UserFallbackAvatar } from "../components/MemoryCard";
 import { qrFromSearch, withQr } from "../utils/qrAccess";
@@ -521,6 +521,8 @@ export default function PublishedMemoryPage() {
     sub_images?: any[];
     title?: string;
     isPdf?: boolean;
+    /** A product moment's price: a "Price" detail row, never a "Price: …" line in the text (Chris 21 Nov 2026). */
+    price?: string;
   }>({
     isOpen: false,
     imageSrc: '',
@@ -1296,7 +1298,7 @@ export default function PublishedMemoryPage() {
                 location: prevPost.location,
                 uploaded_at: prevPost.uploaded_at,
                 capture_date: prevPost.capture_date,
-                description: prevPost.description,
+                ...viewerDetails(prevPost),
                 comments_count: prevPost.comments_count,
                 comments: prevPost.comments || []
               });
@@ -1319,7 +1321,7 @@ export default function PublishedMemoryPage() {
                 location: nextPost.location,
                 uploaded_at: nextPost.uploaded_at,
                 capture_date: nextPost.capture_date,
-                description: nextPost.description,
+                ...viewerDetails(nextPost),
                 comments_count: nextPost.comments_count,
                 comments: nextPost.comments || []
               });
@@ -1840,7 +1842,7 @@ export default function PublishedMemoryPage() {
       location: post.location,
       uploaded_at: post.uploaded_at,
       capture_date: post.capture_date,
-      description: post.description,
+      ...viewerDetails(post),
       comments_count: post.comments_count,
       comments: post.comments || [],
       sub_images: post.sub_images || [],
@@ -3256,6 +3258,12 @@ export default function PublishedMemoryPage() {
                       {imageViewer.description}
                     </p>
                   )}
+                  {imageViewer.price ? (
+                    <div data-testid="viewer-price-detail" className="mt-3">
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Price</p>
+                      <p className="text-sm text-white font-medium">{imageViewer.price}</p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -3525,6 +3533,12 @@ export default function PublishedMemoryPage() {
               <p className="text-gray-300 text-sm leading-relaxed">
                 {imageViewer.description || imageViewer.title || 'No description'}
               </p>
+              {imageViewer.price ? (
+                    <div data-testid="viewer-price-detail" className="mt-3">
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Price</p>
+                      <p className="text-sm text-white font-medium">{imageViewer.price}</p>
+                    </div>
+                  ) : null}
             </div>
 
             {/* Comments Section */}
@@ -3765,6 +3779,12 @@ export default function PublishedMemoryPage() {
                       {imageViewer.description}
                     </p>
                   )}
+                  {imageViewer.price ? (
+                    <div data-testid="viewer-price-detail" className="mt-3">
+                      <p className="text-xs text-gray-500 uppercase tracking-wide">Price</p>
+                      <p className="text-sm text-gray-900 font-medium">{imageViewer.price}</p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
