@@ -1,4 +1,5 @@
 import { dayOf } from '../../../utils/localDate.ts';
+import { isProductPost } from '../../../utils/productMoment.ts';
 
 // Storeel flow v2 (Deepak, 4 Nov 2026): the moments the live preview shows. Pure, so `node --test` loads it.
 //
@@ -6,15 +7,21 @@ import { dayOf } from '../../../utils/localDate.ts';
 // the picked items first — Website Catalogue products in the order picked (CatalogCampaignCreator keeps the order
 // sent; one moment each, its "View on website" button inside the card), vehicles and Shopify collections / linked campaigns
 // (linked items, shown before the photos on the campaign page) — then the uploaded photos and videos (the `photos` the
-// form sends). A product with no photo at all makes no moment (the API skips it); a photo not uploaded yet isn't sent.
+// form sends). A website item with no photo at all makes no moment (the API skips it; a manual product without a photo
+// does make one since Chris 21 Nov 2026 — its card shows the brand); a photo not uploaded yet isn't sent.
 // Edit: the campaign's own moments from the campaign page's data (GET /memories/{id}).
 
 // photo: `index` is its place in the form's photos (Create, not saved yet); `postId` its memory_images row (saved).
 // title / caption: the moment's title and its caption (memory_images.description), as the campaign page shows them.
 // Picked items carry `sourceId`: the picked catalogue item / vehicle / collection / campaign id.
 export type PreviewMoment =
-  | { kind: 'photo'; key: string; index?: number; postId?: number; image: string | null; video: boolean; title: string; caption: string; location: string; date: string }
-  | { kind: 'product'; key: string; sourceId: string; image: string | null; title: string; price: string; cta: boolean; location: string; date: string }
+  | { kind: 'photo'; key: string; index?: number; postId?: number; image: string | null; video: boolean; title: string; caption: string; location: string; date: string;
+    /** A saved moment the API made from a product (type_id catalog_…): its caption's price line shows as a badge (P3). */
+    productPost?: boolean }
+  | { kind: 'product'; key: string; sourceId: string; image: string | null; title: string; price: string; cta: boolean; location: string; date: string;
+    /** Chris 21 Nov 2026 (P3), from the product itself once loaded: its description (the card's caption), its buy
+     *  button's words (none: "View on website" when it has a website page) and whether it shows "Enquire". */
+    description?: string; buyLabel?: string; enquire?: boolean; manual?: boolean }
   | { kind: 'vehicle'; key: string; sourceId: string; image: string | null; title: string; price: string; tags: string[] }
   | { kind: 'campaign'; key: string; sourceId: string; image: string | null; title: string; meta: string };
 
@@ -144,6 +151,7 @@ function postMoment(p: Record<string, any>): PreviewMoment {
   return {
     kind: 'photo', key: `post-${p.id}`, ...(Number.isFinite(postId) ? { postId } : {}), image, video: Boolean(image && VIDEO.test(image)),
     title: text(p.title), caption: typeof p.description === 'string' ? p.description.trim() : '', location: text(p.location), date: day(p.capture_date),
+    ...(isProductPost(p) ? { productPost: true } : {}),
   };
 }
 

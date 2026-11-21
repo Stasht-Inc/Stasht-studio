@@ -114,10 +114,13 @@ const generateAvatarColor = (name: string): string => {
 // photo-less cards, Chris 20 Nov 2026 point 17)
 export function UserFallbackAvatar({
   user,
-  className = ''
+  className = '',
+  scrim = true
 }: {
   user?: { name?: string; avatar?: string; profile_color?: string };
   className?: string;
+  /** False where nothing is written over it (a moment card's picture): CampaignCover's scrim off. */
+  scrim?: boolean;
 }) {
   const initials = userDisplayUtils.generateInitials(user?.name || '');
   const profileColor = userDisplayUtils.formatProfileColor(user?.profile_color);
@@ -142,6 +145,7 @@ export function UserFallbackAvatar({
         backdrop="color"
         color={profileColor}
         loading="lazy"
+        scrim={scrim}
         className={`w-full h-full ${className}`}
         fallback={<div className={fallbackClassName} style={backgroundStyle}>{initials}</div>}
       />

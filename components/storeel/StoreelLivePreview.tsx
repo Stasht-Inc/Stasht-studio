@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Calendar, ExternalLink, Heart, ImageIcon, MapPin, MessageSquare, MoreVertical, Pencil, Play, Plus, SquarePen, Trash2, Video, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Calendar, Heart, ImageIcon, MapPin, MessageSquare, MoreVertical, Pencil, Play, Plus, SquarePen, Trash2, Video, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { storeelPreviewModel, type StoreelPreviewInput } from './storeelPreview';
 import CampaignCover from '../ui/CampaignCover';
@@ -12,6 +12,10 @@ import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOpti
 import { WIDGET_END, WIDGET_PINNED, WIDGET_TOP, widgetsByAnchor, type PreviewWidget } from './lib/storeelWidgets';
 import PreviewWidgetCard from './PreviewWidgetCard';
 import { categoryDisplayName } from '../../utils/products';
+import { UserFallbackAvatar } from '../MemoryCard';
+import ProductCardButton from '../ProductCardButton';
+import { ProductEnquireButton, ProductPriceBadge } from '../ProductMomentParts';
+import { splitProductCaption } from '../../utils/productMoment';
 
 /**
  * [wdy2xh2t3z] The Storeel tab's PREVIEW: the Storeel as it will look, following the form. Display only.
@@ -211,6 +215,7 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
                       </div>
                     ) : null}
                     <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy}
+                      brand={{ name: m.author, avatar: input.brandImage || avatarUrl || undefined, profile_color: avatarColor || undefined }}
                       cardButton={moment.kind === 'photo' && typeof moment.postId === 'number' ? cardButtons?.get(String(moment.postId))?.buttonText : undefined} />
                     {widgetStack(moment.key)}
                     {i === m.momentCards.length - 1 ? widgetStack(WIDGET_END) : null}
@@ -413,8 +418,16 @@ function Card({ children }: { children: ReactNode }) {
   return <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white text-gray-900">{children}</div>;
 }
 
-function MomentPicture({ src, video }: { src: string | null; video?: boolean }) {
-  if (!src) return <div className="aspect-[370/256] bg-gray-100" />;
+/** The brand a moment with no picture shows (Chris 21 Nov 2026, P7): the account / property avatar on the profile
+ *  colour, initials without one — the default a campaign with no cover shows (MemoryCard's UserFallbackAvatar). */
+export interface MomentBrand { name?: string; avatar?: string; profile_color?: string }
+
+function MomentPicture({ src, video, brand }: { src: string | null; video?: boolean; brand?: MomentBrand }) {
+  if (!src) {
+    return brand
+      ? <div data-testid="storeel-preview-moment-brand" className="aspect-[370/256] w-full overflow-hidden"><UserFallbackAvatar user={brand} scrim={false} /></div>
+      : <div className="aspect-[370/256] bg-gray-100" />;
+  }
   if (video) return <video src={VIDEO_FRAME(src)} muted playsInline preload="metadata" className="aspect-[370/256] w-full object-cover" />;
   return <img src={src} alt="" className="aspect-[370/256] w-full object-cover" />;
 }
@@ -458,37 +471,45 @@ function PlaceAndDate({ location, date }: { location: string; date: string }) {
 }
 
 /** One moment as the published campaign shows it (PublishedMemoryPage / the campaign page's timeline). */
-function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy, cardButton }: {
+function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy, cardButton, brand }: {
   moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string; menu?: MomentMenuActions | null; busy?: boolean;
   /** A saved product moment's in-card button text (its own CTA row, marked in_card): drawn inside the card. */
   cardButton?: string;
+  /** Shown where a moment has no picture (P7). */
+  brand?: MomentBrand;
 }) {
   if (moment.kind === 'photo' || moment.kind === 'product') {
-    // The campaign page: the moment's title, then its caption (a product's caption is made from the website by the API).
-    const caption = moment.kind === 'photo' ? moment.caption : '';
+    // The campaign page: the moment's title, then its caption. A product (Chris 21 Nov 2026, P3) — picked, or saved
+    // (its caption made by the API) — shows its price as the product page's badge, its description as the caption,
+    // then its buy button and "Enquire", as the published page the recipient opens draws them.
+    const saved = moment.kind === 'photo' && moment.productPost ? splitProductCaption(moment.caption, moment.title) : null;
+    const caption = moment.kind === 'photo' ? (saved ? saved.caption : moment.caption) : (moment.description || '');
+    const price = moment.kind === 'product' ? moment.price : saved?.price || '';
+    const buyText = moment.kind === 'product' && moment.cta ? (moment.buyLabel || 'View on website') : '';
     return (
       <>
         <Card>
-          <MomentPicture src={moment.image} video={moment.kind === 'photo' && moment.video} />
+          <MomentPicture src={moment.image} video={moment.kind === 'photo' && moment.video} brand={brand} />
           <div className="px-[21px] pb-[22px] pt-[21px]">
             <AuthorRow author={author} initial={initial} avatarUrl={avatarUrl} color={color} menu={menu} busy={busy} />
             <PlaceAndDate location={moment.location} date={moment.date} />
             {moment.title ? <p className="mt-[6px] line-clamp-2 break-words text-[18.5px] font-bold leading-[26px] text-[#1A1A1A]">{moment.title}</p> : null}
-            {caption ? <p className="mt-[6px] line-clamp-3 whitespace-pre-line break-words text-[14.5px] leading-[21px] text-[#364153]">{caption}</p> : null}
-            {/* A product: its price (the moment's details carry it), then its "View on website" button INSIDE the card,
-                under the details — no second card repeating the title (Chris, 8 Nov 2026). */}
-            {moment.kind === 'product' && moment.price ? <p className="mt-[6px] break-words text-[14.5px] leading-[21px] text-[#364153]">Price: {moment.price}</p> : null}
-            {moment.kind === 'product' && moment.cta ? (
-              <span data-testid="storeel-preview-product-button" className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] px-4 py-3 text-[15px] font-semibold text-white">
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />View on website
-              </span>
+            {price ? <div className="mt-2"><ProductPriceBadge price={price} /></div> : null}
+            {caption ? <p data-testid="storeel-preview-caption" className="mt-[6px] line-clamp-3 whitespace-pre-line break-words text-[14.5px] leading-[21px] text-[#364153]">{caption}</p> : null}
+            {/* Its buy button INSIDE the card, under the details — no second card repeating the title (Chris, 8 Nov 2026):
+                the product's own words ("Add to Cart" …), else "View on website" for a website product. */}
+            {buyText ? (
+              <div data-testid="storeel-preview-product-button" className="pointer-events-none">
+                <ProductCardButton button={{ id: 'preview', buttonText: buyText, icon: 'ExternalLink' }} className="mt-3" />
+              </div>
             ) : null}
+            {moment.kind === 'product' && moment.enquire ? <div className="pointer-events-none"><ProductEnquireButton /></div> : null}
           </div>
           {cardButton ? (
             <div className="-mt-[10px] px-[21px] pb-[22px]">
-              <span data-testid="storeel-preview-card-button" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] px-4 py-3 text-[15px] font-semibold text-white">
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />{cardButton}
-              </span>
+              <div data-testid="storeel-preview-card-button" className="pointer-events-none">
+                <ProductCardButton button={{ id: 'preview', buttonText: cardButton, icon: 'ExternalLink' }} />
+              </div>
             </div>
           ) : null}
         </Card>
