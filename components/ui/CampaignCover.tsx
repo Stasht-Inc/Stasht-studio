@@ -49,6 +49,9 @@ export interface CampaignCoverProps {
   fitArea?: { top: number; bottom: number; left?: number; right?: number } | null;
   /** A judged logo's largest share of the box (campaignCoverLayout's brandFraction); not judged: the 4 Nov size. */
   brandFraction?: number;
+  /** False when nothing is written over the picture (a moment card's picture, Chris 21 Nov 2026): no darkened lower
+   *  part on a light fill. Default true. */
+  scrim?: boolean;
 }
 
 // One ResizeObserver for every cover on the page (a campaign grid can have hundreds of cards).
@@ -99,7 +102,7 @@ function useBrandPicture(src: string | null): BrandPicture | null | undefined {
 }
 
 export default function CampaignCover({
-  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox, brandFraction, textHeight, fitArea,
+  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox, brandFraction, textHeight, fitArea, scrim = true,
 }: CampaignCoverProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -157,7 +160,7 @@ export default function CampaignCover({
     ? seamlessFill(brand, { top: imageTop - layout.height / 2, height: layout.height }, fill)
     : null;
   // On a light fill the callers' bottom gradient isn't enough for their white title / meta: darken the lower part.
-  const titleScrim = contain && isFallback && lightCoverFill(brand?.gradient ? brand.gradient[1] : fill);
+  const titleScrim = scrim && contain && isFallback && lightCoverFill(brand?.gradient ? brand.gradient[1] : fill);
   const mainClass = layout.mode !== 'contain'
     ? `w-full h-full object-cover${pending ? ' opacity-0' : ''}`
     : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${plainBrand ? 'object-contain' : 'rounded-xl object-contain shadow-lg'}${brandHidden ? ' opacity-0' : ''}`;

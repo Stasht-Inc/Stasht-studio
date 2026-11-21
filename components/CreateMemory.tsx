@@ -43,6 +43,7 @@ import { campaignMomentsAPI, type MomentPlace } from '../services/campaignMoment
 import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
 import { createPreviewMoments, SHOPIFY_PRODUCT_KEY, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
+import { useProductMomentDetails, withProductDetails } from './storeel/useProductMomentDetails';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
 import { ensureInMemory, toUploadableImage, UploadFileError, VIDEO_READ_FAILED } from '../utils/uploadFiles';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
@@ -1512,6 +1513,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     editorWasOpenRef.current = widgetEditorOpen;
   }, [widgetEditorOpen]);
 
+  // Chris 21 Nov 2026 (P3): each picked product's description, buy button, Enquire and first photo, read once, so the
+  // preview's product card shows what the saved moment will (useProductMomentDetails). Before the campaign exists only.
+  const productDetails = useProductMomentDetails(open && campaignType === 'storeel' && !flowCampaign && !flowEditing
+    ? [...(isCatalogCategory ? selectedMemoryIds : []), ...extraCatalog.map((p) => String(p.id))]
+    : []);
+
   if (!open && !showSuccessDialog) return null;
 
   // Debug current state when modal is open
@@ -2225,7 +2232,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const savedMomentsList = flowEditing || flowCampaign;
   // What the Moments card and the phone show, in order: before the campaign exists, the order given with the preview's
   // "+" / Move (momentOrder); once saved, the campaign's own. Vehicles / Shopify collections always last.
-  const previewMoments = savedMomentsList ? orderMoments(flowCampaign?.previewMoments ?? [], []) : orderMoments(createMoments, momentOrder);
+  const previewMoments = savedMomentsList ? orderMoments(flowCampaign?.previewMoments ?? [], []) : withProductDetails(orderMoments(createMoments, momentOrder), productDetails);
   const shownPlacedKeys = previewMoments.filter(isOrderable).map((m) => m.key);
 
   /** The Moderation switch's value: the person's choice, else the campaign's, else (new) the account default (13 Nov). */
@@ -2949,7 +2956,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     // (or takes it off Add a Moment's picks).
     return {
       moment: m,
-      note: m.kind === 'product' ? 'Its caption comes from your website.' : undefined,
+      // A manual product has no website (Chris 21 Nov 2026): its caption comes from the product.
+      note: m.kind === 'product' ? (m.manual ? 'Its caption comes from the product.' : 'Its caption comes from your website.') : undefined,
       onRemove: () => removeMoment(m),
     };
   });
@@ -3877,6 +3885,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
             <StoreelMomentsCard
               rows={momentRowsWithOrder}
+              // P7: a moment with no picture shows the brand the preview's cover falls back to.
+              brand={{ name: user?.name ?? null, profile_image: storeelBrandImage({ viewType, propertyImage: currentProperty?.image, userAvatar: user?.avatar }) ?? null, profile_color: user?.profile_color ?? null }}
               note={view.momentsNote}
               busy={isSubmitting}
               onAddMoment={() => openAddMoment(undefined)}

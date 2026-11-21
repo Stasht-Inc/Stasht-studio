@@ -29,6 +29,9 @@ import ProductCardButton, { productButtonData } from "../components/ProductCardB
 import { productButtonsByPost } from "../utils/productCardButton";
 import ProductEnquireModal from "../components/ProductEnquireModal";
 import { enquirePostMap } from "../utils/productEnquiry";
+import { isProductPost, splitProductCaption } from "../utils/productMoment";
+import { ProductEnquireButton, ProductPriceBadge } from "../components/ProductMomentParts";
+import { UserFallbackAvatar } from "../components/MemoryCard";
 import { qrFromSearch, withQr } from "../utils/qrAccess";
 import { DOCUSIGN_ENABLED } from "../constants/features.ts";
 
@@ -286,6 +289,14 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
 
   const hasMultipleImages = allImages.length > 1;
   const currentImage = allImages[currentImageIndex];
+  // Chris 21 Nov 2026 (P3): a product moment shows its price as the product page's badge and its description (without
+  // the "Price: …" line the API adds) in the caption slot. Every other moment: exactly as before.
+  const product = isProductPost(post) ? splitProductCaption(post.description, post.title) : null;
+  const description: string = product ? product.caption : (post.description || '');
+  const hasDescription = !!description.trim();
+  // P7: a moment with no picture (a product without a photo) shows the campaign's brand — the owner's avatar on their
+  // profile colour, initials without one — as a campaign with no cover does.
+  const brand = { name: memoryData?.user?.name, avatar: memoryData?.user?.profile_image || undefined, profile_color: memoryData?.user?.profile_color || undefined };
 
   const handlePrevImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -304,7 +315,9 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
         className="relative aspect-[4/5] bg-gray-100 cursor-pointer group rounded-t-2xl overflow-hidden"
         onClick={() => onImageClick(post, index)}
       >
-        {currentImage?.src?.toLowerCase().endsWith('.svg') ? (
+        {!currentImage?.src ? (
+          <div data-testid="published-moment-brand" className="h-full w-full"><UserFallbackAvatar user={brand} scrim={false} /></div>
+        ) : currentImage?.src?.toLowerCase().endsWith('.svg') ? (
           (post.user?.profile_image || memoryData.user?.profile_image) ? (
             <img
               src={post.user?.profile_image || memoryData.user?.profile_image}
@@ -368,9 +381,9 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
       </div>
 
       {/* Post Content */}
-      <div className={`px-4 pt-4 bg-white ${post.description && post.description.trim() ? 'pb-4' : 'pb-2'}`}>
+      <div className={`px-4 pt-4 bg-white ${hasDescription || product?.price ? 'pb-4' : 'pb-2'}`}>
         {/* Author Info and Comments */}
-        <div className={`flex items-center justify-between gap-2 ${(post.location || post.uploaded_at || post.capture_date || post.title) ? 'mb-2' : (post.description && post.description.trim() ? 'mb-3' : 'mb-0')}`}>
+        <div className={`flex items-center justify-between gap-2 ${(post.location || post.uploaded_at || post.capture_date || post.title) ? 'mb-2' : (hasDescription ? 'mb-3' : 'mb-0')}`}>
           <div className="flex items-center gap-2 flex-1">
             <div className="h-10 w-10 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white text-sm font-medium relative">
               {post.user?.profile_image && (
@@ -400,7 +413,7 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
 
         {/* Location and Date - with location icon always showing with date */}
         <div
-          className={`flex items-center ${(post.title || (post.description && post.description.trim())) ? 'mb-2' : 'mb-0'}`}
+          className={`flex items-center ${(post.title || hasDescription || product?.price) ? 'mb-2' : 'mb-0'}`}
           style={{
             color: '#6A7282',
             fontSize: '14px',
@@ -431,7 +444,7 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
         {/* Title - below location */}
         {post.title && (
           <p
-            className={`font-medium ${post.description && post.description.trim() ? 'mb-2' : 'mb-0'}`}
+            className={`font-medium ${hasDescription || product?.price ? 'mb-2' : 'mb-0'}`}
             style={{
               color: '#364153',
               fontSize: '16px',
@@ -442,8 +455,11 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
           </p>
         )}
 
+        {/* A product's price: the product page's badge (P3) */}
+        {product?.price ? <div className={hasDescription ? 'mb-2' : ''}><ProductPriceBadge price={product.price} /></div> : null}
+
         {/* Description */}
-        {post.description && post.description.trim() && (
+        {hasDescription && (
           <p
             className="whitespace-pre-line"
             style={{
@@ -455,7 +471,7 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
               letterSpacing: '-0.15px'
             }}
           >
-            {post.description}
+            {description}
           </p>
         )}
         {cardButton}
@@ -1272,7 +1288,7 @@ export default function PublishedMemoryPage() {
               setImageViewer({
                 isOpen: true,
                 imageId: prevPost.id,
-                imageSrc: prevPost.image_link || prevPost.master_image_link,
+                imageSrc: prevPost.image_link || prevPost.master_image_link || memoryData?.user?.profile_image, // no picture (P7): the brand
                 imageAlt: prevPost.name || 'Moment',
                 currentIndex: prevIndex,
                 user_name: prevPost.user?.name || memoryData?.user?.name,
@@ -1295,7 +1311,7 @@ export default function PublishedMemoryPage() {
               setImageViewer({
                 isOpen: true,
                 imageId: nextPost.id,
-                imageSrc: nextPost.image_link || nextPost.master_image_link,
+                imageSrc: nextPost.image_link || nextPost.master_image_link || memoryData?.user?.profile_image, // no picture (P7): the brand
                 imageAlt: nextPost.name || 'Moment',
                 currentIndex: nextIndex,
                 user_name: nextPost.user?.name || memoryData?.user?.name,
@@ -1600,15 +1616,7 @@ export default function PublishedMemoryPage() {
     return (
       <>
         {button}
-        <button
-          type="button"
-          data-enquire-post={String(postId)}
-          onClick={(e) => { e.stopPropagation(); setEnquireTarget({ postId: String(postId), title: enquireTitle }); }}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#6C60FF] bg-white px-6 py-2.5 text-base font-semibold text-[#6C60FF] transition-colors hover:bg-[#6C60FF]/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
-        >
-          <MessageSquare className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
-          Enquire
-        </button>
+        <ProductEnquireButton postId={String(postId)} onClick={() => setEnquireTarget({ postId: String(postId), title: enquireTitle })} />
       </>
     );
   };
@@ -1824,7 +1832,7 @@ export default function PublishedMemoryPage() {
     setImageViewer({
       isOpen: true,
       imageId: post.id,
-      imageSrc: post.image_link || post.master_image_link,
+      imageSrc: post.image_link || post.master_image_link || memoryData?.user?.profile_image, // no picture (P7): the brand
       imageAlt: post.name || 'Moment',
       currentIndex: index,
       user_name: post.user?.name || memoryData.user?.name,
@@ -2800,7 +2808,8 @@ export default function PublishedMemoryPage() {
                       const index = postIndex;
                       const isActive = activeMemoryIndex === index && isHeaderImageScrolled;
                       const postDate = post.uploaded_at || post.capture_date;
-                      const description = post.description || post.title || 'Untitled moment';
+                      // A product moment is named by its title here, never its "Price: …" line (Chris 21 Nov 2026, P3).
+                      const description = (isProductPost(post) ? (post.title || splitProductCaption(post.description).caption) : post.description) || post.title || 'Untitled moment';
                       const postWidgets = widgetsAfter(post.id);
                       const isLastItem = combinedSidebarIndex === totalItems - 1;
                       return (

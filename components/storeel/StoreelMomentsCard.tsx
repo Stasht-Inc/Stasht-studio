@@ -9,6 +9,8 @@ import type { PreviewMoment } from './lib/previewMoments';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
 import { campaignPill, productsPill } from '../leads/CampaignPickButtons';
+import ProductBrandThumb, { type BrandOwner } from '../products/ProductBrandThumb';
+import { splitProductCaption } from '../../utils/productMoment';
 
 // Chris, 20 Nov 2026 (I9): "+ Products" (green) and "+ Campaigns" (purple) beside Add a Moment — the message composer's
 // pair (CampaignPickButtons), both with a stroke (I8: "They need the same pattern!"). The purple pill gets its border
@@ -44,8 +46,10 @@ export interface MomentRow {
  * moment editor on the pencil, and "Add a Moment", which opens the original Add a Moment UI (AddMomentModal).
  * Photos can be dropped on the card, as on the old Media box.
  */
-export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, onAddCampaigns, onDropFiles, busy = false, note = null, captionRequest = null, addChooser }: {
+export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, onAddCampaigns, onDropFiles, busy = false, note = null, captionRequest = null, addChooser, brand = null }: {
   rows: MomentRow[];
+  /** A moment with no picture shows this brand (Chris 21 Nov 2026, P7) — the Add a Moment picker's ProductBrandThumb. */
+  brand?: BrandOwner | null;
   /** The preview's Edit Moment on a saved moment (Chris, 7 Nov 2026): open this row's caption editor, scrolled to. */
   captionRequest?: { key: string; n: number } | null;
   /** On a saved campaign: "Moments and captions save straight to your campaign." */
@@ -75,7 +79,7 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, o
         {note ? <p className="text-sm text-gray-500">{note}</p> : null}
         {rows.length ? (
           <ul aria-label="Moments" className="divide-y divide-gray-100 rounded-lg border border-gray-200">
-            {rows.map((row) => <MomentRowItem key={row.moment.key} row={row} captionRequest={captionRequest?.key === row.moment.key ? captionRequest.n : 0} />)}
+            {rows.map((row) => <MomentRowItem key={row.moment.key} row={row} brand={brand} captionRequest={captionRequest?.key === row.moment.key ? captionRequest.n : 0} />)}
           </ul>
         ) : (
           <p className="text-sm text-gray-500">No moments yet. Add photos or videos with Add a Moment, or pick items in step 1.</p>
@@ -108,7 +112,7 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, o
 
 const VIDEO_FRAME = (src: string) => `${src}#t=0.1`;
 
-function MomentRowItem({ row, captionRequest = 0 }: { row: MomentRow; captionRequest?: number }) {
+function MomentRowItem({ row, captionRequest = 0, brand = null }: { row: MomentRow; captionRequest?: number; brand?: BrandOwner | null }) {
   const { moment } = row;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -123,7 +127,12 @@ function MomentRowItem({ row, captionRequest = 0 }: { row: MomentRow; captionReq
     window.setTimeout(() => itemRef.current?.querySelector('textarea')?.focus(), 300);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [captionRequest]);
+  // A product (picked, or a saved product moment): its description under its price (P3); a saved one's caption is still
+  // edited whole (price line included), as stored.
+  const productText = moment.kind === 'product' ? (moment.description || '')
+    : moment.kind === 'photo' && moment.productPost ? splitProductCaption(caption, moment.title).caption : null;
   const meta = moment.kind === 'product' ? moment.price
+    : moment.kind === 'photo' && moment.productPost ? splitProductCaption(caption, moment.title).price
     : moment.kind === 'vehicle' ? [moment.price, ...moment.tags].filter(Boolean).join(' · ')
     : moment.kind === 'campaign' ? moment.meta : '';
   const label = moment.title || (moment.kind === 'photo' ? caption.split('\n')[0] : '') || 'Moment';
@@ -145,7 +154,8 @@ function MomentRowItem({ row, captionRequest = 0 }: { row: MomentRow; captionReq
           ? (moment.kind === 'photo' && moment.video
             ? <video src={VIDEO_FRAME(moment.image)} muted playsInline preload="metadata" className="h-full w-full object-cover" />
             : <img src={moment.image} alt="" className="h-full w-full object-cover" />)
-          : null}
+          // No picture (a product without a photo): the account's brand, not a grey box (Chris 21 Nov 2026, P7).
+          : <span data-testid="storeel-moment-brand" className="block h-full w-full"><ProductBrandThumb owner={brand} /></span>}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
@@ -185,7 +195,9 @@ function MomentRowItem({ row, captionRequest = 0 }: { row: MomentRow; captionReq
           </div>
         ) : (
           <>
-            {caption ? <p className="mt-0.5 line-clamp-3 whitespace-pre-line break-words text-sm text-gray-700">{caption}</p> : null}
+            {productText !== null
+              ? (productText ? <p className="mt-0.5 line-clamp-2 whitespace-pre-line break-words text-sm text-gray-700">{productText}</p> : null)
+              : caption ? <p className="mt-0.5 line-clamp-3 whitespace-pre-line break-words text-sm text-gray-700">{caption}</p> : null}
             {row.onSaveCaption ? (
               <button type="button" onClick={() => { setDraft(caption); setEditing(true); }} className={`${LINK_BUTTON} mt-1`}>
                 {caption ? 'Edit caption' : 'Add caption'}
