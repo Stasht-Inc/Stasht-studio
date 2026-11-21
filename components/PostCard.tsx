@@ -6,7 +6,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import GooglePlacesInput from "./ui/google-places-input";
-import { MapPin, Calendar, FileText, Eye, MessageSquare, MoreHorizontal, Edit, Save, X, Trash2, MoreVertical, Linkedin, Facebook, Mail, ChevronLeft, ChevronRight, Heart, Share2, UserCheck, ExternalLink } from "lucide-react";
+import { MapPin, Calendar, FileText, Eye, MessageSquare, MoreHorizontal, Edit, Save, X, Trash2, MoreVertical, Linkedin, Facebook, Mail, ChevronLeft, ChevronRight, Heart, Share2, UserCheck, ExternalLink, Play } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import { MockPost } from "../data/mockPosts";
 import { dashboardAPI, userUtils, userDisplayUtils } from "../utils/authUtils";
@@ -17,7 +17,10 @@ import { aiCreditsAPI } from "../services/aiCreditsAPI";
 import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
 import { isProductPost, splitProductCaption } from "../utils/productMoment";
 import { ProductPriceBadge } from "./ProductMomentParts";
-import { UserFallbackAvatar as BrandCover } from "./MemoryCard";
+import { UserFallbackAvatar as BrandCover, VideoThumbnail } from "./MemoryCard";
+
+/** A video file by its extension (the media URL of a video moment). */
+const VIDEO_FILE = /\.(mp4|mov|m4v|webm)(?:[?#]|$)/i;
 
 /** The bottom-right extra-photos badge (clock icon + count) on a moment photo. Hidden for now — Chris 20 Nov 2026. */
 const SHOW_SUB_IMAGE_COUNT_BADGE = false;
@@ -1257,7 +1260,16 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
             }
           }}
         >
-          {cropData && cropData.imageWidth && cropData.imageHeight ? (
+          {VIDEO_FILE.test(currentImageData?.src || post.image || '') ? (
+            // A video file as the moment's media (a product's video, Chris 21 Nov 2026 P11): its first frame and a play
+            // mark, as campaign cards draw a video cover (MemoryCard VideoThumbnail); a click opens it as before.
+            <div className="relative w-full h-full" data-testid="post-card-video">
+              <VideoThumbnail src={currentImageData?.src || post.image || ''} className="w-full h-full object-cover" />
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm"><Play className="ml-0.5 h-5 w-5 text-white" /></span>
+              </span>
+            </div>
+          ) : cropData && cropData.imageWidth && cropData.imageHeight ? (
             // Precise crop display - show only the cropped area
             <div
               className="w-full h-full overflow-hidden"

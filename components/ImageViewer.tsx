@@ -8,6 +8,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./ui/hover-card";
 import { Textarea } from "./ui/textarea";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import { VideoThumbnail } from "./MemoryCard";
+
+/** A video file by its extension: a product's video moment (Chris 21 Nov 2026, P11) plays here instead of an <img>. */
+const VIDEO_FILE = /\.(mp4|mov|m4v|webm)(?:[?#]|$)/i;
 import { LocationInfoDialog } from "./LocationInfoDialog";
 import { AddMomentModal } from "./AddMomentModal";
 import { photoCounterLabel } from "../utils/photoCounter";
@@ -2566,12 +2570,12 @@ export function ImageViewer({
                   }`}
                   onClick={() => setCurrentSubImageIndex(0)}
                 >
-                  <img
+                  {VIDEO_FILE.test(imageSrc || '') ? <VideoThumbnail src={imageSrc} className="w-full h-full object-cover" /> : <img
                     src={imageSrc}
                     alt={imageAlt}
                     className="w-full h-full object-cover"
                     style={{ transform: `rotate(${rotation}deg)` }}
-                  />
+                  />}
                   {currentSubImageIndex === 0 && (
                     <div className="absolute inset-0 bg-[#6C60FF]/20"></div>
                   )}
@@ -2609,11 +2613,11 @@ export function ImageViewer({
                   }`}
                   onClick={() => setCurrentSubImageIndex(index + 1)}
                 >
-                  <img
+                  {VIDEO_FILE.test(subImage.src || '') ? <VideoThumbnail src={subImage.src} className="w-full h-full object-cover" /> : <img
                     src={subImage.src}
                     alt={subImage.alt}
                     className="w-full h-full object-cover"
-                  />
+                  />}
                   {currentSubImageIndex === index + 1 && (
                     <div className="absolute inset-0 bg-[#6C60FF]/20"></div>
                   )}
@@ -2712,7 +2716,9 @@ export function ImageViewer({
                 maxWidth: '100%',
               }}
             >
-              <ImageWithFallback
+              {VIDEO_FILE.test(currentImageSrc || '') ? (
+                <video key={currentImageSrc} data-testid="viewer-video" src={currentImageSrc} controls playsInline preload="metadata" className="w-full max-h-[50vh] md:max-h-[75vh] object-contain rounded-lg bg-black" />
+              ) : <ImageWithFallback
                 src={currentImageSrc}
                 alt={currentImageAlt}
                 className="w-full h-full object-contain"
@@ -2730,7 +2736,7 @@ export function ImageViewer({
                     </div>
                   </div>
                 }
-              />
+              />}
             </div>
           )}
 

@@ -43,6 +43,9 @@ export interface ProductSummary {
   main_image: string | null;
   /** Remove cover (Chris 20 Nov 2026, I10): the brand shows as the cover; the photos stay. Absent on an older web API. */
   cover_removed?: boolean;
+  /** Chris 21 Nov 2026 (P11): the intro video when it is the product's cover (first media item); cards show its first
+   *  frame, as campaign cards show an intro-video cover. null / absent (older web API) = main_image is the cover. */
+  cover_video?: string | null;
   images_count: number;
   category: string | null;
   categories: ProductCategoryRef[];

@@ -34,6 +34,6 @@ test('F1: only active manual products with a photo, shaped for the picker (never
     p({ id: 6, origin: 'website', url: 'https://shop.test/p/6' }), // website ones come from the catalogue, as before
   ]);
   assert.deepEqual(out.map((i) => i.id), [1, 2]);
-  assert.deepEqual(out[0], { id: 1, title: 'Walnut Chair', price: '450.00', currency: 'USD', price_label: '$450 USD', category: 'Chairs', url: null, main_image: 'https://cdn.test/a.jpg', images_count: 2 });
+  assert.deepEqual(out[0], { id: 1, title: 'Walnut Chair', price: '450.00', currency: 'USD', price_label: '$450 USD', category: 'Chairs', url: null, main_image: 'https://cdn.test/a.jpg', images_count: 2, cover_video: null });
   assert.equal(out[1].category, null);
 });

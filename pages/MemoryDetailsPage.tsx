@@ -79,7 +79,7 @@ import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
 import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI";
 import { shopifyItemsAPI, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
 import { productsAPI, type ProductDetail } from "../services/productsAPI";
-import { cleanSpecRows, priceLine, productPageCover, productPageDescription, productPageIdOf, productPageLinks, productPageNotes, productPagePhotos, productPagePills, productPageSpecs, productPhotoName, productPhotosShown, productSpecSummary } from "../utils/products";
+import { cleanSpecRows, priceLine, productPageCover, productPageDescription, productPageIdOf, productPageLinks, productPageNotes, productPageMedia, productPagePills, productPageSpecs, productPhotoName, productPhotosShown, productSpecSummary } from "../utils/products";
 import { ProductBuyButton, ProductPageActions, ProductPageDetails, useProductPageControls } from "../components/products/ProductPageControls";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
@@ -3338,7 +3338,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             spec_summary: productSpecSummary(d), user_id: d.user_id, read_only: d.read_only, ...(d.owner ? { owner: d.owner } : {}),
             description: productPageDescription(d) || null, sku: null, brand: d.brand, availability: d.availability,
             attributes: productPageSpecs(d),
-            images: productPagePhotos(d).map((m, i) => ({ id: m.id as number, url: m.url, sort_order: i })),
+            // Chris 21 Nov 2026 (P11): the product's video too (its intro video when first), so Media lists it.
+            images: productPageMedia(d).map((m, i) => ({ id: m.id as number, url: m.url, sort_order: i, type: m.type })),
           } } : { ok: false, error: r.error || 'This product could not be opened. Please try again.' };
         } else {
           const itemsAPI = isShopifyProductDetail ? shopifyItemsAPI : catalogueAPI;
@@ -3351,8 +3352,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           const sortedImages = images.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
           // A product with no gallery rows still has its main image.
           const photoUrls = sortedImages.length > 0
-            ? sortedImages.map((img) => ({ id: img.id, url: img.url }))
-            : (item.main_image ? [{ id: undefined, url: item.main_image }] : []);
+            ? sortedImages.map((img) => ({ id: img.id, url: img.url, type: (img as { type?: string }).type === 'video' ? 'video' : 'image' }))
+            : (item.main_image ? [{ id: undefined, url: item.main_image, type: 'image' }] : []);
+          // Photo names count photos only: a product's video is "Video" (P11), its first photo keeps the title.
+          let photoIndex = 0;
           // Logged-in user as each post's author, same as carAuthor (a product has no Stasht author) — or, for someone
           // else's product (read_only: the main account's, seen by its salesperson), its owner from the API's owner block.
           const itemOwner = inventoryOwnerAuthor(item);
@@ -3377,8 +3380,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               image_link: img.url,
               // Point 19 (Chris 20 Nov 2026): a readable name, never "Untitled moment" / the file's UUID — the product's
               // title for the first photo, "Photo N" for the others (timeline, Media panel, viewer).
-              name: productPhotoName(item.title, i),
-              type: 'image',
+              name: img.type === 'video' ? 'Video' : productPhotoName(item.title, photoIndex++),
+              type: img.type,
               parent_id: null,
               user: itemAuthor,
               location: '',

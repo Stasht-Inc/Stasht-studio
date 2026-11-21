@@ -1,7 +1,7 @@
 // components/products/ProductCard.tsx — one Products grid card (spec: main photo, title, price + sale price, status and
 // source badges). Card look follows MemoryCard / WebsiteCatalogNav (rounded-xl, gray-200 border, #6C60FF accents).
 import { Camera } from 'lucide-react';
-import { ImageWithFallback } from '../figma/ImageWithFallback';
+import ProductCoverImage from './ProductCoverImage';
 import { UserFallbackAvatar } from '../MemoryCard';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ProductSummary } from '../../services/productsAPI';
@@ -32,8 +32,9 @@ export default function ProductCard({ product, selectable, selected, onToggle, o
     <div data-testid="product-card" className={`relative overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md ${selected ? 'border-[#6C60FF] ring-2 ring-[#6C60FF]/30' : 'border-gray-200'}`}>
       <button type="button" onClick={onOpen} className="block w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]">
         <div className="relative aspect-square bg-gray-100">
-          {product.main_image ? (
-            <ImageWithFallback src={product.main_image} alt={product.title} className="h-full w-full object-cover" fallback={<div className="h-full w-full"><UserFallbackAvatar user={brand} /></div>} />
+          {/* Chris 21 Nov 2026 (P11): the same cover as the product page — an intro video's first frame when it is the cover */}
+          {product.cover_video || product.main_image ? (
+            <ProductCoverImage coverVideo={product.cover_video} mainImage={product.main_image} alt={product.title} fallback={<div className="h-full w-full"><UserFallbackAvatar user={brand} /></div>} />
           ) : (
             <div data-testid="product-card-brand" className="h-full w-full"><UserFallbackAvatar user={brand} /></div>
           )}

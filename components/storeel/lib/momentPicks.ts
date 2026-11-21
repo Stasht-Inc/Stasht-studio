@@ -8,6 +8,8 @@ export interface InventoryPick {
   id: string | number;
   title?: string | null;
   main_image?: string | null;
+  /** Products: the intro video when it is the product's cover (P11). */
+  cover_video?: string | null;
   /** Products. */
   price_label?: string | null;
   url?: string | null;

@@ -27,6 +27,8 @@ export interface CatalogueItemSummary {
   category_hidden?: boolean; // its owner hid this category (Show / Hide, 16 Nov): grouped under "Other", left out of category lists
   url: string | null;
   main_image: string | null;
+  /** A Products product whose cover is its intro video (P11, products only). */
+  cover_video?: string | null;
   images_count: number;
   // Up to three attribute values, "Oak / 6 / Natural" ('' when none). Shown under a product's
   // campaign card and page title, like a car's spec line. Optional: older API builds don't send it.
@@ -45,7 +47,7 @@ export interface CatalogueItemDetail extends CatalogueItemSummary {
   brand: string | null;
   availability: 'available' | 'retired';
   attributes: Array<{ label: string; value: string }>;
-  images: Array<{ id: number; url: string; sort_order: number }>;
+  images: Array<{ id: number; url: string; sort_order: number; type?: 'photo' | 'video' }>;
 }
 
 export interface CatalogueItemsPage {

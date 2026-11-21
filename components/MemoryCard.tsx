@@ -42,7 +42,7 @@ const isYoutubeUrl = (url?: string): boolean => {
  * (as the campaign page's cover video and PublishMemoriesModal do); a video that can't load at all calls onFail,
  * so the card shows its brand / initials instead of a grey box.
  */
-function VideoThumbnail({ src, className, onFail }: { src: string; className?: string; onFail?: () => void }) {
+export function VideoThumbnail({ src, className, onFail }: { src: string; className?: string; onFail?: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [frameReady, setFrameReady] = useState(false);
 

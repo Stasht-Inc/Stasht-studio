@@ -313,7 +313,8 @@ try {
     await page.waitForTimeout(2500);
     const brand = visible(productPage(page).locator('[data-cover-mode="brand"] img[src*="pr-logo"], [data-cover-mode="pending"] img[src*="pr-logo"]'));
     expect(await brand.count() > 0, `${tag}: the page shows the brand (avatar) cover`);
-    expect(await visible(productPage(page).locator('video[src*="/pr-vid/"]')).count() === 0, `${tag}: … no intro video`);
+    // (P11: the video stays listed in Media / the timeline; only the cover changed to the brand)
+    expect(arms().d.media.some((m) => m.type === 'video'), `${tag}: … the video itself is kept in Media`);
     await page.screenshot({ path: `${OUT}/${tag}-08-page-brand-cover.png` });
     await page.reload();
     await page.waitForTimeout(3500);

@@ -39,3 +39,20 @@ test('videoToReplace: the product\'s one video, else null', () => {
   assert.equal(videoToReplace([photo(1, 0), video(7, 1)]), 7);
   assert.equal(videoToReplace(undefined), null);
 });
+
+// P11 (after deploy 21 Nov): the page's Media lists the video too; pickers carry the video cover.
+import { productPageMedia, productsNavItems, leadShareManualItems } from '../../utils/products.ts';
+
+test('productPageMedia: photos AND the video, in order (the intro video first when it is the cover)', () => {
+  const d = { media: [photo(1, 1), video(9, 0)], main_image: 'https://s3/p/1.jpg', show_photos: true };
+  assert.deepEqual(productPageMedia(d), [{ id: 9, url: 'https://s3/p/9.mp4', type: 'video' }, { id: 1, url: 'https://s3/p/1.jpg', type: 'photo' }]);
+  assert.deepEqual(productPageMedia({ ...d, show_photos: false }), []);
+  assert.deepEqual(productPageMedia({ media: [], main_image: 'https://x/1.jpg', show_photos: true }), [{ url: 'https://x/1.jpg', type: 'photo' }]);
+});
+
+test('picker items carry cover_video (null when the API has none)', () => {
+  const p = { id: 4, title: 'T', price: '1', currency: 'CAD', price_label: '$1', price_on_request: false, show_price: true, origin: 'manual', status: 'active', images_count: 1, categories: [], category: null, main_image: 'a.jpg', url: null, user_id: 1, read_only: false };
+  assert.equal(productsNavItems([{ ...p, cover_video: 'v.mp4' }])[0].cover_video, 'v.mp4');
+  assert.equal(productsNavItems([p])[0].cover_video, null);
+  assert.equal(leadShareManualItems([{ ...p, cover_video: 'v.mp4' }])[0].cover_video, 'v.mp4');
+});

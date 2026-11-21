@@ -11,6 +11,7 @@ import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from '../
 import { PRODUCTS_CHANGED_EVENT } from '../../hooks/useProductsStatus';
 import { vehiclePrice, vehicleTags } from './lib/previewMoments';
 import type { CampaignPick } from './lib/momentCampaigns';
+import ProductCoverImage from '../products/ProductCoverImage';
 import ProductBrandThumb from '../products/ProductBrandThumb';
 
 /** Add a Moment's sources: photos & videos (the modal's own), the Website Catalogue's products, a dealer's vehicles. */
@@ -104,7 +105,7 @@ export function useInventorySources(enabled: boolean): InventorySources {
       const value: InventorySources = {
         loading: false,
         productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
-        products: (products as Array<ProductSummary | CatalogueItemSummary>).map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, ...('categories' in p ? pickerCategoryOf(p) : { category: p.category, ...(p.category_hidden ? { category_hidden: true } : {}) }) })),
+        products: (products as Array<ProductSummary | CatalogueItemSummary>).map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, cover_video: p.cover_video ?? null, price_label: p.price_label, url: p.url, images_count: p.images_count, ...('categories' in p ? pickerCategoryOf(p) : { category: p.category, ...(p.category_hidden ? { category_hidden: true } : {}) }) })),
         vehicles,
       };
       // Only a load that fully answered is reused (re-review N3).
@@ -202,7 +203,8 @@ export default function InventoryMomentPicker({ kind, gate = 'ready', items, loa
                   </span>
                   <span className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-gray-100">
                     {/* No photo: the account's brand (Chris 20 Nov 2026, point 17), not a grey box. */}
-                    {item.main_image ? <img src={item.main_image} alt="" className="h-full w-full object-cover" /> : <ProductBrandThumb />}
+                    {/* An intro-video cover: its first frame, as on the product page (Chris 21 Nov 2026, P11). */}
+                    <ProductCoverImage coverVideo={item.cover_video} mainImage={item.main_image} alt="" fallback={<ProductBrandThumb />} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-gray-900">{item.title}</span>

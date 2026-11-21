@@ -654,13 +654,13 @@ export function leadShareSources(d: unknown): LeadShareSources | null {
  */
 export function leadShareManualItems(items: ReadonlyArray<ProductSummary>): Array<{
   id: number; title: string; price: string | null; currency: string | null; price_label: string; category: string | null;
-  category_hidden?: true; url: string | null; main_image: string | null; images_count: number;
+  category_hidden?: true; url: string | null; main_image: string | null; images_count: number; cover_video?: string | null;
 }> {
   return items
     .filter((p) => p.origin === 'manual' && (p.status === 'active') && Number(p.images_count) > 0)
     .map((p) => ({
       id: p.id, title: p.title, price: p.price, currency: p.currency, price_label: p.price_label,
-      ...pickerCategoryOf(p), url: null, main_image: p.main_image, images_count: p.images_count,
+      ...pickerCategoryOf(p), url: null, main_image: p.main_image, images_count: p.images_count, cover_video: p.cover_video ?? null,
     }));
 }
 
@@ -673,7 +673,7 @@ export function leadShareManualItems(items: ReadonlyArray<ProductSummary>): Arra
 export function productsNavItems(items: ReadonlyArray<ProductSummary>): Array<{
   id: number; title: string; price: string | null; currency: string | null; price_label: string; category: string | null;
   url: string | null; main_image: string | null; images_count: number; user_id: number; read_only: boolean;
-  owner?: ProductSummary['owner']; category_hidden?: true;
+  owner?: ProductSummary['owner']; category_hidden?: true; cover_video?: string | null;
 }> {
   return items
     .filter((p) => p.origin !== 'shopify')
@@ -681,7 +681,7 @@ export function productsNavItems(items: ReadonlyArray<ProductSummary>): Array<{
       id: p.id, title: p.title, price: p.price, currency: p.currency,
       price_label: p.price_on_request ? 'Price on request' : (p.show_price === false ? '' : p.price_label || ''),
       ...pickerCategoryOf(p), // a hidden category's products go under "Other" in the box (Show / Hide per category)
-      url: p.origin === 'manual' ? null : p.url, main_image: p.main_image, images_count: p.images_count,
+      url: p.origin === 'manual' ? null : p.url, main_image: p.main_image, images_count: p.images_count, cover_video: p.cover_video ?? null,
       user_id: p.user_id, read_only: p.read_only, ...(p.owner ? { owner: p.owner } : {}),
     }));
 }
@@ -878,6 +878,15 @@ export function productPageSpecs(d: ProductDetail): Array<{ label: string; value
 }
 
 /** The page's photos (videos are not page photos, as on the catalogue item page); none with "Show photos" off. */
+/** The product page's media (Chris 21 Nov 2026, P11): every photo AND its video, in the editor's order, so the page's
+ *  Media panel and timeline list the intro video too. The main image when there are no media rows. */
+export function productPageMedia(d: Pick<ProductDetail, 'media' | 'main_image' | 'show_photos'>): Array<{ id?: number; url: string; type: 'photo' | 'video' }> {
+  if (!productPhotosShown(d)) return [];
+  const media = [...(d.media || [])].filter((m) => m.url).sort((a, b) => a.sort_order - b.sort_order);
+  if (media.length) return media.map((m) => ({ id: m.id, url: m.url, type: m.type === 'video' ? 'video' : 'photo' }));
+  return d.main_image ? [{ url: d.main_image, type: 'photo' }] : [];
+}
+
 export function productPagePhotos(d: Pick<ProductDetail, 'media' | 'main_image' | 'show_photos'>): Array<{ id?: number; url: string }> {
   if (!productPhotosShown(d)) return [];
   const photos = [...(d.media || [])].filter((m) => m.type !== 'video' && m.url).sort((a, b) => a.sort_order - b.sort_order);

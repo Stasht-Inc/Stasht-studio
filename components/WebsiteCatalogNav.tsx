@@ -3,6 +3,7 @@ import { Folder, FolderOpen, ChevronRight, ChevronDown, Search, Store } from "lu
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
 import type { CatalogueItemSummary } from "../services/catalogueAPI";
+import ProductCoverImage from "./products/ProductCoverImage";
 import { loadProductsNavItems } from "../services/productsAPI";
 import { loadShopifyForBrowsing, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
 import { SHOPIFY_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
@@ -58,7 +59,12 @@ function ItemLeaf({ item, color, onOpen }: { item: CatalogueItemSummary; color: 
         <span className="w-3 h-0.5 bg-gray-300 rounded" />
       </span>
 
-      {item.main_image ? (
+      {item.cover_video ? (
+        // An intro-video cover: its first frame, as on the product page (Chris 21 Nov 2026, P11).
+        <span className="block w-8 h-8 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+          <ProductCoverImage coverVideo={item.cover_video} mainImage={item.main_image} alt={item.title} className="w-full h-full object-cover" fallback={thumbFallback} />
+        </span>
+      ) : item.main_image ? (
         <ImageHoverPopover src={item.main_image} alt={item.title}>
           <span className="block w-8 h-8 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
             <ImageWithFallback src={item.main_image} alt={item.title} className="w-full h-full object-cover" fallback={thumbFallback} />

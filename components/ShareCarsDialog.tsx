@@ -8,6 +8,7 @@ import { formatCarCategory } from '../utils/carCategories';
 import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/carSearch';
 import { leadsAPI } from '../services/leadsAPI';
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
+import ProductCoverImage from './products/ProductCoverImage';
 import { loadManualProductsForLeadShare } from '../services/productsAPI';
 import { loadShopifyForBrowsing } from '../services/shopifyItemsAPI';
 import { leadShareSources, visibleCategoryNames } from '../utils/products';
@@ -21,6 +22,7 @@ interface CarListing {
   year?: number | string | null;
   price?: number | string | null;
   main_image?: string | null;
+  cover_video?: string | null; // a product whose cover is its intro video (P11)
   category?: string | null; // "preowned" | "hybrid" — what the category dropdown groups by
 }
 
@@ -454,12 +456,12 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             <ul className="space-y-1.5">
               {(isProducts
                 ? filteredProducts.map((p) => ({
-                    key: p.key, title: p.title, main_image: p.main_image,
+                    key: p.key, title: p.title, main_image: p.main_image, cover_video: (p as { cover_video?: string | null }).cover_video ?? null,
                     // Shopify products say so (only when the list mixes sources), since they go in their own campaign.
                     subtitle: [p.price_label, p.category, p.source === 'shopify' && hasOtherProducts ? 'Shopify' : null].filter(Boolean).join(' · '),
                     locked: pickedSource !== null && p.source !== pickedSource,
                   }))
-                : filtered.map((c) => ({ key: keyOf('vehicle', c.id), title: c.title, main_image: c.main_image, subtitle: carSubtitle(c), locked: false }))
+                : filtered.map((c) => ({ key: keyOf('vehicle', c.id), title: c.title, main_image: c.main_image, cover_video: null as string | null, subtitle: carSubtitle(c), locked: false }))
               ).map((c) => {
                 const isSel = selected.has(c.key);
                 const subtitle = c.subtitle;
@@ -483,7 +485,9 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                       >
                         {isSel && <Check className="w-3.5 h-3.5" />}
                       </span>
-                      {c.main_image ? (
+                      {c.cover_video ? (
+                        <span className="w-11 h-11 rounded-md overflow-hidden shrink-0"><ProductCoverImage coverVideo={c.cover_video} mainImage={c.main_image} alt="" className="w-full h-full object-cover" fallback={<span className="block w-full h-full bg-gray-100" />} /></span>
+                      ) : c.main_image ? (
                         <img src={c.main_image} alt="" className="w-11 h-11 rounded-md object-cover shrink-0" />
                       ) : (
                         <span aria-hidden="true" className="w-11 h-11 rounded-md bg-gray-100 flex items-center justify-center shrink-0">

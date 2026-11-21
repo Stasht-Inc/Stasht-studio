@@ -187,7 +187,8 @@ try {
     expect(await cover.getByRole('button', { name: 'Add Cover Photo' }).isVisible(), `${tag}: … and Add Cover Photo`);
     await page.screenshot({ path: `${OUT}/${tag}-intro-01-empty.png` });
     await editor.getByTestId('product-intro-video-input').setInputFiles({ name: 'waxing-intro.mov', mimeType: 'video/quicktime', buffer: Buffer.from('x') });
-    expect(await editor.getByTestId('product-cover-choice-video').isVisible(), `${tag}: the picked video shows`);
+    // The pick is read into memory first (c21 P1), so it shows a moment later.
+    expect(await editor.getByTestId('product-cover-choice-video').waitFor({ timeout: 5000 }).then(() => true, () => false), `${tag}: the picked video shows`);
     await page.screenshot({ path: `${OUT}/${tag}-intro-02-picked.png` });
     await editor.getByRole('button', { name: 'Remove intro video' }).click();
     expect(await cover.getByRole('button', { name: 'Add Intro Video' }).isVisible(), `${tag}: removing it brings the button back`);
