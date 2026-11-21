@@ -1,11 +1,12 @@
 // Chris, 4 Nov 2026, point 9, step 3 Send: the campaign as tracked Storeels to a newsletter-style audience
 // (POST /memories/{id}/storeel-audience-count and /storeel-send). The text each person gets is counted in parts the
 // way the web API counts it (StoreelBroadcastText: first-text intro with a long first name, the message, the tracked
-// link, the YES/NO question, the reply line), with the newsletter text rules (smsParts.ts).
+// link and "Reply STOP to unsubscribe." — Chris 21 Nov 2026, P10: no YES/NO question, no "respond directly" line),
+// with the newsletter text rules (smsParts.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  STOREEL_WORST_NAME, storeelSmsText, storeelSmsParts, storeelSmsPreview, storeelQuestion, senderLabelFor,
+  STOREEL_WORST_NAME, STOREEL_SMS_HELP, storeelSmsText, storeelSmsParts, storeelSmsPreview, senderLabelFor,
 } from '../../components/storeel/lib/storeelSms.ts';
 import {
   NOT_AVAILABLE_ERROR, countFromResponse, sendFailure, sendProblem, sentMessage,
@@ -14,7 +15,7 @@ import { smsSegments, MAX_SMS_PARTS, SMS_BODY_MAX } from '../../components/newsl
 
 const BASE = 'https://restapi.stasht.com';
 
-test('the text as the API builds it: intro, message, tracked link, YES/NO question, reply line', () => {
+test('the text as the API builds it: intro, message, tracked link, the STOP line only', () => {
   const text = storeelSmsText({ sender: 'Samantha Smith, Serpa Chrysler', message: '  Come see our spring open house.  ', slug: 'spring-open-house', isCar: false, viewOnly: false });
   assert.equal(text, [
     `Hi ${STOREEL_WORST_NAME},`,
@@ -24,19 +25,17 @@ test('the text as the API builds it: intro, message, tracked link, YES/NO questi
     '',
     `${BASE}/share/memory/spring-open-house?s=${'x'.repeat(22)}`,
     '',
-    'Want to see more like this? Reply YES. Reply NO to stop.',
-    '',
-    'Reply to this message to respond directly. Reply STOP to unsubscribe.',
+    'Reply STOP to unsubscribe.',
   ].join('\n'));
   assert.equal(STOREEL_WORST_NAME.length, 30, 'StoreelBroadcastText::WORST_NAME');
 });
 
-test('car campaigns keep the vehicles question; a view-only campaign link keeps ?viewonly=1', () => {
-  assert.equal(storeelQuestion(true), 'Want to see more vehicles like this? Reply YES. Reply NO to stop.');
-  assert.equal(storeelQuestion(false), 'Want to see more like this? Reply YES. Reply NO to stop.');
+test('no question on car campaigns either; a view-only campaign link keeps ?viewonly=1', () => {
   const text = storeelSmsText({ sender: 'Sam', message: 'Hi', slug: 'jeep', isCar: true, viewOnly: true });
   assert.ok(text.includes(`${BASE}/share/memory/jeep?viewonly=1&s=${'x'.repeat(22)}`));
-  assert.ok(text.includes('more vehicles like this'));
+  assert.ok(!text.includes('Reply YES'));
+  assert.ok(!text.includes('respond directly'));
+  assert.equal(STOREEL_SMS_HELP, 'We add their link and "Reply STOP to unsubscribe."');
   // Not saved yet or no slug: a stand-in of a typical length.
   assert.ok(storeelSmsText({ sender: 'Sam', message: 'Hi', slug: null, isCar: false, viewOnly: false }).includes(`${BASE}/share/memory/`));
 });
@@ -50,11 +49,11 @@ test('who the text says it came from: the sender, and the business in its proper
 test('parts are counted on the whole text, with the API words when it is too long', () => {
   const short = storeelSmsParts({ sender: 'Sam', message: 'Come see us.', slug: 'abc', isCar: false, viewOnly: false });
   assert.equal(short.parts, smsSegments(storeelSmsText({ sender: 'Sam', message: 'Come see us.', slug: 'abc', isCar: false, viewOnly: false })).segments);
-  assert.equal(short.parts, 2, 'the intro, link, question and reply line already take more than one text');
+  assert.equal(short.parts, 2, 'the 30-letter stand-in name, intro and link still take more than one text');
   assert.equal(short.tooLong, false);
   assert.equal(short.problem, null);
 
-  const many = storeelSmsParts({ sender: 'Sam', message: 'x'.repeat(1300), slug: 'abc', isCar: false, viewOnly: false });
+  const many = storeelSmsParts({ sender: 'Sam', message: 'x'.repeat(1400), slug: 'abc', isCar: false, viewOnly: false });
   assert.ok(many.parts > MAX_SMS_PARTS);
   assert.equal(many.problem, `This text would go out as ${many.parts} text messages, more than the ${MAX_SMS_PARTS} allowed. Shorten your message or remove emoji.`);
 
@@ -68,8 +67,21 @@ test('parts are counted on the whole text, with the API words when it is too lon
 
 test('what text recipients get, in one line', () => {
   assert.equal(storeelSmsPreview('Sam, Serpa', ' Come see us. ', false),
-    'Hi (their first name), this message came from Sam, Serpa. Come see us. (link to your campaign) Want to see more like this? Reply YES. Reply NO to stop. Reply STOP to unsubscribe.');
-  assert.ok(storeelSmsPreview('Sam', '', true).includes('Your message (link to your campaign) Want to see more vehicles'));
+    'Hi (their first name), this message came from Sam, Serpa. Come see us. (link to your campaign) Reply STOP to unsubscribe.');
+  assert.equal(storeelSmsPreview('Sam', '', true), 'Hi (their first name), this message came from Sam. Your message (link to your campaign) Reply STOP to unsubscribe.');
+});
+
+test('Chris 21 Nov 2026 (P5/P10): TheBodyPolitik\'s 61-character note was 3 parts, now 2 (as the web API counts it)', () => {
+  const message = 'Let me know if you are interested in any of these treatments.';
+  assert.equal(message.length, 61);
+  const p = storeelSmsParts({ sender: 'TheBodyPolitik', message, slug: 'november-specials-abc123', isCar: false, viewOnly: false });
+  assert.equal(p.length, 255);
+  assert.equal(p.unicode, false);
+  assert.equal(p.parts, 2);
+  // Curly quotes or an em dash make it UCS-2 (67 per part): 4 parts. Studio says so under the box.
+  const curly = storeelSmsParts({ sender: 'TheBodyPolitik', message: 'Let me know if you\u2019re interested \u2014 any of these treatments.', slug: 'november-specials-abc123', isCar: false, viewOnly: false });
+  assert.equal(curly.unicode, true);
+  assert.equal(curly.parts, 4);
 });
 
 const ZERO = { email: 0, sms: 0, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0 } };

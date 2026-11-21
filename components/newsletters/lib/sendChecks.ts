@@ -93,6 +93,21 @@ export function allowanceLine(a: NewsletterAllowance, channels: NewsletterChanne
   return `Your plan has ${parts.join(' and ')} left this month.${reset ? ` It resets on ${reset}.` : ''}`;
 }
 
+/**
+ * Chris 21 Nov 2026 (P5): why there are too few text message parts for `neededParts` — the plan has none, they were
+ * all sent, or sends still going out / scheduled newsletters hold them. Null when enough are left.
+ */
+export function smsAllowanceDetail(a: NewsletterAllowance | null, neededParts: number): string | null {
+  if (!a || allowanceLeft(a).sms >= Math.max(1, neededParts)) return null;
+  if (a.sms_limit <= 0) return "Your plan doesn't include text message parts. Contact Stasht to add some.";
+  const held = typeof a.sms_pending === 'number' && Number.isFinite(a.sms_pending) ? a.sms_pending : 0;
+  const bits = [
+    a.sms_used > 0 ? `${formatCount(a.sms_used)} sent` : '',
+    held > 0 ? `${formatCount(held)} held by sends still going out or scheduled newsletters` : '',
+  ].filter(Boolean);
+  return `Your plan includes ${allowanceUnits(a.sms_limit, 'sms')} a month${bits.length ? `: ${bits.join(', ')}` : ''}.`;
+}
+
 /** [wdy2xh2p3m] A newsletter scheduled for the monthly reset or later uses next month's allowance; the API checks that
  *  month, so Studio doesn't judge it against what is left this month. */
 export function usesNextMonthAllowance(a: NewsletterAllowance | null, scheduledIso: string | null): boolean {

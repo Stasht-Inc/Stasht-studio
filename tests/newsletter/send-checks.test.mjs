@@ -111,3 +111,14 @@ test('preSendProblems: a text longer than Twilio takes and a text time in quiet 
     if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
   }
 });
+
+test('Chris 21 Nov 2026 (P5): too few text parts says why', async () => {
+  const { smsAllowanceDetail } = await import('../../components/newsletters/lib/sendChecks.ts');
+  const base = { plan: 'Teams', email_limit: 5000, sms_limit: 250, email_used: 0, sms_used: 0, email_pending: 0, sms_pending: 0, resets_at: '2026-12-01T05:00:00Z' };
+  assert.equal(smsAllowanceDetail(base, 3), null, 'enough left');
+  assert.equal(smsAllowanceDetail(null, 3), null);
+  assert.equal(smsAllowanceDetail({ ...base, sms_limit: 0 }, 3), "Your plan doesn't include text message parts. Contact Stasht to add some.");
+  assert.equal(smsAllowanceDetail({ ...base, sms_used: 12, sms_pending: 238 }, 3), 'Your plan includes 250 text message parts a month: 12 sent, 238 held by sends still going out or scheduled newsletters.');
+  assert.equal(smsAllowanceDetail({ ...base, sms_used: 250 }, 1), 'Your plan includes 250 text message parts a month: 250 sent.');
+  assert.equal(smsAllowanceDetail({ ...base, sms_used: 248 }, 3), 'Your plan includes 250 text message parts a month: 248 sent.', '2 left, 3 needed');
+});

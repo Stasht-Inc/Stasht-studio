@@ -49,6 +49,8 @@ export interface AudiencePickerProps {
   defaultMessage?: string | null;
   /** Save (text) or clear (null) the default message; resolves false when it wasn't saved (the composer says why). */
   onDefaultMessageChange?(message: string | null): Promise<boolean>;
+  /** The default-message box's words (newsletters: "Set as my default message"; the Storeel flow: "Save as default"). */
+  defaultMessageLabel?: string;
   /** The card's number, title and DOM id (newsletters: 2 Recipients, nl-step-recipients). */
   step?: { number: number; title: string; id: string };
   /** Every DOM id inside starts with this (newsletters: nl). The Storeel flow's Send step uses its own. */
@@ -84,6 +86,7 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  */
 export default function AudiencePicker({
   audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, showProblems, onChange, defaultMessage, onDefaultMessageChange,
+  defaultMessageLabel = 'Set as my default message',
   step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children, intro, textsAllowed = true,
 }: AudiencePickerProps) {
   const id = (name: string) => `${idPrefix}-${name}`;
@@ -294,7 +297,7 @@ export default function AudiencePicker({
             <label className={`mt-2 inline-flex items-center gap-2 select-none ${canTickDefault ? 'cursor-pointer' : saving ? 'cursor-wait' : 'cursor-default opacity-60'}`}>
               <input type="checkbox" checked={isDefault} disabled={!canTickDefault} onChange={(e) => { void toggleDefault(e.target.checked); }}
                 className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
-              <span className="text-sm text-gray-700">Set as my default message</span>
+              <span className="text-sm text-gray-700">{defaultMessageLabel}</span>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-500" aria-label="Saving" /> : null}
             </label>
           ) : null}
