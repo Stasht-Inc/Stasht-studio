@@ -123,7 +123,7 @@ export const MANUAL_FIELDS: readonly string[] = [
   'title', 'short_description', 'description_html', 'brand', 'product_type', 'price', 'compare_at_price', 'currency',
   'price_on_request', 'sku', 'barcode', 'stock_status', 'quantity', 'options', 'variants', 'attributes', 'weight',
   'weight_unit', 'dimensions', 'category_ids', 'tags', 'collections', 'status', 'show_enquire', 'show_price', 'show_photos', 'slug',
-  'seo_title', 'seo_description', 'share_image', 'buy_url', 'buy_label', 'internal_notes',
+  'seo_title', 'seo_description', 'share_image', 'buy_url', 'buy_label', 'internal_notes', 'button_color',
 ];
 
 /** null = a new manual product (every field). */
@@ -296,6 +296,8 @@ export interface ProductForm {
   category_ids: number[]; tags: string[]; collections: string[];
   status: ProductStatus; show_enquire: boolean; show_price: boolean; show_photos: boolean;
   slug: string; seo_title: string; seo_description: string; share_image: string; buy_url: string; buy_label: string; internal_notes: string;
+  /** Chris 21 Nov 2026 (R2-2): the product's own button colour, '' = "Use brand colour". */
+  button_color: string;
 }
 
 /** Chris, 16 Nov: a new manual product starts in USD (the web API's ProductAccess::defaultCurrency too). */
@@ -323,7 +325,7 @@ export function emptyProductForm(currency: string): ProductForm {
     weight: '', weight_unit: 'kg', dimensions: { length: '', width: '', height: '', unit: 'cm' },
     category_ids: [], tags: [], collections: [],
     status: 'active', show_enquire: true, show_price: true, show_photos: true,
-    slug: '', seo_title: '', seo_description: '', share_image: '', buy_url: '', buy_label: '', internal_notes: '',
+    slug: '', seo_title: '', seo_description: '', share_image: '', buy_url: '', buy_label: '', internal_notes: '', button_color: '',
   };
 }
 
@@ -342,7 +344,7 @@ export function formFromDetail(d: ProductDetail): ProductForm {
     category_ids: (d.categories || []).map((c) => c.id), tags: [...(d.tags || [])], collections: [...(d.collections || [])],
     status: d.status || 'active', show_enquire: d.show_enquire !== false, show_price: d.show_price !== false, show_photos: d.show_photos !== false,
     slug: str(d.seo?.slug), seo_title: str(d.seo?.title), seo_description: str(d.seo?.description), share_image: str(d.seo?.share_image),
-    buy_url: str(d.buy_url), buy_label: str(d.buy_label), internal_notes: str(d.internal_notes),
+    buy_url: str(d.buy_url), buy_label: str(d.buy_label), internal_notes: str(d.internal_notes), button_color: str(d.button_color),
   };
 }
 
@@ -396,6 +398,7 @@ export function payloadFromForm(form: ProductForm, editable: readonly string[]):
     buy_url: text(form.buy_url),
     buy_label: text(form.buy_label),
     internal_notes: text(form.internal_notes),
+    button_color: text(form.button_color),
   };
   return Object.fromEntries(Object.entries(all).filter(([key]) => editable.includes(key)));
 }

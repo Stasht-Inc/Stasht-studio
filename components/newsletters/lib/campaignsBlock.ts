@@ -141,7 +141,15 @@ export function itemFromOption(o: CampaignOption, kind: CampaignKind = 'campaign
     date: o.date ?? null,
     price_text: line(o.price_text),
     meta: line(o.meta),
+    ...(isHex(o.button_color) ? { button_color: o.button_color } : {}),
   };
+}
+
+const isHex = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+
+/** A card's button colour (Chris 21 Nov 2026, R2-2): a product's chosen colour, else the section's (as the email). */
+export function cardButtonColor(item: Pick<CampaignItem, 'kind' | 'button_color'>, sectionColor: string): string {
+  return item.kind === 'product' && isHex(item.button_color) ? item.button_color.toUpperCase() : sectionColor;
 }
 
 export type KindCounts = Partial<Record<CampaignKind, number>>;

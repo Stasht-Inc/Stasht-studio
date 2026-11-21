@@ -19,7 +19,13 @@ export interface ProductsStatus {
   can_create: boolean; // false in a salesperson's External view
   counts: { total: number; manual: number; website: number; shopify?: number };
   default_currency: string;
+  /** Chris 21 Nov 2026 (R2-2): the account's product button colour — color = what buttons use (its "Button colour",
+   *  else the brand colour), text = the words on it, setting = the chosen one (null = brand), brand = the brand colour.
+   *  Missing on an older web API: Studio purple. */
+  button_color?: ProductButtonColorInfo;
 }
+
+export interface ProductButtonColorInfo { color: string; text: string; setting: string | null; brand: string }
 
 export interface ProductCategoryRef { id: number; name: string; hidden?: boolean } // hidden: sent only when true (Show / Hide)
 
@@ -95,6 +101,11 @@ export interface ProductDetail extends ProductSummary {
   buy_label?: string | null;
   buy_button?: string;
   show_enquire: boolean;
+  // Chris 21 Nov 2026 (R2-2): the product's buttons' colour. button_color = its own (null = "Use brand colour"),
+  // button_style = what its buttons show, brand_button_color = the account's colour. Missing on an older web API.
+  button_color?: string | null;
+  button_style?: { background: string; text: string };
+  brand_button_color?: string;
   // Chris 17 Nov 2026: "Show photos" off hides the photo area on the details page. can_hide_photos: the switch is
   // offered (the web API has the column). Both missing on an older web API: photos show, no switch.
   show_photos?: boolean;
@@ -211,6 +222,8 @@ export const productsAPI = {
   renameCategory: (id: number, name: string) => run<{ category: ProductCategory }>(apiRequest(`/product-categories/${id}`, json('PATCH', { name }))),
   setCategoryHidden: (id: number, hidden: boolean) => run<{ category: ProductCategory }>(apiRequest(`/product-categories/${id}`, json('PATCH', { hidden }))),
   deleteCategory: (id: number) => run<{ deleted: boolean }>(apiRequest(`/product-categories/${id}`, json('DELETE'))),
+  /** The account's "Button colour" (Chris 21 Nov 2026, R2-2); null = the brand colour again. */
+  setButtonColor: (color: string | null) => run<ProductButtonColorInfo>(apiRequest('/products/button-color', json('PUT', { color }))),
 };
 
 /** Add a Moment's Products tab: every product selectItems takes (PICKER_FILTERS), page by page. `complete` is false

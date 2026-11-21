@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, Calendar, Download, Edit, ExternalLink, Gift, Heart, Link, Mail, MapPin, MoreVertical, Phone, Play, Send, ShoppingCart, Star, Trash2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { dashboardAPI } from '../utils/authUtils';
+import { buttonColors, hexColor } from '../utils/buttonColor';
 
 /**
  * Chris, 8 Nov 2026 (point 3): a product moment's "View on website" button, drawn INSIDE the moment card under the
@@ -28,10 +29,16 @@ export interface ProductCardButtonData {
   borderRadius?: number | null;
 }
 
-/** A raw API widget ({ id, widget_data }) as the button's data. */
-export function productButtonData(w: { id: string | number; widget_data?: Record<string, any> | null }): ProductCardButtonData {
+/** A raw API widget ({ id, widget_data }) as the button's data. Its colours: the web API's answer for a product's
+ *  in-card button (button_color / button_text_color: the product's, else the brand colour; Chris 21 Nov 2026, R2-2),
+ *  else what the widget itself holds (an older web API). */
+export function productButtonData(w: { id: string | number; widget_data?: Record<string, any> | null; button_color?: string | null; button_text_color?: string | null }): ProductCardButtonData {
   const d = w.widget_data || {};
-  return { id: w.id, buttonText: d.buttonText, buttonLink: d.buttonLink, buttonColor: d.buttonColor, buttonWidth: d.buttonWidth, textColor: d.textColor, icon: d.icon, iconSize: d.iconSize, fontSize: d.fontSize, borderRadius: d.borderRadius };
+  const brand = hexColor(w.button_color);
+  return {
+    id: w.id, buttonText: d.buttonText, buttonLink: d.buttonLink, buttonColor: brand ?? d.buttonColor, buttonWidth: d.buttonWidth,
+    textColor: brand ? (w.button_text_color ?? null) : d.textColor, icon: d.icon, iconSize: d.iconSize, fontSize: d.fontSize, borderRadius: d.borderRadius,
+  };
 }
 
 /** http(s) only, scheme added when missing (as the CTA card does); '' when there is no usable link. */
@@ -67,9 +74,11 @@ export default function ProductCardButton({ button, memoryId, onClick, onEdit, o
   const Icon = button.icon ? ICONS[button.icon] : undefined;
   const width = button.buttonWidth ? `${button.buttonWidth}px` : undefined;
   const size = button.iconSize || 18;
+  // The product's / brand colour (Chris 21 Nov 2026, R2-2), purple when none is known; its words readable on it.
+  const colors = buttonColors(button.buttonColor, button.textColor);
   const style: React.CSSProperties = {
-    backgroundColor: button.buttonColor || '#6C60FF',
-    color: button.textColor || '#FFFFFF',
+    backgroundColor: colors.background,
+    color: colors.text,
     fontSize: button.fontSize || 16,
     borderRadius: `${button.borderRadius ?? 12}px`,
     ...(width ? { width, maxWidth: '100%' } : {}),

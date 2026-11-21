@@ -9,7 +9,7 @@ import { plusAfter } from './lib/momentOrder';
 import { PREVIEW_DEVICES, fitScale, previewDevice, readPreviewDevice, savePreviewDevice, type PreviewDevice } from './lib/previewDevice';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
-import { WIDGET_END, WIDGET_PINNED, WIDGET_TOP, widgetsByAnchor, type PreviewWidget } from './lib/storeelWidgets';
+import { WIDGET_END, WIDGET_PINNED, WIDGET_TOP, widgetsByAnchor, type PreviewCardButton, type PreviewWidget } from './lib/storeelWidgets';
 import PreviewWidgetCard from './PreviewWidgetCard';
 import { categoryDisplayName } from '../../utils/products';
 import { UserFallbackAvatar } from '../MemoryCard';
@@ -118,7 +118,7 @@ function useRoom(ref: React.RefObject<HTMLDivElement>) {
   return room;
 }
 
-export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls, widgets, cardButtons }: {
+export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls, widgets, cardButtons, productButtonColor }: {
   input: StoreelPreviewInput;
   avatarUrl?: string | null;
   avatarColor?: string | null;
@@ -126,7 +126,9 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
   /** A saved campaign's widgets (Chris, 8 Nov 2026): shown after their moment, like the campaign page. */
   widgets?: ReadonlyArray<PreviewWidget>;
   /** A saved product moment's in-card "View on website" button, by the moment's post id (Chris, 8 Nov 2026, point 3). */
-  cardButtons?: ReadonlyMap<string, { buttonText: string }>;
+  cardButtons?: ReadonlyMap<string, PreviewCardButton>;
+  /** The account's product button colour (Chris 21 Nov 2026, R2-2), for a picked product whose own colour isn't known yet. */
+  productButtonColor?: string | null;
 }) {
   const m = storeelPreviewModel(input);
   const widgetGroups = widgetsByAnchor(m.momentCards, widgets ?? []);
@@ -216,7 +218,8 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
                     ) : null}
                     <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy}
                       brand={{ name: m.author, avatar: input.brandImage || avatarUrl || undefined, profile_color: avatarColor || undefined }}
-                      cardButton={moment.kind === 'photo' && typeof moment.postId === 'number' ? cardButtons?.get(String(moment.postId))?.buttonText : undefined} />
+                      cardButton={moment.kind === 'photo' && typeof moment.postId === 'number' ? cardButtons?.get(String(moment.postId)) : undefined}
+                      productButtonColor={productButtonColor} />
                     {widgetStack(moment.key)}
                     {i === m.momentCards.length - 1 ? widgetStack(WIDGET_END) : null}
                     {/* Pinned "Share Request a Moment" buttons: after the last item, as on the campaign page. */}
@@ -471,10 +474,12 @@ function PlaceAndDate({ location, date }: { location: string; date: string }) {
 }
 
 /** One moment as the published campaign shows it (PublishedMemoryPage / the campaign page's timeline). */
-function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy, cardButton, brand }: {
+function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy, cardButton, brand, productButtonColor }: {
   moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string; menu?: MomentMenuActions | null; busy?: boolean;
-  /** A saved product moment's in-card button text (its own CTA row, marked in_card): drawn inside the card. */
-  cardButton?: string;
+  /** A saved product moment's in-card button (its own CTA row, marked in_card): its words and colours, drawn inside the card. */
+  cardButton?: PreviewCardButton;
+  /** The account's product button colour: a picked product's buttons until its own colour is loaded (R2-2). */
+  productButtonColor?: string | null;
   /** Shown where a moment has no picture (P7). */
   brand?: MomentBrand;
 }) {
@@ -486,6 +491,9 @@ function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, bu
     const caption = moment.kind === 'photo' ? (saved ? saved.caption : moment.caption) : (moment.description || '');
     const price = moment.kind === 'product' ? moment.price : saved?.price || '';
     const buyText = moment.kind === 'product' && moment.cta ? (moment.buyLabel || 'View on website') : '';
+    // Its buttons in the product's / brand colour, as the published page shows them (Chris 21 Nov 2026, R2-2).
+    const buyColor = moment.kind === 'product' ? (moment.buttonColor || productButtonColor || null) : null;
+    const buyTextColor = moment.kind === 'product' && moment.buttonColor ? moment.buttonTextColor : undefined;
     return (
       <>
         <Card>
@@ -500,15 +508,15 @@ function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, bu
                 the product's own words ("Add to Cart" …), else "View on website" for a website product. */}
             {buyText ? (
               <div data-testid="storeel-preview-product-button" className="pointer-events-none">
-                <ProductCardButton button={{ id: 'preview', buttonText: buyText, icon: 'ExternalLink' }} className="mt-3" />
+                <ProductCardButton button={{ id: 'preview', buttonText: buyText, icon: 'ExternalLink', buttonColor: buyColor, textColor: buyTextColor }} className="mt-3" />
               </div>
             ) : null}
-            {moment.kind === 'product' && moment.enquire ? <div className="pointer-events-none"><ProductEnquireButton /></div> : null}
+            {moment.kind === 'product' && moment.enquire ? <div className="pointer-events-none"><ProductEnquireButton color={buyColor} /></div> : null}
           </div>
-          {cardButton ? (
+          {cardButton?.buttonText ? (
             <div className="-mt-[10px] px-[21px] pb-[22px]">
               <div data-testid="storeel-preview-card-button" className="pointer-events-none">
-                <ProductCardButton button={{ id: 'preview', buttonText: cardButton, icon: 'ExternalLink' }} />
+                <ProductCardButton button={{ id: 'preview', buttonText: cardButton.buttonText, icon: 'ExternalLink', buttonColor: cardButton.buttonColor ?? productButtonColor, textColor: cardButton.buttonColor ? cardButton.textColor : undefined }} />
               </div>
             </div>
           ) : null}

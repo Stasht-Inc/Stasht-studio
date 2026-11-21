@@ -28,7 +28,7 @@ import { endOfTimelinePostId } from "../utils/addMomentPosition";
 import ProductCardButton, { productButtonData } from "../components/ProductCardButton";
 import { productButtonsByPost } from "../utils/productCardButton";
 import ProductEnquireModal from "../components/ProductEnquireModal";
-import { enquirePostMap } from "../utils/productEnquiry";
+import { enquireColorMap, enquirePostMap } from "../utils/productEnquiry";
 import { isProductPost, splitProductCaption, viewerDetails } from "../utils/productMoment";
 import { ProductEnquireButton, ProductPriceBadge } from "../components/ProductMomentParts";
 import { UserFallbackAvatar } from "../components/MemoryCard";
@@ -1610,15 +1610,18 @@ export default function PublishedMemoryPage() {
   const { byPost: publishedProductButtons, rest: publishedTimelineWidgets } = productButtonsByPost(publishedWidgets);
   // A product moment whose product has "Show the Enquire button" on gets an Enquire button under it (Chris 16 Nov 2026).
   const enquirePosts = enquirePostMap(memoryData?.enquire_products);
+  // Both buttons in the product's / brand colour from the payload (Chris 21 Nov 2026, R2-2), not purple.
+  const enquireColors = enquireColorMap(memoryData?.enquire_products);
   const renderProductButton = (postId: any) => {
     const w = publishedProductButtons.get(String(postId));
-    const button = w ? <ProductCardButton button={productButtonData(w as any)} memoryId={w.memory_id ?? memoryData?.id} onClick={() => trackStoreelCtaClick(w.id)} className="mt-3" /> : null;
+    const data = w ? productButtonData(w as any) : null;
+    const button = w && data ? <ProductCardButton button={data} memoryId={w.memory_id ?? memoryData?.id} onClick={() => trackStoreelCtaClick(w.id)} className="mt-3" /> : null;
     const enquireTitle = enquirePosts.get(String(postId));
     if (enquireTitle === undefined) return button;
     return (
       <>
         {button}
-        <ProductEnquireButton postId={String(postId)} onClick={() => setEnquireTarget({ postId: String(postId), title: enquireTitle })} />
+        <ProductEnquireButton postId={String(postId)} color={enquireColors.get(String(postId)) ?? data?.buttonColor} onClick={() => setEnquireTarget({ postId: String(postId), title: enquireTitle })} />
       </>
     );
   };
