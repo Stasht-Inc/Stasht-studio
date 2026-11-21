@@ -138,7 +138,7 @@ try {
       await openCampaign(page);
       await openSend(page);
       expect(await card(page).isVisible().catch(() => false), `${tag}: Send opens the stepper's Send card`);
-      await card(page).getByLabel(/^Phone/).first().fill('4163028755');
+      await card(page).getByLabel(/^Phone/).first().fill('1235555555');
       expect((await messageBox(page).inputValue()) === '', `${tag}: no saved default → the Message box starts empty`);
       expect(await box(page).isVisible() && !(await box(page).isChecked()), `${tag}: "Save as default" is under the Message box, unticked`);
       expect(await box(page).isDisabled(), `${tag}: an empty box can't be saved as the default`);
@@ -199,7 +199,7 @@ try {
       await openCampaign(page);
       await openSend(page);
       expect((await messageBox(page).inputValue()) === NOTE, `${tag} ${name}: the saved default is pre-filled`);
-      await card(page).getByLabel(/^Phone/).first().fill('4163028755');
+      await card(page).getByLabel(/^Phone/).first().fill('1235555555');
       await page.waitForTimeout(1500);
       const saveSend = flow(page).getByRole('button', { name: 'Save & Send', exact: true }).filter({ visible: true }).last();
       await saveSend.click();
