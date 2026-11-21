@@ -1,6 +1,6 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useReducer } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2 } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2, LocateFixed } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisualViewportSheet } from '../hooks/useVisualViewportSheet';
 import { Button } from './ui/button';
@@ -62,7 +62,7 @@ import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewW
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { opensAtTarget, type StepperOpensAt } from './storeel/lib/publishing';
 import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkChanges, savedLinkedCampaignIds, selectVisible, deselectVisible, tickedLinks, toggleLink, type LinkChanges } from './storeel/lib/editLinks';
-import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
+import { defaultCampaignLocation, placeLabel, withDefaultLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 import { isAddablePhoto } from '../utils/cameraRoll';
@@ -389,7 +389,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Only the Storeel sheet follows the visual viewport; the Newsletter tab is its own full-window layer.
   useVisualViewportSheet(modalOverlayRef, open && campaignType === 'storeel');
 
-  const [deviceLocation, setDeviceLocation] = useState<string>(''); // Store device location
 
   // Select from Existing Campaigns
   const [selectFromExisting, setSelectFromExisting] = useState(false);
@@ -586,72 +585,38 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const opensAtRef = useRef(opensAt);
   opensAtRef.current = opensAt;
 
-  // Detect device location when modal opens — only when creating (review fix, 8 Nov 2026 (b)): on a saved campaign
-  // (Edit / the campaign page's Send) it would replace the saved Location, and it asked for location permission on Send.
-  useEffect(() => {
-    if (detectsDeviceLocation({ open, campaignId, saved: Boolean(flowCampaignRef.current), deviceLocation })) {
-      console.log('🌍 Detecting device location...');
-
-      // Check if geolocation is available
-      if ('geolocation' in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          async (position) => {
-            const { latitude, longitude } = position.coords;
-            console.log('📍 Device coordinates:', { latitude, longitude });
-
-            try {
-              // Reverse geocode to get location name
-              const response = await fetch(
-                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`
-              );
-              const data = await response.json();
-
-              // Extract city and country
-              const city = data.address?.city || data.address?.town || data.address?.village || data.address?.county;
-              const country = data.address?.country;
-
-              let locationString = '';
-              if (city && country) {
-                locationString = `${city}, ${country}`;
-              } else if (city) {
-                locationString = city;
-              } else if (country) {
-                locationString = country;
-              } else {
-                locationString = data.display_name?.split(',').slice(0, 2).join(',').trim() || '';
-              }
-
-              console.log('✅ Device location detected:', locationString);
-              setDeviceLocation(locationString);
-
-              // Set as default location only if the location field is STILL empty (the current form, not the one when the
-              // lookup started) and no campaign was saved meanwhile.
-              setFormData(prev => withDeviceLocation(prev, locationString, Boolean(flowCampaignRef.current)));
-            } catch (error) {
-              console.error('❌ Error reverse geocoding:', error);
-            }
-
-            // Re-focus title input after permission popup closes (keyboard restore) — not when opened at the Send card
-            // (the campaign page's Send, Chris 8 Nov 2026 (b)): focusing the title would scroll back to step 1.
-            setTimeout(() => { if (!opensAtTarget(opensAtRef.current)) titleInputRef.current?.focus(); }, 300);
-          },
-          (error) => {
-            console.log('⚠️ Geolocation error:', error.message);
-            // Re-focus title input after permission popup closes (keyboard restore) — not when opened at the Send card
-            // (the campaign page's Send, Chris 8 Nov 2026 (b)): focusing the title would scroll back to step 1.
-            setTimeout(() => { if (!opensAtTarget(opensAtRef.current)) titleInputRef.current?.focus(); }, 300);
-          },
-          {
-            enableHighAccuracy: false,
-            timeout: 5000,
-            maximumAge: 0
-          }
-        );
-      } else {
-        console.log('⚠️ Geolocation not available in this browser');
-      }
-    }
-  }, [open, deviceLocation]);
+  // Location (Chris 21 Nov 2026, P8): a new campaign's Location opens with the account's Settings location (filled in
+  // the open/reset effect below); the device's city only comes from "Use current location". (Until now the device's
+  // city filled the field by itself on open — that's where "Barrie, Canada" came from — and asked for location
+  // permission every time Create Campaign opened.)
+  const locationTouchedRef = useRef(false); // the person edited Location in this sitting: never auto-fill it again
+  const [locatingDevice, setLocatingDevice] = useState(false);
+  const [deviceLocationError, setDeviceLocationError] = useState('');
+  const fillDeviceLocation = () => {
+    setDeviceLocationError('');
+    if (!('geolocation' in navigator)) { setDeviceLocationError("Location isn't available here"); return; }
+    setLocatingDevice(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`
+          );
+          const label = placeLabel(await response.json());
+          if (!label) throw new Error('no place');
+          locationTouchedRef.current = true;
+          setFormData(prev => ({ ...prev, location: label }));
+        } catch {
+          setDeviceLocationError("Couldn't find your location");
+        } finally {
+          setLocatingDevice(false);
+        }
+      },
+      () => { setLocatingDevice(false); setDeviceLocationError("Couldn't get your location"); },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   // ── Shopify category ──────────────────────────────────────────────────────
   // Sentinel id sent to the backend as category_id when the user picks Shopify.
@@ -1285,6 +1250,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       // isAuthenticated]) so a mid-session `user` object change — which re-runs this whole
       // effect — can't re-apply the plain reset without also re-applying this override.
       let cancelled = false;
+      // Default Location = the account's Settings location (Chris 21 Nov 2026, P8): GET /user/profile (cached 15 s),
+      // else the stored auth user's; an External account's own location in the property view. Fills only a field that
+      // is still empty and untouched when the answer comes.
+      locationTouchedRef.current = false;
+      setDeviceLocationError('');
+      const fillLocation = (loc: unknown) => {
+        const location = defaultCampaignLocation({ viewType, propertyLocation: currentProperty?.location, profileLocation: loc });
+        if (!cancelled && location) setFormData(prev => withDefaultLocation(prev, location, { saved: Boolean(flowCampaignRef.current), touched: locationTouchedRef.current }));
+      };
+      if (viewType === 'property') fillLocation(null);
+      else {
+        dashboardAPI.getUserProfile()
+          .then((res: any) => {
+            const raw = res?.success ? (res.data?.data?.user || res.data?.user || null) : null;
+            fillLocation(raw && typeof raw.location === 'string' ? raw.location : user?.location);
+          })
+          .catch(() => fillLocation(user?.location));
+      }
       (async () => {
         try {
           const res = await dashboardAPI.getNotificationPreferences();
@@ -1535,7 +1518,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Handle backdrop click
   const handleModalClose = () => {
     setTitleError('');
-    setDeviceLocation('');
     setSelectFromExisting(false);
     setExistingMemories([]);
     setMemorySearch('');
@@ -2174,6 +2156,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   const handleLocationChange = (value: string) => {
+    locationTouchedRef.current = true;
+    setDeviceLocationError('');
     setFormData(prev => ({ ...prev, location: value }));
     setIsTypingLocation(true);
     setTimeout(() => setIsTypingLocation(false), 500);
@@ -3687,10 +3671,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
             {/* Location */}
             <div>
-              <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
-                <MapPin className="w-4 h-4 text-black" />
-                Location <span className="text-gray-400 text-xs">(optional)</span>
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700">
+                  <MapPin className="w-4 h-4 text-black" />
+                  Location <span className="text-gray-400 text-xs">(optional)</span>
+                </label>
+                {/* Same small link as Profile Settings' Location ("Turn on auto-detect"). */}
+                <button
+                  type="button"
+                  onClick={fillDeviceLocation}
+                  disabled={locatingDevice}
+                  className="flex items-center gap-1 text-xs text-[#6C60FF] hover:text-[#5850E5] transition-colors disabled:opacity-60"
+                  data-testid="use-current-location"
+                >
+                  <LocateFixed className="w-3.5 h-3.5" aria-hidden="true" />
+                  {locatingDevice ? 'Locating…' : 'Use current location'}
+                </button>
+              </div>
               <GooglePlacesInput
                 value={formData.location}
                 onChange={handleLocationChange}
@@ -3705,6 +3702,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   // You can add additional logic here when a place is selected
                 }}
               />
+              {deviceLocationError && <p className="text-xs text-red-600 mt-1" role="alert">{deviceLocationError}</p>}
             </div>
 
             {/* Labels + Tags are tucked behind "Advanced filters" to keep the form short

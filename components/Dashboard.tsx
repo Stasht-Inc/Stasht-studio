@@ -26,6 +26,20 @@ const SHOW_ACTIVITY_METRICS_ROW = false;
 // Billing's Add Payment Method modal, loaded only when opened from the trial banner (it loads Stripe.js).
 const AddPaymentMethodModal = lazy(() => import('./AddPaymentMethodModal'));
 
+// Recent Activity row text (Chris 21 Nov 2026: each row must name its campaign). The card is narrow beside the chart,
+// so the campaign's title leads (up to two lines) and the second line says what happened and who did it:
+// "November Specials" / "Created by Christian Beckermann". An older web API only sends `action`: shown as before.
+const activityLines = (activity: any): { main: string; sub: string; named: boolean } => {
+  const by = activity?.user === 'System' ? 'System' : `by ${activity?.user ?? ''}`.trim();
+  const title = typeof activity?.memory_title === 'string' && activity.memory_title.trim() ? activity.memory_title.trim() : 'Untitled campaign';
+  if (activity?.type === 'campaign_created') return { main: title, sub: `Created ${by}`, named: true };
+  if (activity?.type === 'media_uploaded') {
+    const n = Number(activity.count) || 1;
+    return { main: title, sub: `${n} ${n === 1 ? 'file' : 'files'} added ${by}`, named: true };
+  }
+  return { main: String(activity?.action ?? ''), sub: activity?.user === 'System' ? 'System' : by, named: false };
+};
+
 interface DashboardProps {
   timePeriod: string;
   onTimePeriodChange: (period: string) => void;
@@ -570,29 +584,49 @@ export default function Dashboard({
                   </div>
                 ))
               ) : (
-                recentActivity.map((activity, index) => (
-                  <div key={index} className="flex items-start gap-3">
-                    <div className={`w-2 h-2 ${activity.color} rounded-full flex-shrink-0 mt-3`}></div>
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <Avatar className="w-7 h-7 flex-shrink-0">
-                        {activity.avatar ? (
-                          <AvatarImage src={activity.avatar} alt={activity.user} />
-                        ) : null}
-                        <AvatarFallback className="text-xs bg-gray-100 text-gray-600">
-                          {activity.initials}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 truncate">
-                          {activity.action}
-                        </div>
-                        <div className="text-xs text-gray-500 mt-0.5">
-                          {activity.user === "System" ? "System" : `by ${activity.user}`}
+                recentActivity.map((activity, index) => {
+                  const line = activityLines(activity);
+                  const memoryId = activity.memory_id;
+                  const row = (
+                    <>
+                      <div className={`w-2 h-2 ${activity.color} rounded-full flex-shrink-0 mt-3`}></div>
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Avatar className="w-7 h-7 flex-shrink-0">
+                          {activity.avatar ? (
+                            <AvatarImage src={activity.avatar} alt={activity.user} />
+                          ) : null}
+                          <AvatarFallback className="text-xs bg-gray-100 text-gray-600">
+                            {activity.initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 line-clamp-2 break-words" title={line.main} data-testid={line.named ? 'recent-activity-title' : undefined}>
+                            {line.main}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5 truncate">
+                            {line.sub}
+                          </div>
                         </div>
                       </div>
+                    </>
+                  );
+                  // A row that names a campaign opens it (Chris 21 Nov 2026).
+                  return memoryId ? (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => onMemorySelect(String(memoryId))}
+                      className="w-full flex items-start gap-3 text-left rounded-lg hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+                      data-testid="recent-activity-row"
+                    >
+                      {row}
+                    </button>
+                  ) : (
+                    <div key={index} className="flex items-start gap-3" data-testid="recent-activity-row">
+                      {row}
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

@@ -112,7 +112,7 @@ test('a private campaign: the send confirm points at the top of the Send card', 
 
 // Review fixes (8 Nov 2026 b): one published normaliser; the device location never replaces a saved campaign's.
 import { publishedRole } from '../../components/storeel/lib/publishing.ts';
-import { detectsDeviceLocation, withDeviceLocation } from '../../components/storeel/lib/deviceLocation.ts';
+import { detectsDeviceLocation, withDeviceLocation, defaultCampaignLocation, withDefaultLocation, placeLabel } from '../../components/storeel/lib/deviceLocation.ts';
 
 test('publishedRole: one normaliser (1/2/3, numeric strings too) used everywhere; anything else is 0', () => {
   assert.equal(publishedRole(1), 1);
@@ -139,6 +139,30 @@ test('device location: fills only a truly empty field, read from the current for
   assert.equal(withDeviceLocation(saved, 'Mumbai, India', true), saved, 'a saved campaign: never');
   assert.equal(withDeviceLocation({ location: '   ' }, 'Mumbai', false).location, 'Mumbai', 'blank counts as empty');
   assert.equal(withDeviceLocation(empty, '', false), empty);
+});
+
+test('Settings location (Chris 21 Nov P8): the default Location — the External account\'s own in the property view', () => {
+  assert.equal(defaultCampaignLocation({ viewType: 'personal', profileLocation: ' Barrie, ON, Canada ' }), 'Barrie, ON, Canada');
+  assert.equal(defaultCampaignLocation({ viewType: 'personal', profileLocation: null }), '');
+  assert.equal(defaultCampaignLocation({ viewType: 'property', propertyLocation: 'Toronto', profileLocation: 'Barrie' }), 'Toronto');
+  assert.equal(defaultCampaignLocation({ viewType: 'property', propertyLocation: '', profileLocation: 'Barrie' }), '', 'never the main account\'s');
+});
+
+test('Settings location: fills an empty, untouched field of a new campaign only — clearing sticks', () => {
+  const empty = { title: 'T', location: '' };
+  assert.deepEqual(withDefaultLocation(empty, 'Barrie', { saved: false, touched: false }), { title: 'T', location: 'Barrie' });
+  assert.equal(withDefaultLocation(empty, 'Barrie', { saved: false, touched: true }), empty, 'cleared by the person: stays empty');
+  assert.equal(withDefaultLocation(empty, 'Barrie', { saved: true, touched: false }), empty, 'saved campaign: never');
+  const typed = { location: 'Paris' };
+  assert.equal(withDefaultLocation(typed, 'Barrie', { saved: false, touched: false }), typed);
+  assert.equal(withDefaultLocation(empty, '', { saved: false, touched: false }), empty);
+});
+
+test('placeLabel: "City, Country" from the reverse-geocode answer', () => {
+  assert.equal(placeLabel({ address: { town: 'Barrie', country: 'Canada' } }), 'Barrie, Canada');
+  assert.equal(placeLabel({ address: { country: 'Canada' } }), 'Canada');
+  assert.equal(placeLabel({ display_name: 'A, B, C' }), 'A, B');
+  assert.equal(placeLabel(null), '');
 });
 
 // Review I1: "Publish now" on a published campaign against an API without switch_role toggles it OFF (published 0):
