@@ -54,9 +54,11 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
       </div>
     );
   } else {
+    // Sized to the email (the column scrolls, not the frame); pointer-events-none: links are off, as in the exact
+    // preview, so a click never takes the frame away from the email.
     body = (
       <iframe ref={frameRef} title="HTML email preview" sandbox="allow-same-origin" srcDoc={preview.html} onLoad={fit}
-        data-nl-html-document-preview="" style={{ height }} className="block w-full border-0 bg-white" />
+        data-nl-html-document-preview="" style={{ height }} className="pointer-events-none block w-full border-0 bg-white" />
     );
   }
 
