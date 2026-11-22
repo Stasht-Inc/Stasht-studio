@@ -1,5 +1,5 @@
 import type {
-  AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput, TypeScale,
+  AudienceItem, ContentMode, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput, TypeScale,
 } from '../../../services/newslettersAPI.ts';
 import { storedScale } from './typeScale.ts';
 import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
@@ -26,6 +26,19 @@ export interface NewsletterDraft {
   planned_send_at: string | null;
   /** The newsletter's text sizes (Chris, 7 Nov), or null for the usual ones (lib/typeScale.ts). */
   type_scale: TypeScale | null;
+  /** Chris 22 Nov 2026 (Q4, "Sections | HTML"): which the email is, and the pasted template as typed ('' when none).
+   *  Both are kept whichever mode shows; the mode showing at Send is what goes out (lib/htmlMode.ts). */
+  content: DraftContent;
+}
+
+export interface DraftContent { mode: ContentMode; html_document: string }
+
+export const SECTIONS_CONTENT: DraftContent = { mode: 'sections', html_document: '' };
+
+/** The API's content (absent on a sections newsletter with nothing pasted). */
+export function contentFrom(content: Newsletter['content']): DraftContent {
+  const doc = content?.html_document;
+  return { mode: content?.mode === 'html' ? 'html' : 'sections', html_document: typeof doc === 'string' ? doc : '' };
 }
 
 export const DEFAULT_HEADER: NewsletterHeader = { logo_url: null, banner_url: null, background_color: '#6C60FF', title: null };
@@ -41,7 +54,7 @@ export function emptyDraft(header?: Partial<NewsletterHeader> | null): Newslette
     name: '', subject: '', preview_text: '', from_name: '', reply_to_email: '',
     // Single person, nobody picked yet (Chris, 3 Nov 2026: most newsletters go to one prospective buyer).
     channels: defaultChannels('newsletter'), sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [],
-    planned_send_at: null, type_scale: null,
+    planned_send_at: null, type_scale: null, content: { ...SECTIONS_CONTENT },
   };
 }
 
@@ -60,6 +73,7 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
     audience: Array.isArray(n.audience) ? n.audience : [],
     planned_send_at: typeof n.planned_send_at === 'string' && n.planned_send_at ? n.planned_send_at : null,
     type_scale: storedScale(n.type_scale),
+    content: contentFrom(n.content),
   };
 }
 
@@ -80,6 +94,8 @@ export function draftToInput(d: NewsletterDraft): NewsletterInput {
   const input: NewsletterInput = {
     channels: d.channels, template: d.template, header: d.header, blocks: blocksToInput(d.blocks), audience: d.audience, planned_send_at: d.planned_send_at ?? null,
     type_scale: d.type_scale ?? null,
+    // Unchanged (a sections newsletter with nothing pasted, as the API sends none) it is never sent: changedFields compares.
+    content: { mode: d.content?.mode === 'html' ? 'html' : 'sections', html_document: d.content?.html_document ? d.content.html_document : null },
   };
   for (const key of TEXT_FIELDS) {
     const value = d[key].trim();

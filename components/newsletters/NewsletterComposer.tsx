@@ -42,6 +42,12 @@ import DraftNotices from './DraftNotices';
 import ComposerDialog from './ComposerDialog';
 import NameStep from './steps/NameStep';
 import FromStep from './steps/FromStep';
+import SegmentedSwitch from './SegmentedSwitch';
+import HtmlDocumentStep from './HtmlDocumentStep';
+import HtmlDocumentPreview from './HtmlDocumentPreview';
+import { useHtmlDocumentPreview } from './hooks/useHtmlDocumentPreview';
+import { CONTENT_MODE_OPTIONS, EMAIL_ONLY_NOTE, isHtmlMode, sendChannels } from './lib/htmlMode';
+import type { ContentMode } from '../../services/newslettersAPI';
 
 export interface NewsletterComposerHandle {
   focusName(): void;
@@ -137,9 +143,20 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const fallbackFromName = profile?.name?.trim().slice(0, 80) || 'Stasht';
   const smsFromName = draft.from_name.trim() || fallbackFromName;
   const smsParts = smsPartsInfo(smsFromName, draft.sms_text).parts;
+  // Chris 22 Nov 2026 (Q4, "Sections | HTML"): an HTML newsletter is its pasted template and goes out by email only;
+  // the sections (and the texts ticked for them) are kept for when Sections is chosen again.
+  const htmlMode = isHtmlMode(draft);
+  const channelsOut = sendChannels(draft);
+  // The preview is drawn from the saved copy: fetched once the paste on screen is the one saved (the API trims it).
+  const savedContent = state.newsletter?.content;
+  const htmlSaved = savedContent?.mode === 'html' && (savedContent.html_document ?? '').trim() === draft.content.html_document.trim();
+  const htmlRefused = Object.keys(state.fieldErrors).some((key) => key.startsWith('content.'));
+  const htmlPreview = useHtmlDocumentPreview(state.newsletter?.id ?? null, state.newsletter?.updated_at ?? null,
+    htmlMode && htmlSaved && !hidden && !state.loading && draft.content.html_document.trim() !== '');
+  const changeContentMode = (mode: ContentMode) => update((d) => (d.content.mode === mode ? null : { content: { ...d.content, mode } }));
   // Live recipient counts only while the Newsletter tab shows on a paid plan (debounced in the hook).
   // A Single person box still being typed counts as nobody yet (lib/person.ts).
-  const audienceCount = useAudienceCount(countableAudience(draft.audience), draft.channels, enabled && !hidden && !state.loading);
+  const audienceCount = useAudienceCount(countableAudience(draft.audience), channelsOut, enabled && !hidden && !state.loading);
   const [closing, setClosing] = useState(false);
   const [device, setDevice] = useState<PreviewDevice>('desktop');
   // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.
@@ -208,7 +225,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   // its card, at the card's bottom.
   const problems = attempted ? sendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName) : NO_PROBLEMS;
   // A refused time (scheduled_at) is shown under the date and time when they show (Schedule for later).
-  const serverSteps = stepErrorsFrom(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => !INLINE_KEYS.has(key.split('.')[0]) && !(later && key.split('.')[0] === 'scheduled_at'))));
+  // A refused paste (content.html_document) is shown under the HTML box; a send's `content` problem at the Content card's bottom.
+  const serverSteps = stepErrorsFrom(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => !INLINE_KEYS.has(key.split('.')[0]) && !(later && key.split('.')[0] === 'scheduled_at') && !key.startsWith('content.'))));
   const stepError = (key: StepKey): string | undefined => problems.steps[key] ?? serverSteps[key];
 
   /**
@@ -337,7 +355,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     }
     if (outcome.newsletter) onChanged?.();
     if (askPutBack && offSchedule && state.newsletter) {
-      setPutBack({ plannedAt: draft.planned_send_at, problem: putBackProblem(draft.planned_send_at, draft.channels) });
+      setPutBack({ plannedAt: draft.planned_send_at, problem: putBackProblem(draft.planned_send_at, channelsOut) });
       return false;
     }
     if (state.newsletter) clearUnscheduled(state.newsletter.id);
@@ -485,6 +503,11 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
           </div>
         ) : (
           <div className="mx-auto grid max-w-[1180px] gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-7">
+            {/* Chris 22 Nov 2026 (Q4): the email is its sections or a pasted HTML template. Both are kept; the one
+                showing at Send is what goes out. */}
+            <div className="flex justify-center lg:col-span-2">
+              <SegmentedSwitch label="Email content" options={CONTENT_MODE_OPTIONS} value={draft.content.mode} onChange={changeContentMode} disabled={readOnly} />
+            </div>
             <div className="min-w-0 space-y-5">
               {readOnly && state.newsletter ? (
                 <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -508,8 +531,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
               <AudiencePicker
                 textsAllowed={!isStarter}
+                emailOnly={htmlMode ? EMAIL_ONLY_NOTE : null}
                 audience={draft.audience}
-                channels={draft.channels}
+                channels={channelsOut}
                 smsText={draft.sms_text}
                 fromName={smsFromName}
                 count={audienceCount}
@@ -531,14 +555,21 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 errors={{ from_name: fieldError('from_name'), reply_to_email: fieldError('reply_to_email') }} stepError={stepError('from')} readOnly={readOnly} />
 
               <StepCard number={4} title="Content" id="nl-step-content" error={stepError('content')}>
-                <TemplatePicker value={draft.template} readOnly={readOnly} />
+                {htmlMode ? (
+                  <HtmlDocumentStep value={draft.content.html_document} readOnly={readOnly}
+                    onChange={(html_document) => update((d) => ({ content: { ...d.content, html_document } }))}
+                    error={state.fieldErrors['content.html_document'] ?? state.fieldErrors['content.mode'] ?? null}
+                    removed={htmlPreview.removed} sizeKb={htmlPreview.sizeKb} />
+                ) : (
+                  <TemplatePicker value={draft.template} readOnly={readOnly} />
+                )}
               </StepCard>
 
-              <ScheduleStep value={schedule} onChange={changeSchedule} stepError={stepError('schedule')} readOnly={readOnly} texts={draft.channels.includes('sms')}
+              <ScheduleStep value={schedule} onChange={changeSchedule} stepError={stepError('schedule')} readOnly={readOnly} texts={channelsOut.includes('sms')}
                 errors={{ send_date: problems.fields.send_date, send_time: problems.fields.send_time ?? (problems.fields.send_date ? undefined : state.fieldErrors.scheduled_at) }} />
 
               <div className="flex flex-col gap-3 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between">
-                {readOnly || !enabled ? <span /> : <SendTestButton channels={draft.channels} busy={testing} onSend={sendTest} />}
+                {readOnly || !enabled ? <span /> : <SendTestButton channels={channelsOut} busy={testing} onSend={sendTest} />}
                 <div className="flex items-center justify-end gap-2 sm:gap-3">
                   {actionButtons(later ? 'Schedule' : 'Send Now', ROW_BUTTON)}
                 </div>
@@ -560,6 +591,10 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 // A size the API refused (review M8): said at the bottom of Edit sizes.
                 error={Object.entries(state.fieldErrors).find(([k]) => k === 'type_scale' || k.startsWith('type_scale.'))?.[1] ?? null}
                 onChange={(next) => update({ type_scale: next })} onSaveDefault={brand.saveTypeScale}>
+              {htmlMode ? (
+                <HtmlDocumentPreview draft={draft} profile={profile} device={device} preview={htmlPreview}
+                  saved={Boolean(state.newsletter)} saving={!htmlRefused && (state.saveState === 'saving' || !htmlSaved)} />
+              ) : (
               <NewsletterEditor
                 draft={draft}
                 readOnly={readOnly}
@@ -575,6 +610,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 savedBlocks={savedBlocks}
                 active={!hidden}
               />
+              )}
               </TypeScaleProvider>
               </RecentColorsProvider>
             </aside>
@@ -587,7 +623,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         newsletterId={state.newsletter?.id ?? null}
-        channels={draft.channels}
+        channels={channelsOut}
         counts={audienceCount.counts}
         countsLoading={audienceCount.loading}
         smsParts={smsParts}

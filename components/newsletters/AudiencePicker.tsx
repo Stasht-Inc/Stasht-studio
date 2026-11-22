@@ -76,6 +76,9 @@ export interface AudiencePickerProps {
   textsAllowed?: boolean;
   /** The card's first line (the Storeel flow: "Your campaign is saved. Send it now, or do it later."). */
   intro?: ReactNode;
+  /** An HTML newsletter (Chris, 22 Nov 2026): it goes out by email only. Text message and the Message box (which only
+   *  adds a Message section and the text) are hidden, Email stays on, and this note says why. The draft keeps both. */
+  emailOnly?: string | null;
 }
 
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
@@ -88,6 +91,7 @@ export default function AudiencePicker({
   audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, showProblems, onChange, defaultMessage, onDefaultMessageChange,
   defaultMessageLabel = 'Set as my default message',
   step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children, intro, textsAllowed = true,
+  emailOnly = null,
 }: AudiencePickerProps) {
   const id = (name: string) => `${idPrefix}-${name}`;
   const sources = useAudienceSources(enabled, paid);
@@ -184,8 +188,8 @@ export default function AudiencePicker({
 
   const channelBox = (channel: NewsletterChannel, title: string, Icon: typeof Mail) => {
     const checked = channels.includes(channel);
-    // Starter: texts can't be ticked (an old tick can still be cleared).
-    const locked = channel === 'sms' && !textsAllowed && !checked;
+    // Starter: texts can't be ticked (an old tick can still be cleared). HTML newsletters: Email stays on.
+    const locked = (channel === 'sms' && !textsAllowed && !checked) || (channel === 'email' && Boolean(emailOnly));
     return (
       <label key={channel} className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border-2 px-4 py-2.5 ${checked ? 'border-[#6C60FF] bg-[#6C60FF]/5' : fieldErrors.channels ? 'border-red-300 bg-white' : 'border-gray-200 bg-white'} ${readOnly || locked ? 'opacity-70' : 'cursor-pointer'}`}>
         <input type="checkbox" checked={checked} disabled={readOnly || locked} aria-invalid={Boolean(fieldErrors.channels)} aria-describedby={fieldErrors.channels ? id('channels-error') : undefined} onChange={() => onChange({ channels: toggleChannel(channels, channel) })} className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
@@ -272,9 +276,9 @@ export default function AudiencePicker({
           <legend className={LABEL}>Send by</legend>
           <div className="flex flex-col gap-3 sm:flex-row">
             {channelBox('email', 'Email', Mail)}
-            {channelBox('sms', 'Text message (SMS)', MessageSquare)}
+            {emailOnly ? null : channelBox('sms', 'Text message (SMS)', MessageSquare)}
           </div>
-          {textsAllowed ? null : (
+          {emailOnly ? <p data-nl-email-only="" className="mt-1.5 text-xs text-gray-500">{emailOnly}</p> : textsAllowed ? null : (
             <p data-texts-plan-note className="mt-1.5 text-xs text-gray-500">
               Text messages are on the Teams and Business plans.{' '}
               <button type="button" onClick={() => requestUpgrade(TEXTS_PLAN_MESSAGE)} className={LINK_BUTTON}>See plans</button>
@@ -283,6 +287,7 @@ export default function AudiencePicker({
           {fieldErrors.channels ? <p id={id('channels-error')} role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.channels}</p> : null}
         </fieldset>
 
+        {emailOnly ? null : (
         <div>
           <label htmlFor={id('sms-text')} className={LABEL}>Message{message?.required ? null : <span className="font-normal text-gray-500"> (optional)</span>}</label>
           <p id={id('message-hint')} className="-mt-0.5 mb-1.5 text-xs text-gray-500">{message ? message.hint : "A short note at the top of your email, above your sections. If Text message is ticked, it's also sent as the text."}</p>
@@ -314,6 +319,7 @@ export default function AudiencePicker({
             </>
           ) : null}
         </div>
+        )}
         {children}
       </div>
       <ManageListsDialog

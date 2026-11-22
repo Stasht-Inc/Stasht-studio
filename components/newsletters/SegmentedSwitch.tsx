@@ -7,13 +7,15 @@ export interface SegmentedOption<T extends string> { value: T; label: string; co
 
 /** The grey pill switch from the prototype (Newsletter | Storeel, Storeels | Newsletters). Arrow keys move.
  *  fill: across the whole width, the choices sharing it (for narrow places such as a dialog on a phone). */
-export default function SegmentedSwitch<T extends string>({ label, options, value, onChange, className = '', fill = false }: {
+export default function SegmentedSwitch<T extends string>({ label, options, value, onChange, className = '', fill = false, disabled = false }: {
   label: string;
   options: ReadonlyArray<SegmentedOption<T>>;
   value: T;
   onChange(value: T): void;
   className?: string;
   fill?: boolean;
+  /** Shown but not changeable (a newsletter that was sent). */
+  disabled?: boolean;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -34,10 +36,11 @@ export default function SegmentedSwitch<T extends string>({ label, options, valu
             type="button"
             role="radio"
             aria-checked={active}
+            disabled={disabled}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(option.value)}
             onKeyDown={(e) => onKeyDown(e, index)}
-            className={`inline-flex h-8 items-center gap-2 rounded-md text-sm ${fill ? 'min-w-0 flex-1 justify-center px-2' : 'px-4'} font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 ${active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            className={`inline-flex h-8 items-center gap-2 rounded-md text-sm ${fill ? 'min-w-0 flex-1 justify-center px-2' : 'px-4'} font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 disabled:cursor-default ${active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
           >
             {option.label}
             {switchCountLabel(option.count) !== null ? (
