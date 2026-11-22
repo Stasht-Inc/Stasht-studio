@@ -65,7 +65,8 @@ export default function ProductCardButton({ button, memoryId, onClick, onEdit, o
   onDelete?: () => void;
   /** So the timeline's nav entry for this button can still scroll to it. */
   anchorRef?: (el: HTMLDivElement | null) => void;
-  /** Its sidebar entry is the selected one: the purple outline the separate card had. */
+  /** Its sidebar entry is the selected one. Marked (data-active) only: no outline round the button any more (Chris 22 Nov
+   *  2026, Q2: the purple ring round "Add to Cart" looked like part of the button). */
   isActive?: boolean;
   className?: string;
 }) {
@@ -94,7 +95,7 @@ export default function ProductCardButton({ button, memoryId, onClick, onEdit, o
       ref={anchorRef}
       data-product-card-button={String(button.id)}
       data-active={isActive ? 'true' : undefined}
-      className={`flex items-center gap-2 rounded-xl ${width ? 'justify-center' : ''} ${isActive ? 'ring-2 ring-[#6C60FF] ring-offset-2' : ''} ${className}`}
+      className={`flex items-center gap-2 rounded-xl ${width ? 'justify-center' : ''} ${className}`}
     >
       <a
         href={link || undefined}
