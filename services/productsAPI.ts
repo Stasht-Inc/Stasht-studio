@@ -19,9 +19,9 @@ export interface ProductsStatus {
   can_create: boolean; // false in a salesperson's External view
   counts: { total: number; manual: number; website: number; shopify?: number };
   default_currency: string;
-  /** Chris 21 Nov 2026 (R2-2): the account's product button colour — color = what buttons use (its "Button colour",
-   *  else the brand colour), text = the words on it, setting = the chosen one (null = brand), brand = the brand colour.
-   *  Missing on an older web API: Studio purple. */
+  /** Chris 21 Nov 2026 (R2-2): the account's product button colour — color = what buttons use (the brand colour; the
+   *  account-wide "Button colour" is gone, Chris 22 Nov 2026 Q5), text = the words on it, setting = always null now,
+   *  brand = the brand colour. Missing on an older web API: Studio purple. */
   button_color?: ProductButtonColorInfo;
 }
 
@@ -223,7 +223,6 @@ export const productsAPI = {
   setCategoryHidden: (id: number, hidden: boolean) => run<{ category: ProductCategory }>(apiRequest(`/product-categories/${id}`, json('PATCH', { hidden }))),
   deleteCategory: (id: number) => run<{ deleted: boolean }>(apiRequest(`/product-categories/${id}`, json('DELETE'))),
   /** The account's "Button colour" (Chris 21 Nov 2026, R2-2); null = the brand colour again. */
-  setButtonColor: (color: string | null) => run<ProductButtonColorInfo>(apiRequest('/products/button-color', json('PUT', { color }))),
 };
 
 /** Add a Moment's Products tab: every product selectItems takes (PICKER_FILTERS), page by page. `complete` is false

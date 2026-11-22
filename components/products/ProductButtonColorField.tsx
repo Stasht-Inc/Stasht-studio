@@ -2,11 +2,12 @@
 // button … so it matches their brand. By default maybe it can use the color it chooses from the default background").
 // "Use brand colour" (on = no colour of its own) and, when off, the same colour panel every Studio colour uses (the
 // newsletter editor's preset swatches + Custom with a HEX field; also the 17 Nov category colour picker's swatches).
-// Used by the product editor's Visibility card (one product) and the Products page's Button colour (the account).
+// Used by the product editor's Visibility card (the Products page's account-wide Button colour is gone, Chris 22 Nov Q5).
 import ColorSwatches from '../newsletters/ColorSwatches';
 import { LABEL } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
 import { buttonColors, hexColor } from '../../utils/buttonColor';
+import ProductCardButton from '../ProductCardButton';
 
 export default function ProductButtonColorField({ idPrefix, value, brand, onChange, disabled = false, label = 'Button colour', brandLabel = 'Use brand colour', hint, previewText = 'Buy now' }: {
   idPrefix: string;
@@ -39,8 +40,12 @@ export default function ProductButtonColorField({ idPrefix, value, brand, onChan
           <ColorSwatches label="Colour" idPrefix={idPrefix} value={own ?? ''} onChange={(c) => { if (!disabled) onChange(hexColor(c) ?? c); }} />
         </div>
       )}
-      {/* How the button looks: the product's buy button / "View on website" / Enquire take this colour. */}
-      <span data-testid={`${idPrefix}-preview`} className="mt-3 inline-flex items-center rounded-lg px-4 py-2 text-sm font-semibold" style={{ backgroundColor: shown.background, color: shown.text }}>{previewText}</span>
+      {/* How the button looks: the product's buy button / "View on website" / Enquire take this colour. Chris 22 Nov 2026
+          (Q3b): exactly the Storeel / campaign card's button — the same component (full width, its icon on the left, its
+          size, corners and font), in the product's words as typed. No link: a picture of the button, it goes nowhere. */}
+      <div data-testid={`${idPrefix}-preview`} className="mt-3">
+        <ProductCardButton button={{ id: `${idPrefix}-preview`, buttonText: previewText, icon: 'ExternalLink', buttonColor: shown.background, textColor: shown.text }} />
+      </div>
       {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
     </div>
   );
