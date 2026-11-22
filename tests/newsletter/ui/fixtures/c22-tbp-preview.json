@@ -1,0 +1,40 @@
+{
+    "removed": [
+        {
+            "type": "script",
+            "count": 4,
+            "label": "4 scripts"
+        },
+        {
+            "type": "form",
+            "count": 1,
+            "label": "1 form"
+        },
+        {
+            "type": "embed",
+            "count": 1,
+            "label": "1 embedded item"
+        },
+        {
+            "type": "link",
+            "count": 2,
+            "label": "2 links"
+        },
+        {
+            "type": "image",
+            "count": 1,
+            "label": "1 picture not on https"
+        },
+        {
+            "type": "pixel",
+            "count": 1,
+            "label": "1 tracking pixel"
+        },
+        {
+            "type": "stylesheet",
+            "count": 2,
+            "label": "2 style sheets"
+        }
+    ],
+    "size_kb": 10
+}

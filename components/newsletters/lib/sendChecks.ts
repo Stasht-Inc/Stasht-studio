@@ -18,7 +18,7 @@ const STEP_FOR_FIELD: Record<string, StepKey> = {
   audience: 'recipients', channels: 'recipients', sms_text: 'recipients', allowance: 'recipients',
   from_name: 'from', reply_to_email: 'from',
   subject: 'name', preview_text: 'name',
-  blocks: 'content', header: 'content', template: 'content', business_address: 'content',
+  blocks: 'content', header: 'content', template: 'content', business_address: 'content', content: 'content',
   scheduled_at: 'schedule',
 };
 

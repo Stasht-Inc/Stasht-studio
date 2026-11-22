@@ -157,6 +157,15 @@ export interface NewsletterCounts {
   skipped: number;
 }
 
+/** Chris 22 Nov 2026 (Q4): the email is its sections, or a whole email template pasted as HTML ("Sections | HTML"). */
+export type ContentMode = 'sections' | 'html';
+/** The newsletter's content mode and its pasted template as typed (the API cleans it when drawing the email). Absent on
+ *  a newsletter with sections and no paste (an older API never sends it). A list row carries the mode only. */
+export interface NewsletterContent { mode: ContentMode; html_document?: string | null }
+/** What the API's cleaning removed from a pasted template ("4 scripts"): POST /newsletters/{id}/preview, HTML only. */
+export interface RemovedItem { type: string; count: number; label: string }
+export interface NewsletterPreview { html: string; size_kb?: number; size_limit_kb?: number; mode?: ContentMode; removed?: RemovedItem[] }
+
 /** Who set a locked header: { by: 'Serpa Chrysler', message: 'Header set by Serpa Chrysler' }. */
 export interface HeaderLock { by: string; message: string }
 
@@ -185,6 +194,8 @@ export interface Newsletter {
   type_scale?: TypeScale | null;
   /** A property account's draft (Chris, 12 Nov): the main account's header, not editable here. Absent: editable. */
   header_locked?: HeaderLock | null;
+  /** Sections or pasted HTML (Chris, 22 Nov). Absent: sections, nothing pasted. */
+  content?: NewsletterContent | null;
   counts: NewsletterCounts;
   created_at: string;
   updated_at: string;
@@ -196,7 +207,9 @@ export type NewsletterSummary = Omit<Newsletter, 'blocks'>;
 /** PUT /newsletters/{id}: any editable field (only drafts can be edited). Unfinished sections are accepted;
  *  send / schedule reject them (contract note 6). Saving `header` also saves the account's brand header (note 8). */
 export type NewsletterInput = Partial<Pick<Newsletter,
-  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at' | 'type_scale'>>;
+  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at' | 'type_scale'>>
+  // content (Chris, 22 Nov): {mode?, html_document?}; a key left out keeps its saved value.
+  & { content?: { mode?: ContentMode; html_document?: string | null } };
 
 export interface AudienceCount {
   email: number;
@@ -448,7 +461,7 @@ export const newslettersAPI = {
   audienceCount: (audience: AudienceItem[], channels: NewsletterChannel[]) =>
     write<AudienceCount>('POST', '/newsletters/audience-count', { audience, channels }),
   // size_kb: the rendered email's size (Gmail hides the end of emails over about 100 KB).
-  preview: (id: number) => write<{ html: string; size_kb?: number }>('POST', `${nl(id)}/preview`),
+  preview: (id: number) => write<NewsletterPreview>('POST', `${nl(id)}/preview`),
   // The hourly test limit (429) is a real answer, not a blip: no retries, and say so plainly.
   sendTest: async (id: number, channel: NewsletterChannel) => testSendResult(
     await call<{ sent_to: string }>(`${nl(id)}/test`, { method: 'POST', body: JSON.stringify({ channel }), noRateLimitRetry: true } as RequestInit),

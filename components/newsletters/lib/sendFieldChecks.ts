@@ -11,6 +11,7 @@ import { reachable } from './audience.ts';
 import { personEntry, personEntryProblem, personSendProblem } from './person.ts';
 import { localDateTimeToIso, scheduleProblem, textQuietHoursProblem } from './schedule.ts';
 import { smsPartsInfo } from './smsParts.ts';
+import { htmlDocumentProblem, isHtmlMode, forSending } from './htmlMode.ts';
 import { STEP_ORDER, type StepKey, type StepProblems } from './sendChecks.ts';
 
 /** Nobody chosen yet (Single person: nobody typed). */
@@ -41,7 +42,9 @@ export function scheduleField(choice: ScheduleChoice): 'send_date' | 'send_time'
   return Number.isFinite(at) && at >= yearAhead.getTime() ? 'send_date' : 'send_time';
 }
 
-export function sendProblems(d: NewsletterDraft, counts: AudienceCount | null, schedule: ScheduleChoice, now: Date = new Date(), fallbackFromName = 'Stasht'): SendProblems {
+export function sendProblems(draft: NewsletterDraft, counts: AudienceCount | null, schedule: ScheduleChoice, now: Date = new Date(), fallbackFromName = 'Stasht'): SendProblems {
+  // An HTML newsletter (Chris, 22 Nov) is checked as it goes out: by email only.
+  const d = forSending(draft);
   const fields: SendProblems['fields'] = {};
   const steps: StepProblems = {};
   const live = fieldProblems(d);
@@ -60,7 +63,8 @@ export function sendProblems(d: NewsletterDraft, counts: AudienceCount | null, s
   else if (!d.channels.length) fields.channels = 'Choose email, text or both.';
   else if (personSendProblem(d.audience, d.channels, counts)) fields.audience = personSendProblem(d.audience, d.channels, counts) as string;
   else if (d.channels.includes('sms') && !d.sms_text.trim()) fields.sms_text = 'Write the text message.';
-  else if (live.sms_text) fields.sms_text = live.sms_text;
+  // The Message box isn't part of an HTML newsletter (hidden there): its length never holds the send back.
+  else if (live.sms_text && !isHtmlMode(d)) fields.sms_text = live.sms_text;
   else if (d.channels.includes('sms') && smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem) {
     fields.sms_text = smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem as string;
   }
@@ -70,8 +74,12 @@ export function sendProblems(d: NewsletterDraft, counts: AudienceCount | null, s
   if (email && live.from_name) fields.from_name = live.from_name;
   if (email && live.reply_to_email) fields.reply_to_email = live.reply_to_email;
 
-  // Step 4: the sections are marked one by one in the preview; the card says so (at its bottom).
-  if (!d.blocks.length) steps.content = 'Add at least one section to the email.';
+  // Step 4: the sections are marked one by one in the preview; the card says so (at its bottom). In HTML mode the
+  // pasted template is what goes out (the sections are kept, not checked).
+  if (isHtmlMode(d)) {
+    const html = htmlDocumentProblem(d.content.html_document);
+    if (html) steps.content = html;
+  } else if (!d.blocks.length) steps.content = 'Add at least one section to the email.';
   else if (Object.keys(blocksProblems(d.blocks)).length) steps.content = 'Finish or remove the sections marked in red.';
 
   // Step 5: under the date and time.
