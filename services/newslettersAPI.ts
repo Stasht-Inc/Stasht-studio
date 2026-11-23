@@ -86,6 +86,9 @@ export interface CampaignItem {
   /** A product's chosen button colour (Chris 21 Nov 2026, R2-2: its own, else the account's "Button colour"); absent =
    *  the section's button colour (the header colour), as before. */
   button_color?: string;
+  /** A manual product's own button words (its "Button text", e.g. "Book now"; Chris 23 Nov 2026, F) when its card links
+   *  to its buy link; absent = the kind's "View product". A card edit still replaces it. */
+  button_text?: string;
 }
 /** Studio sends selections (0–6, in order) and campaign_ids (the campaign-kind ids, for older readers; the API
  *  ignores them when selections is there). The API drops what the owner can't share and answers with `items`,
@@ -126,6 +129,8 @@ export interface CampaignOption {
   category?: string | null;
   /** A product's chosen button colour (R2-2), as on CampaignItem. */
   button_color?: string;
+  /** A manual product's own button words (F), as on CampaignItem. */
+  button_text?: string;
 }
 
 export type NewsletterBlock =
@@ -464,6 +469,8 @@ export const newslettersAPI = {
     write<AudienceCount>('POST', '/newsletters/audience-count', { audience, channels }),
   // size_kb: the rendered email's size (Gmail hides the end of emails over about 100 KB).
   preview: (id: number) => write<NewsletterPreview>('POST', `${nl(id)}/preview`),
+  /** Chris 23 Nov 2026 (A): the sections as a standalone HTML email without our footer / View in browser (read only). */
+  sectionsHtml: (id: number) => write<{ html: string; sections: number }>('POST', `${nl(id)}/sections-html`),
   // The hourly test limit (429) is a real answer, not a blip: no retries, and say so plainly.
   sendTest: async (id: number, channel: NewsletterChannel) => testSendResult(
     await call<{ sent_to: string }>(`${nl(id)}/test`, { method: 'POST', body: JSON.stringify({ channel }), noRateLimitRetry: true } as RequestInit),

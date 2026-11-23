@@ -133,12 +133,22 @@ try {
     await shot(page, `sm16-${tag}2-products-picker`);
     await page.keyboard.press('Escape');
     await picker.waitFor({ state: 'hidden', timeout: 5000 });
-    // "+ Campaign" → as before: Vehicles first for an account with both.
-    await campaign.click();
+    // Chris 23 Nov 2026 (G): "+ Vehicles" opens the vehicle picker (what "+ Campaign" opened before); "+ Campaign" lists
+    // the account's existing campaigns.
+    // This account has both: no third pill; the vehicles are on the picker's Vehicles tab from "+ Products".
+    expect(await dlg.getByRole('button', { name: 'Add vehicles to your message' }).count() === 0, `${tag}C2: no "+ Vehicles" pill when there are products too`);
+    await products.click();
+    await picker.getByRole('button', { name: 'Vehicles' }).click();
     await picker.getByText(/Wrangler/).first().waitFor({ state: 'visible', timeout: 15000 });
-    expect(await picker.getByRole('button', { name: 'Vehicles', pressed: true }).count() === 1, `${tag}C2: "+ Campaign" still opens as before (Vehicles)`);
+    expect(await picker.getByRole('button', { name: 'Vehicles', pressed: true }).count() === 1, `${tag}C2: vehicles reachable from the picker's Vehicles tab`);
     await page.keyboard.press('Escape');
     await picker.waitFor({ state: 'hidden', timeout: 5000 });
+    await campaign.click();
+    const existing = page.getByRole('dialog', { name: 'Choose campaigns' });
+    await existing.waitFor({ state: 'visible', timeout: 15000 });
+    expect(true, `${tag}C2: "+ Campaign" opens the existing campaigns`);
+    await existing.getByRole('button', { name: 'Cancel' }).click();
+    await existing.waitFor({ state: 'hidden', timeout: 5000 });
 
     // Send carries the picked business.
     await dlg.locator('#sm-phone').fill('4165550298');

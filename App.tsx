@@ -2131,55 +2131,9 @@ function MainApp() {
     }
   }, [aiProcessing?.status, aiProcessing?.memoryId, aiProcessing?.startTime, handleMemorySelect]);
 
-  // Check for password change requirement after login
-  useEffect(() => {
-    if (isAuthenticated && !isLoading) {
-      // Check sessionStorage flag (set during login)
-      const requirePasswordChange = sessionStorage.getItem('require_password_change');
-
-      // Also check the actual user object's change_password field
-      const storedUser = localStorage.getItem('stasht_user');
-      let userNeedsPasswordChange = false;
-
-      if (storedUser) {
-        try {
-          const user = JSON.parse(storedUser);
-          userNeedsPasswordChange = user.change_password === 1;
-          console.log('🔑 User change_password flag:', user.change_password);
-        } catch (e) {
-          console.error('Failed to parse user object:', e);
-        }
-      }
-
-      if (requirePasswordChange === 'true' || userNeedsPasswordChange) {
-        console.log('🔑 Password change required, redirecting to profile settings');
-        handleNavigation('profile-settings');
-        // Remove the sessionStorage flag so it doesn't redirect again
-        sessionStorage.removeItem('require_password_change');
-        // Note: The change_password flag in user object will be cleared after successful password change
-      }
-    }
-  }, [isAuthenticated, isLoading, handleNavigation]);
-
-  // Block navigation away from profile-settings if user needs to change password
-  useEffect(() => {
-    if (isAuthenticated && !isLoading && currentPage !== 'profile-settings') {
-      // Check if user needs to change password
-      const storedUser = localStorage.getItem('stasht_user');
-      if (storedUser) {
-        try {
-          const user = JSON.parse(storedUser);
-          if (user.change_password === 1) {
-            console.log('🚫 Navigation blocked - user must change password first');
-            console.log('🚫 Attempted to navigate to:', currentPage, '- forcing back to profile-settings');
-            handleNavigation('profile-settings');
-          }
-        } catch (e) {
-          console.error('Failed to parse user object:', e);
-        }
-      }
-    }
-  }, [currentPage, isAuthenticated, isLoading, handleNavigation]);
+  // Chris 23 Nov 2026: sign-in is by verification code only and Settings has no Account Security card any more, so
+  // a change_password flag (left by the old forgot-password temporary password) no longer sends people to Settings
+  // or holds them there.
 
   // Handle invite flow after login
   useEffect(() => {

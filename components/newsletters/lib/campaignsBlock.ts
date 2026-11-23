@@ -88,6 +88,7 @@ export function normaliseCampaignItems(raw: unknown): CampaignItem[] {
     out.push({
       kind: kindOf(r.kind), id, title: r.title, description: str(r.description), cover_url: httpsUrl(str(r.cover_url)) ?? null,
       url: webUrl(r.url), date: typeof r.date === 'string' && r.date ? r.date : null, price_text: line(r.price_text), meta: line(r.meta),
+      ...(buttonWords(r.button_text) ? { button_text: buttonWords(r.button_text) as string } : {}),
     });
   }
   return out;
@@ -142,9 +143,15 @@ export function itemFromOption(o: CampaignOption, kind: CampaignKind = 'campaign
     price_text: line(o.price_text),
     meta: line(o.meta),
     ...(isHex(o.button_color) ? { button_color: o.button_color } : {}),
+    ...(buttonWords(o.button_text) ? { button_text: buttonWords(o.button_text) as string } : {}),
   };
 }
 
+/** A manual product's own button words (F, 23 Nov 2026): one line, at most the card's button limit; null = none. */
+const buttonWords = (v: unknown): string | null => {
+  const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 30) : '';
+  return t || null;
+};
 const isHex = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 
 /** A card's button colour (Chris 21 Nov 2026, R2-2): a product's chosen colour, else the section's (as the email). */
@@ -185,6 +192,11 @@ const BUTTON_LABELS: Record<CampaignKind, string> = { campaign: 'View campaign',
 /** The card's button, as the email words it. */
 export function itemButtonLabel(kind: CampaignKind | undefined): string {
   return BUTTON_LABELS[kindOf(kind)];
+}
+
+/** One card's button before any edit: a manual product's own words (its buy link's "Button text"), else the kind's. */
+export function itemButtonText(item: Pick<CampaignItem, 'kind' | 'button_text'>): string {
+  return item.button_text || itemButtonLabel(item.kind);
 }
 
 /** The second line of a picker row: products and vehicles show their price and details, campaigns their date. */
@@ -350,7 +362,7 @@ export function displayCard(item: CampaignItem, o: CardOverride | undefined | nu
     image: pick('image_url') ?? item.cover_url,
     title: pick('title') ?? item.title,
     description: pick('description') ?? item.description,
-    button: pick('button_text') ?? itemButtonLabel(item.kind),
+    button: pick('button_text') ?? itemButtonText(item),
     url: item.url,
   };
 }

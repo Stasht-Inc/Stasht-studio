@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import type { RemovedItem } from '../../services/newslettersAPI';
-import { DATA_PICTURES_HINT, HTML_TOO_LONG, OWN_UNSUBSCRIBE_NOTE, hasOwnUnsubscribe, imageTag, insertSnippet, removedSummary, switchedNote } from './lib/htmlMode';
+import { DATA_PICTURES_HINT, HTML_TOO_LONG, OWN_UNSUBSCRIBE_NOTE, SECTIONS_AS_HTML_NOTE, hasOwnUnsubscribe, imageTag, insertSnippet, isGeneratedHtml, removedSummary, switchedNote } from './lib/htmlMode';
 import { useImageUpload } from './hooks/useImageUpload';
 import { LIMITS } from './lib/rules';
 import { previewSizeHint } from './lib/sendChecks';
@@ -19,7 +19,7 @@ import { BUTTON_SMALL, LABEL, textareaClass } from './lib/ui';
  * in with the browser's insertText where it can, so Undo (Cmd+Z) takes it out again. Problems show at the bottom of
  * the card. http pictures the API switched to https are noted; pictures it removed are listed.
  */
-export default function HtmlDocumentStep({ value, readOnly, onChange, error, removed, sizeKb, switched = 0, removedPictures = [] }: {
+export default function HtmlDocumentStep({ value, readOnly, onChange, error, removed, sizeKb, switched = 0, removedPictures = [], generated = null, loadingSections = false, sectionsError = null }: {
   value: string;
   readOnly: boolean;
   onChange(value: string): void;
@@ -31,6 +31,12 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
   switched?: number;
   /** Addresses of the pictures the cleaning removed. */
   removedPictures?: readonly string[];
+  /** Chris 23 Nov 2026 (A): the sections' HTML the box was filled with on the switch to HTML (null: none). */
+  generated?: string | null;
+  /** That HTML is on its way: the box shows "Loading your sections…". */
+  loadingSections?: boolean;
+  /** It couldn't be fetched (shown at the bottom of the card; the box stays empty). */
+  sectionsError?: string | null;
 }) {
   const boxRef = useRef<HTMLTextAreaElement>(null);
   // Where the cursor was when Add image was tapped (the file chooser takes the focus away).
@@ -61,6 +67,7 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
     upload.choose();
   };
   const switchedInfo = switchedNote(switched);
+  const fromSections = isGeneratedHtml(value, generated);
   const hasDataPictures = removed.some((r) => r.type === 'data' && r.count > 0);
   const tooLong = value.length > LIMITS.html_document;
   const message = tooLong ? HTML_TOO_LONG : error ?? null;
@@ -82,8 +89,16 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
       <p id="nl-html-document-hint" className="-mt-0.5 mb-1.5 text-xs text-gray-500">
         Paste a whole email from Mailchimp or Canva.
       </p>
-      <textarea ref={boxRef} id="nl-html-document" value={value} readOnly={readOnly} spellCheck={false} autoCapitalize="off" autoCorrect="off" rows={16}
-        placeholder="Paste your HTML code here..." aria-invalid={Boolean(message)} aria-describedby="nl-html-document-hint nl-html-document-help"
+      {fromSections ? (
+        <p role="status" data-nl-html-from-sections="" className="mb-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">{SECTIONS_AS_HTML_NOTE}</p>
+      ) : null}
+      {loadingSections ? (
+        <p role="status" data-nl-html-loading-sections="" className="mb-1.5 flex items-center gap-1.5 text-xs text-gray-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#6C60FF]" aria-hidden="true" />Loading your sections…
+        </p>
+      ) : null}
+      <textarea ref={boxRef} id="nl-html-document" value={value} readOnly={readOnly || loadingSections} aria-busy={loadingSections || undefined} spellCheck={false} autoCapitalize="off" autoCorrect="off" rows={16}
+        placeholder={loadingSections ? 'Loading your sections…' : 'Paste your HTML code here...'} aria-invalid={Boolean(message)} aria-describedby="nl-html-document-hint nl-html-document-help"
         onChange={(e) => onChange(e.target.value)}
         className={`${textareaClass(Boolean(message))} min-h-[12rem] resize-y font-mono text-xs leading-5 transition-shadow duration-300 data-[nl-flash]:ring-4 data-[nl-flash]:ring-[#6C60FF]/30`} />
       <div id="nl-html-document-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
@@ -101,7 +116,7 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
           {hasDataPictures ? <span className="mt-1 block text-gray-600">{DATA_PICTURES_HINT}</span> : null}
         </p>
       ) : null}
-      {hasOwnUnsubscribe(value) ? (
+      {!fromSections && hasOwnUnsubscribe(value) ? (
         <p role="status" data-nl-html-own-unsubscribe="" className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">{OWN_UNSUBSCRIBE_NOTE}</p>
       ) : null}
       {switchedInfo ? (
@@ -111,6 +126,7 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
         <p role="status" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{sizeHint}</p>
       ) : null}
       {uploadError ? <p role="alert" data-nl-html-image-error="" className="mt-3 text-xs text-red-600">{uploadError}</p> : null}
+      {sectionsError ? <p role="alert" data-nl-html-sections-error="" className="mt-3 text-xs text-red-600">{sectionsError}</p> : null}
     </div>
   );
 }

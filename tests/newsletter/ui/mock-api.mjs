@@ -432,6 +432,7 @@ export function createMockApi(options = {}) {
         kind, id: x.id, title: x.title, description: x.description ?? null, cover_url: x.cover_url ?? null, date: x.date ?? null,
         public_url: url, shareable: Boolean(url), reason: url ? null : 'This item has no web page',
         price_text: x.price_text ?? null, meta: x.meta ?? null, category: x.category ?? null,
+        ...(x.button_text ? { button_text: x.button_text } : {}), // a manual product's own button words (F, 23 Nov 2026)
         searchText: [x.title, x.sku, x.brand, x.make, x.model, x.stock_number].filter(Boolean).join(' ').toLowerCase(),
       };
     });
@@ -442,7 +443,7 @@ export function createMockApi(options = {}) {
     if (!o || !o.shareable) return null;
     return {
       kind, id, title: o.title, description: String(o.description ?? '').slice(0, 160), cover_url: o.cover_url, url: o.public_url,
-      date: o.date, price_text: o.price_text, meta: o.meta,
+      date: o.date, price_text: o.price_text, meta: o.meta, ...(o.button_text ? { button_text: o.button_text } : {}),
     };
   }
 
@@ -1205,10 +1206,19 @@ export function createMockApi(options = {}) {
         return ok({});
       }
       if (action === 'duplicate') {
-        // NewsletterController::duplicate: "Copy of <name>" (120 max), a new draft with the same content.
-        const copy = newsletter(state.nextId++, { ...pickEditable(n), ...(n.content ? { content: structuredClone(n.content) } : {}), name: `Copy of ${n.name ?? ''}`.slice(0, 120) });
+        // NewsletterController::duplicate: "Copy of <name>" (120 max), a new draft with the same content. Chris 23 Nov
+        // 2026: the Single person (typed person or picked lead) is not copied; lists, groups and All leads are.
+        const audience = (n.audience ?? []).filter((a) => a && a.type !== 'person' && a.type !== 'lead');
+        const copy = newsletter(state.nextId++, { ...pickEditable(n), ...(n.content ? { content: structuredClone(n.content) } : {}), name: `Copy of ${n.name ?? ''}`.slice(0, 120), audience });
         state.newsletters.push(copy);
         return ok(copy, 201);
+      }
+      // Chris 23 Nov 2026 (A): POST /newsletters/{id}/sections-html — the sections as standalone HTML (read only).
+      // options.sectionsHtml: the real API output for the scenario's sections; sectionsHtmlFail: answer 500.
+      if (action === 'sections-html') {
+        state.sectionsHtmlCalls = (state.sectionsHtmlCalls ?? 0) + 1;
+        if (state.sectionsHtmlFail) return fail(500, { success: false, message: 'Server Error' });
+        return ok({ html: options.sectionsHtml ?? `<!DOCTYPE html><html><body><div data-mock-sections>${(n.blocks ?? []).length} sections</div></body></html>`, sections: (n.blocks ?? []).length });
       }
       if (action === 'preview' && isHtmlNewsletter(n)) {
         state.previewCalls += 1;
@@ -1352,6 +1362,7 @@ export function createMockApi(options = {}) {
       state.uploads.push({ bytes: buf?.length ?? 0, type: /Content-Type:\s*([^\r\n]+)/i.exec(head)?.[1]?.trim() ?? null, name: /filename="([^"]*)"/.exec(head)?.[1] ?? null });
       if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     }
+    if (/^\/newsletters\/\d+\/sections-html$/.test(path) && state.sectionsHtmlDelayMs) await new Promise((r) => setTimeout(r, state.sectionsHtmlDelayMs));
     if (path === '/newsletters/campaign-options' && state.optionsDelayMs) await new Promise((r) => setTimeout(r, state.optionsDelayMs));
     if (state.leadsDelayMs && request.method() === 'GET' && ['/leads', '/lead-groups', '/my-conversations', '/contact-lists'].includes(path)) await new Promise((r) => setTimeout(r, state.leadsDelayMs));
     const answer = handle(request.method(), path, url.searchParams, body);

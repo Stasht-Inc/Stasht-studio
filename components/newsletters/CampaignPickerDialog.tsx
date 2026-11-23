@@ -47,6 +47,11 @@ export interface CampaignPickerDialogProps {
   onDone(selections: CampaignSelection[], items: CampaignItem[]): void;
   /** Where focus goes once the picker has closed. */
   onCloseAutoFocus?(event: Event): void;
+  /** Only this kind, no tabs (the Leads composer's "+ Campaign" lists the account's campaigns; Chris 23 Nov 2026, G). */
+  only?: CampaignKind;
+  /** The dialog's words when not the newsletter's own (the Leads composer's). */
+  title?: string;
+  description?: string;
 }
 
 /**
@@ -57,7 +62,8 @@ export interface CampaignPickerDialogProps {
  * Chris, 29 Oct (round 2): what is chosen shows at the top ("Chosen (3 of 6)", ✕ removes one, whatever tab or page
  * it is on), and the next page loads as the end of the list scrolls into view (no "Show more").
  */
-export default function CampaignPickerDialog({ open, onOpenChange, initialSelections, knownItems, onDone, onCloseAutoFocus }: CampaignPickerDialogProps) {
+export default function CampaignPickerDialog({ open, onOpenChange, initialSelections, knownItems, onDone, onCloseAutoFocus, only, title, description }: CampaignPickerDialogProps) {
+  const firstKind = (c: KindCounts | undefined): CampaignKind => only ?? pickerDefaultKind(c);
   const [picked, setPicked] = useState<CampaignSelection[]>(initialSelections);
   // How many of each kind the owner has (meta.counts), kept between openings so the tabs show straight away.
   const [counts, setCounts] = useState<KindCounts | undefined>(undefined);
@@ -99,8 +105,8 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
     setQuery('');
     setCategory('');
     setCategories([]);
-    setKind(pickerDefaultKind(counts));
-    autoKindRef.current = true;
+    setKind(firstKind(counts));
+    autoKindRef.current = !only;
     seenRef.current = new Map();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -114,7 +120,7 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
   const remember = (list: Row[]) => {
     for (const o of list) seenRef.current.set(selectionKey(o), itemFromOption(o, o.kind));
   };
-  const rowsFrom = (data: CampaignOption[], asked: CampaignKind): Row[] => data.map((o) => ({ ...o, kind: o.kind ?? asked }));
+  const rowsFrom = (data: CampaignOption[] | undefined, asked: CampaignKind): Row[] => (Array.isArray(data) ? data : []).map((o) => ({ ...o, kind: o.kind ?? asked }));
 
   // First page for the current tab, search and category; only the latest request may fill the list.
   useEffect(() => {
@@ -135,7 +141,7 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
         setCounts(meta?.counts);
         if (autoKindRef.current) {
           autoKindRef.current = false;
-          const first = pickerDefaultKind(meta?.counts);
+          const first = firstKind(meta?.counts);
           if (first !== asked) {
             setKind(first);
             return;
@@ -232,7 +238,7 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
     onOpenChange(false);
   };
 
-  const kinds = pickerKinds(counts);
+  const kinds = only ? [only] : pickerKinds(counts);
   const multi = kinds.length > 1;
   const words = KIND_WORDS[kind];
   const pickedKeys = new Set(picked.map(selectionKey));
@@ -314,8 +320,8 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
     <ComposerDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={pickerTitle(multi)}
-      description={multi ? 'People see each one as a card with a button to its page.' : 'People see each one as a card with a View campaign button.'}
+      title={title ?? pickerTitle(multi)}
+      description={description ?? (multi ? 'People see each one as a card with a button to its page.' : 'People see each one as a card with a View campaign button.')}
       onCloseAutoFocus={onCloseAutoFocus}
       footer={(
         <>

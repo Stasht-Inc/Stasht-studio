@@ -8,8 +8,12 @@ import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 import { propertyAvatarImage } from '../utils/propertyImage';
-import { adminAccountsAfterChoice, sameOwner } from '../utils/adminSwitchAccounts';
+import { adminAccountDisplay, adminAccountsAfterChoice, adminRowUser, initialsInk, sameOwner } from '../utils/adminSwitchAccounts';
 import { externalOnlyPropertyRow, externalRowAvatar, groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
+
+// A collapsible section header (Admin Accounts, Properties, External). Chris 23 Nov 2026: a click left a hard black
+// focus outline round the open header; open reads as a darker gray instead, and only the keyboard gets a ring.
+const SECTION_HEADER_CLASS = 'w-full p-4 transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -27,6 +31,8 @@ export interface AdminCollaborator {
     name: string;
     email: string;
     profile_image: string | null;
+    profile_color?: string | null;
+    phone_number?: string | null;
     location?: string;
   };
 }
@@ -665,17 +671,11 @@ export function AccountChoiceModal({
           console.log('AccountChoiceModal: Selected property ID:', propertyId);
 
           // STEP 1: Store admin switch data with personal account
-          const adminAccountsArray = adminCollaborators.map(collab => {
-            const collabName = collab.owner?.name || collab.owner_name || '';
-            const collabEmail = collab.owner?.email || collab.owner_email || '';
-            const collabLocation = collab.owner?.location || collab.location || '';
-
-            return {
-              owner_id: collab.owner_id,
-              user: collabName || collabEmail ? { name: collabName, email: collabEmail, location: collabLocation } : null,
-              token: ''
-            };
-          });
+          const adminAccountsArray = adminCollaborators.map(collab => ({
+            owner_id: collab.owner_id,
+            user: adminRowUser(collab),
+            token: ''
+          }));
 
           const switchData: AdminSwitchData = {
             has_admin_access: true,
@@ -833,25 +833,12 @@ export function AccountChoiceModal({
       console.log('AccountChoiceModal: Logging in as personal...');
 
       // Store ALL admin accounts (not just the first one)
-      const adminAccountsArray = adminCollaborators.map(collab => {
-        const adminName = collab.owner?.name || collab.owner_name || '';
-        const adminEmail = collab.owner?.email || collab.owner_email || '';
-        const adminLocation = collab.owner?.location || collab.location || '';
-
-        console.log('AccountChoiceModal (personal login): Mapping collaborator:', {
-          owner_id: collab.owner_id,
-          name: adminName,
-          email: adminEmail,
-          location: adminLocation
-        });
-
-        return {
-          owner_id: collab.owner_id || collab.user_id || '',
-          user: adminName || adminEmail ? { name: adminName, email: adminEmail, location: adminLocation } : null,
-          token: '',
-          isPartialAdmin: collab.isPartialAdmin || false
-        };
-      });
+      const adminAccountsArray = adminCollaborators.map(collab => ({
+        owner_id: collab.owner_id || collab.user_id || '',
+        user: adminRowUser(collab),
+        token: '',
+        isPartialAdmin: collab.isPartialAdmin || false
+      }));
 
       console.log('AccountChoiceModal (personal login): Final adminAccountsArray:', adminAccountsArray);
 
@@ -939,17 +926,12 @@ export function AccountChoiceModal({
         current_mode: 'personal',
         current_admin_owner_id: undefined,
         personal_account: { user: personalUser, token: personalToken },
-        admin_accounts: adminCollaborators.map(collab => {
-          const collabName = collab.owner?.name || collab.owner_name || '';
-          const collabEmail = collab.owner?.email || collab.owner_email || '';
-          const collabLocation = collab.owner?.location || collab.location || '';
-          return {
-            owner_id: collab.owner_id || collab.user_id || '',
-            user: collabName || collabEmail ? { name: collabName, email: collabEmail, location: collabLocation } : null,
-            token: '',
-            isPartialAdmin: collab.isPartialAdmin || false,
-          };
-        }),
+        admin_accounts: adminCollaborators.map(collab => ({
+          owner_id: collab.owner_id || collab.user_id || '',
+          user: adminRowUser(collab),
+          token: '',
+          isPartialAdmin: collab.isPartialAdmin || false,
+        })),
       });
 
       const result = await switchIntoPropertyAccount(row);
@@ -1069,7 +1051,9 @@ export function AccountChoiceModal({
                 <button
                   onClick={() => setIsAdminSectionExpanded(!isAdminSectionExpanded)}
                   disabled={isLoading}
-                  className="w-full p-4 hover:bg-gray-50 transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-expanded={isAdminSectionExpanded}
+                  data-testid="chooser-admin-header"
+                  className={`${SECTION_HEADER_CLASS} ${isAdminSectionExpanded ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 bg-gradient-to-br from-[#6C60FF] to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
@@ -1124,10 +1108,17 @@ export function AccountChoiceModal({
                     <div className="max-h-[300px] overflow-y-auto">
                       {filteredAdminCollaborators.length > 0 ? (
                         filteredAdminCollaborators.map((adminCollab, index) => {
-                          const ownerName = adminCollab.owner?.name || adminCollab.owner_name || '';
-                          const ownerEmail = adminCollab.owner?.email || adminCollab.owner_email || '';
-                          const ownerDisplayName = ownerName || ownerEmail || `Admin Account ${index + 1}`;
+                          const shown = adminAccountDisplay(adminCollab);
                           const isCurrentLoading = loadingType === adminCollab.owner_id;
+                          const initialsCircle = (
+                            <span
+                              className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-xs ${shown.color ? '' : 'bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white'}`}
+                              style={shown.color ? { backgroundColor: shown.color, color: initialsInk(shown.color) } : undefined}
+                              aria-hidden="true"
+                            >
+                              {shown.initials}
+                            </span>
+                          );
 
                           return (
                             <button
@@ -1137,28 +1128,22 @@ export function AccountChoiceModal({
                               className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
                             >
                               <div className="flex items-center gap-3">
-                                {adminCollab.owner?.profile_image ? (
+                                {shown.image ? (
                                   <Avatar className="w-10 h-10 flex-shrink-0">
                                     <AvatarImage
-                                      src={adminCollab.owner.profile_image}
-                                      alt={adminCollab.owner.name}
+                                      src={shown.image}
+                                      alt={shown.name}
                                       className="object-cover"
                                     />
-                                    <AvatarFallback className="bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white text-xs">
-                                      {ownerDisplayName.charAt(0).toUpperCase()}
+                                    <AvatarFallback className="p-0 bg-transparent">
+                                      {initialsCircle}
                                     </AvatarFallback>
                                   </Avatar>
-                                ) : (
-                                  <div className="w-10 h-10 bg-gradient-to-br from-[#6C60FF] to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                                    <span className="text-white font-semibold text-xs">
-                                      {ownerDisplayName.charAt(0).toUpperCase()}
-                                    </span>
-                                  </div>
-                                )}
+                                ) : initialsCircle}
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <h3 className="text-sm font-medium text-gray-900 truncate">
-                                      {ownerDisplayName}
+                                    <h3 className="text-sm font-medium text-gray-900 truncate" data-testid="admin-account-name">
+                                      {shown.name}
                                     </h3>
                                     {adminCollab.isPartialAdmin && (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-semibold bg-orange-100 text-orange-600 border border-orange-200 flex-shrink-0">
@@ -1166,9 +1151,9 @@ export function AccountChoiceModal({
                                       </span>
                                     )}
                                   </div>
-                                  {ownerEmail && ownerName && (
+                                  {shown.email && (
                                     <p className="text-xs text-gray-500 truncate mt-0.5">
-                                      {ownerEmail}
+                                      {shown.email}
                                     </p>
                                   )}
                                   {(adminCollab.location || adminCollab.owner?.location) && (
@@ -1209,7 +1194,7 @@ export function AccountChoiceModal({
                     onClick={() => setExpanded(!expanded)}
                     disabled={isLoading}
                     aria-expanded={expanded}
-                    className="w-full p-4 hover:bg-gray-50 transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={`${SECTION_HEADER_CLASS} ${expanded ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">

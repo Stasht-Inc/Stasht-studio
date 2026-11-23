@@ -26,7 +26,7 @@ export default function ProfileSettingsNav({
 
     // Add a small delay to ensure DOM is fully loaded
     const setupObserver = () => {
-      const sectionIds = ['personal', 'security', 'storage', 'categories', 'privacy', 'notifications', 'preferences', 'remove'];
+      const sectionIds = ['personal', 'storage', 'categories', 'privacy', 'notifications', 'preferences', 'remove'];
       const sectionElements = sectionIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[];
       
       console.log('📍 Found sections:', sectionElements.map(el => el.id)); // Debug log
@@ -96,15 +96,6 @@ export default function ProfileSettingsNav({
           <circle cx="12" cy="12" r="10" strokeWidth={2}/>
           <circle cx="12" cy="8" r="3" strokeWidth={2}/>
           <path d="M6.168 18.849A6 6 0 0 1 12 16a6 6 0 0 1 5.832 2.849" strokeWidth={2} strokeLinecap="round"/>
-        </svg>
-      )
-    },
-    {
-      id: 'security',
-      name: 'Account Security',
-      icon: (
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
       )
     },

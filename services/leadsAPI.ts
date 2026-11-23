@@ -604,6 +604,7 @@ export const leadsAPI = {
     idempotencyKey?: string,
     attachments?: { filename: string; data: string }[],
     campaign?: ComposerCampaignPick,
+    memoryId?: number | null,
   ) => {
     return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
@@ -611,6 +612,8 @@ export const leadsAPI = {
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
         ...(campaign ? { campaign } : {}),
+        // an existing campaign whose link is in the text: sent as the lead's tracked link (23 Nov 2026, G)
+        ...(!campaign && memoryId ? { memory_id: memoryId } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -625,6 +628,7 @@ export const leadsAPI = {
     attachments?: { filename: string; data: string }[],
     idempotencyKey?: string,
     campaign?: ComposerCampaignPick,
+    memoryId?: number | null,
   ) => {
     return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/email`, {
       method: 'POST',
@@ -633,6 +637,7 @@ export const leadsAPI = {
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
         ...(campaign ? { campaign } : {}),
+        ...(!campaign && memoryId ? { memory_id: memoryId } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -649,6 +654,7 @@ export const leadsAPI = {
     idempotencyKey?: string,
     attachments?: { filename: string; data: string }[],
     campaign?: ComposerCampaignPick,
+    memoryId?: number | null,
   ) => {
     return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/chat`, {
       method: 'POST',
@@ -656,6 +662,7 @@ export const leadsAPI = {
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
         ...(campaign ? { campaign } : {}),
+        ...(!campaign && memoryId ? { memory_id: memoryId } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),

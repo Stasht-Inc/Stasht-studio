@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, RotateCcw, X } from 'lucide-react';
 import type { CampaignItem, CardOverride } from '../../../services/newslettersAPI';
 import { useImageUpload } from '../hooks/useImageUpload';
-import { CARD_LIMITS, cardEditNote, cardHasEdits, displayCard, itemButtonLabel, plainCardText } from '../lib/campaignsBlock';
+import { CARD_LIMITS, cardEditNote, cardHasEdits, displayCard, itemButtonText, plainCardText } from '../lib/campaignsBlock';
 import { httpsUrl } from '../lib/urls';
 import { BUTTON_SMALL, LABEL, inputClass, textareaClass } from '../lib/ui';
 
@@ -24,7 +24,7 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
   onClose(): void;
 }) {
   const id = `${blockId}-card-${item.kind}-${item.id}`;
-  const originals: Record<TextField, string> = { title: item.title ?? '', description: item.description ?? '', button_text: itemButtonLabel(item.kind) };
+  const originals: Record<TextField, string> = { title: item.title ?? '', description: item.description ?? '', button_text: itemButtonText(item) };
   const startText = (field: TextField) => override?.[field] || originals[field];
   // What each box shows while editing (an emptied box stays empty until it is left).
   const [text, setText] = useState<Record<TextField, string>>(() => ({ title: startText('title'), description: startText('description'), button_text: startText('button_text') }));
@@ -102,7 +102,7 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
       </div>
       <div>
         <label htmlFor={`${id}-button`} className={LABEL}>Button text</label>
-        <input id={`${id}-button`} type="text" value={text.button_text} maxLength={CARD_LIMITS.button_text} placeholder={itemButtonLabel(item.kind)}
+        <input id={`${id}-button`} type="text" value={text.button_text} maxLength={CARD_LIMITS.button_text} placeholder={itemButtonText(item)}
           onChange={(e) => type('button_text', e.target.value)} onBlur={(e) => leave('button_text', e.target.value)} className={inputClass()} />
       </div>
 
