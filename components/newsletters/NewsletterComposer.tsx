@@ -594,7 +594,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 onChange={(next) => update({ type_scale: next })} onSaveDefault={brand.saveTypeScale}>
               {htmlMode ? (
                 <HtmlDocumentPreview draft={draft} profile={profile} device={device} preview={htmlPreview}
-                  saved={Boolean(state.newsletter)} saving={!htmlRefused && (state.saveState === 'saving' || !htmlSaved)} />
+                  saved={Boolean(state.newsletter)} saving={!htmlRefused && (state.saveState === 'saving' || !htmlSaved)}
+                  saveBusy={state.saveState === 'saving'} onRetrySave={() => { void state.saveNow(); }} />
               ) : (
               <NewsletterEditor
                 draft={draft}

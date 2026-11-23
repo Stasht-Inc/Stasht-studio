@@ -16,7 +16,10 @@ import { brokenPicturesNote } from './lib/htmlMode';
  * Q4 follow-up: the frame loads the template's web fonts (font services only, from the API) and pictures; it is fitted
  * again once the fonts are in. Pictures that fail to load are listed at the bottom of the card ("2 pictures didn't load").
  */
-export default function HtmlDocumentPreview({ draft, profile, device, preview, saved, saving }: {
+/** How long "Saving…" may show while no save is running before it says the HTML was not kept (23 Nov: it spun forever). */
+export const STUCK_SAVE_MS = 12000;
+
+export default function HtmlDocumentPreview({ draft, profile, device, preview, saved, saving, saveBusy = false, onRetrySave }: {
   draft: NewsletterDraft;
   profile: SenderProfile | null;
   device: PreviewDevice;
@@ -25,6 +28,10 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
   saved: boolean;
   /** A save is on its way: the preview is about to change. */
   saving: boolean;
+  /** A save request is running right now. */
+  saveBusy?: boolean;
+  /** Save again (offered when the HTML was not kept). */
+  onRetrySave?: () => void;
 }) {
   const phone = device === 'phone';
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -44,6 +51,16 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
   useEffect(() => setBroken([]), [preview.html]);
   const brokenNote = preview.html !== null ? brokenPicturesNote(broken) : null;
   const pasted = draft.content.html_document.trim() !== '';
+  const waiting = pasted && (!saved || (preview.html === null && !preview.error));
+  // Waiting with no save running for STUCK_SAVE_MS: the saved copy came back without this HTML (e.g. an API that does
+  // not know HTML mode), so say so instead of spinning forever. Any edit or save starts the wait again.
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    setStuck(false);
+    if (!waiting || saveBusy) return undefined;
+    const timer = window.setTimeout(() => setStuck(true), STUCK_SAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [waiting, saveBusy, draft.content.html_document]);
 
   let body;
   if (!pasted) {
@@ -53,7 +70,14 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
         <p className="text-sm text-gray-600">Paste your HTML to see your email here.</p>
       </div>
     );
-  } else if (!saved || (preview.html === null && !preview.error)) {
+  } else if (waiting && stuck) {
+    body = (
+      <div role="alert" className="rounded-lg bg-white px-4 py-8 text-center text-sm text-red-700" data-testid="nl-html-save-stuck">
+        <p>Your HTML wasn't saved, so the preview can't show yet.</p>
+        {onRetrySave ? <button type="button" onClick={() => { setStuck(false); onRetrySave(); }} className={`${LINK_BUTTON} mt-2`}>Try again</button> : null}
+      </div>
+    );
+  } else if (waiting) {
     body = (
       <p className="flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-12 text-center text-sm text-gray-500">
         <Loader2 className="h-4 w-4 animate-spin text-[#6C60FF]" aria-hidden="true" />Saving… the preview shows once it is saved.
