@@ -2,10 +2,12 @@
 // HTML (the composer's "Sections | HTML" switch). Both are kept whichever shows; the mode showing at Send is what goes
 // out. An HTML newsletter goes out by email only (Deepak, 22 Nov): Studio counts, checks and sends it by email, whatever
 // was ticked for the sections (the API does the same: NewsletterContentMode::channels). Pure.
-import type { ContentMode, NewsletterChannel, RemovedItem } from '../../../services/newslettersAPI.ts';
+import type { ContentMode, NewsletterBlock, NewsletterChannel, RemovedItem } from '../../../services/newslettersAPI.ts';
 import type { DraftContent, NewsletterDraft } from './draft.ts';
 import { LIMITS } from './rules.ts';
 import { formatCount } from './audience.ts';
+import { isMessageBlock } from './messageBlock.ts';
+import { textHtmlIsEmpty } from './textHtml.ts';
 
 export const CONTENT_MODE_OPTIONS: ReadonlyArray<{ value: ContentMode; label: string }> = [
   { value: 'sections', label: 'Sections' },
@@ -113,4 +115,30 @@ export function jumpToHtmlBox(): void {
     window.setTimeout(() => box.removeAttribute('data-nl-flash'), 1600);
   };
   run(10);
+}
+
+// ---- your sections as HTML (Chris 23 Nov 2026, A)
+
+/** Above the HTML box while it holds the sections' HTML made by the API (POST /newsletters/{id}/sections-html). */
+export const SECTIONS_AS_HTML_NOTE = 'Your sections as HTML. Paste over it to use another email.';
+/** At the bottom of the Content card when that HTML could not be fetched (the box stays empty). */
+export const SECTIONS_HTML_FAILED = 'Your sections couldn’t be loaded as HTML. Paste your HTML instead.';
+
+/**
+ * A section with something in it, for "your sections as HTML": every section except the Message section counts; the
+ * Message section counts only when it has words (it is plain text, no pictures). So a brand-new draft whose only section
+ * is an empty Message gets the empty box, ready for a pasted template (coordinator, 23 Nov).
+ */
+export function hasSectionContent(blocks: readonly { id: string; type: string; data?: unknown }[]): boolean {
+  return blocks.some((b) => !isMessageBlock(b as Pick<NewsletterBlock, 'id' | 'type'>) || !textHtmlIsEmpty((b.data as { html?: string } | undefined)?.html ?? ''));
+}
+
+/** Switching to HTML fills the box from the sections only when the box is empty and a section has something in it. */
+export function fillsFromSections(d: { content: DraftContent; blocks: readonly { id: string; type: string; data?: unknown }[] }): boolean {
+  return d.content.html_document.trim() === '' && hasSectionContent(d.blocks);
+}
+
+/** The box still holds exactly the generated HTML (the note and "no own-unsubscribe note" apply only then). */
+export function isGeneratedHtml(value: string, generated: string | null): boolean {
+  return generated !== null && value.trim() !== '' && value.trim() === generated.trim();
 }

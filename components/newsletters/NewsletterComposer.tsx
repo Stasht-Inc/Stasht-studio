@@ -46,7 +46,7 @@ import SegmentedSwitch from './SegmentedSwitch';
 import HtmlDocumentStep from './HtmlDocumentStep';
 import HtmlDocumentPreview from './HtmlDocumentPreview';
 import { useHtmlDocumentPreview } from './hooks/useHtmlDocumentPreview';
-import { CONTENT_MODE_OPTIONS, EMAIL_ONLY_NOTE, isHtmlMode, jumpToHtmlBox, sendChannels } from './lib/htmlMode';
+import { CONTENT_MODE_OPTIONS, EMAIL_ONLY_NOTE, SECTIONS_HTML_FAILED, fillsFromSections, isHtmlMode, jumpToHtmlBox, sendChannels } from './lib/htmlMode';
 import type { ContentMode } from '../../services/newslettersAPI';
 
 export interface NewsletterComposerHandle {
@@ -155,9 +155,44 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     htmlMode && htmlSaved && !hidden && !state.loading && draft.content.html_document.trim() !== '');
   const changeContentMode = (mode: ContentMode) => update((d) => (d.content.mode === mode ? null : { content: { ...d.content, mode } }));
   // Switching to HTML with nothing pasted yet takes you to the HTML box (it sits in step 4, off screen).
+  // Chris 23 Nov 2026 (A): when the newsletter has sections, the box is first filled with them as HTML (the API's
+  // sections email without our footer and View in browser, which the HTML email adds) and saved. One way: the sections
+  // stay as they are. Only into an empty box, and only if nothing was typed while it loaded.
+  const [sectionsHtml, setSectionsHtml] = useState<{ generated: string | null; loading: boolean; error: string | null }>({ generated: null, loading: false, error: null });
+  const sectionsRequestRef = useRef(0);
   const pickContentMode = (mode: ContentMode) => {
+    const toHtml = mode === 'html' && draft.content.mode !== 'html';
     changeContentMode(mode);
-    if (mode === 'html' && draft.content.mode !== 'html' && draft.content.html_document.trim() === '') jumpToHtmlBox();
+    if (!toHtml) {
+      sectionsRequestRef.current += 1; // an answer still on its way is for nothing on screen now
+      setSectionsHtml((s) => (s.loading || s.error ? { ...s, loading: false, error: null } : s));
+      return;
+    }
+    if (draft.content.html_document.trim() !== '') return;
+    jumpToHtmlBox();
+    if (!fillsFromSections(draft) || readOnly) return;
+    const request = ++sectionsRequestRef.current;
+    setSectionsHtml({ generated: null, loading: true, error: null });
+    void (async () => {
+      // The API draws the saved sections: save what is on screen first (the switch itself is saved too).
+      const saved = await state.saveNow();
+      const id = saved.newsletter?.id ?? state.newsletter?.id ?? null;
+      const res = id ? await newslettersAPI.sectionsHtml(id) : null;
+      if (request !== sectionsRequestRef.current) return;
+      const html = res?.ok && typeof res.data?.html === 'string' ? res.data.html.trim() : '';
+      if (!html) {
+        setSectionsHtml({ generated: null, loading: false, error: SECTIONS_HTML_FAILED });
+        return;
+      }
+      let filled = false;
+      update((d) => {
+        if (d.content.mode !== 'html' || d.content.html_document.trim() !== '') return null;
+        filled = true;
+        return { content: { ...d.content, html_document: html } };
+      });
+      setSectionsHtml({ generated: filled ? html : null, loading: false, error: null });
+      if (filled) jumpToHtmlBox();
+    })();
   };
   // Live recipient counts only while the Newsletter tab shows on a paid plan (debounced in the hook).
   // A Single person box still being typed counts as nobody yet (lib/person.ts).
@@ -565,7 +600,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                     onChange={(html_document) => update((d) => ({ content: { ...d.content, html_document } }))}
                     error={state.fieldErrors['content.html_document'] ?? state.fieldErrors['content.mode'] ?? null}
                     removed={htmlPreview.removed} sizeKb={htmlPreview.sizeKb}
-                    switched={htmlPreview.switched} removedPictures={htmlPreview.removedPictures} />
+                    switched={htmlPreview.switched} removedPictures={htmlPreview.removedPictures}
+                    generated={sectionsHtml.generated} loadingSections={sectionsHtml.loading} sectionsError={sectionsHtml.error} />
                 ) : (
                   <TemplatePicker value={draft.template} readOnly={readOnly} />
                 )}

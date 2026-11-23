@@ -1,0 +1,6 @@
+[
+ {"id":"b1","type":"title","data":{"text":"Holiday lash packages","size":"large","align":"center"}},
+ {"id":"b2","type":"image","data":{"url":"https://127.0.0.1/nl-img/pwa-icon-512.png","alt":"Lash set","link":"https://thebodypolitik.example/lashes","width":240}},
+ {"id":"b3","type":"text","data":{"html":"<p>Four sets for the price of three, all November. <a href=\"https://thebodypolitik.example/deals\">See the deal</a>.</p>","background_color":"#FEF3C7"}},
+ {"id":"b4","type":"button","data":{"label":"Book now","url":"https://thebodypolitik.example/book","color":"#4B2E1E"}}
+]
