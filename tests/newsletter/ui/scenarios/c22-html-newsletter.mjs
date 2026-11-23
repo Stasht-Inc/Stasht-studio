@@ -46,12 +46,20 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await modeSwitch.getByRole('radio', { name: 'HTML' }).click();
     const box = content.getByLabel('HTML Content');
     await expectVisible(box, `${tag}: HTML Content box`);
-    expect(await box.getAttribute('placeholder') === 'Paste your HTML code here...', `${tag}: Storeel's placeholder`);
-    expect(await content.getByText('Choose a template').count() === 0, `${tag}: the template cards make way for the HTML box`);
-    // 23 Nov: switching to HTML with nothing pasted takes you to the box (cursor in it, box on screen).
-    await page.waitForTimeout(700);
+    // 23 Nov (A): the draft has a section (its Message), so the box is first filled with the sections as HTML, with
+    // the note; clearing it gives the empty box this walk goes on with.
+    await expectVisible(content.getByText('Your sections as HTML. Paste over it to use another email.'), `${tag}: filled from the sections`);
+    expect((await box.inputValue()).includes('data-mock-sections') && api.state.sectionsHtmlCalls === 1, `${tag}: the box holds the sections' HTML`);
+    // Switching takes you to the box (cursor in it, on screen) — also once it is filled.
+    await page.waitForTimeout(900);
     expect(await box.evaluate((el) => el === document.activeElement), `${tag}: the cursor is in the HTML box after switching`);
     expect(await box.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }), `${tag}: the HTML box is on screen after switching`);
+    await box.fill('');
+    await page.waitForTimeout(300);
+    expect(await content.getByText('Your sections as HTML. Paste over it to use another email.').count() === 0, `${tag}: the note goes once the box changes`);
+    expect(await box.getAttribute('placeholder') === 'Paste your HTML code here...', `${tag}: Storeel's placeholder`);
+    expect(await content.getByText('Choose a template').count() === 0, `${tag}: the template cards make way for the HTML box`);
+    await page.waitForTimeout(700);
     await shot(page, `${tag}-02a-jumped-to-box`);
     await expectVisible(aside.getByText(/Paste your HTML in step 4, Content\./), `${tag}: preview's empty state points to the box`);
     await aside.getByTestId('nl-html-empty-preview').scrollIntoViewIfNeeded();

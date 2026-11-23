@@ -136,3 +136,23 @@ test('hasOwnUnsubscribe: Mailchimp tag, links and words; plain templates without
   assert.equal(hasOwnUnsubscribe(''), false);
   assert.match(OWN_UNSUBSCRIBE_NOTE, /ours is added/);
 });
+
+// ---- Chris 23 Nov 2026 (A): switching an existing newsletter to HTML fills the box with its sections.
+import { fillsFromSections, isGeneratedHtml, SECTIONS_AS_HTML_NOTE, SECTIONS_HTML_FAILED } from '../../components/newsletters/lib/htmlMode.ts';
+
+test('the box is filled from the sections only when it is empty and there are sections', () => {
+  const block = { id: 'b1', type: 'title', data: { text: 'Hi', size: 'large' } };
+  assert.equal(fillsFromSections({ content: { mode: 'sections', html_document: '' }, blocks: [block] }), true);
+  assert.equal(fillsFromSections({ content: { mode: 'sections', html_document: '  \n' }, blocks: [block] }), true);
+  assert.equal(fillsFromSections({ content: { mode: 'sections', html_document: '<p>mine</p>' }, blocks: [block] }), false, 'never over a paste');
+  assert.equal(fillsFromSections({ content: { mode: 'sections', html_document: '' }, blocks: [] }), false, 'no sections: empty box');
+});
+
+test('the note shows only while the box holds exactly the generated HTML', () => {
+  assert.equal(isGeneratedHtml('<html>x</html>', '<html>x</html>\n'), true);
+  assert.equal(isGeneratedHtml('<html>x</html> edited', '<html>x</html>'), false);
+  assert.equal(isGeneratedHtml('', ''), false);
+  assert.equal(isGeneratedHtml('<html>x</html>', null), false);
+  assert.equal(SECTIONS_AS_HTML_NOTE, 'Your sections as HTML. Paste over it to use another email.');
+  assert.match(SECTIONS_HTML_FAILED, /Paste your HTML/);
+});

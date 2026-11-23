@@ -114,3 +114,20 @@ export function jumpToHtmlBox(): void {
   };
   run(10);
 }
+
+// ---- your sections as HTML (Chris 23 Nov 2026, A)
+
+/** Above the HTML box while it holds the sections' HTML made by the API (POST /newsletters/{id}/sections-html). */
+export const SECTIONS_AS_HTML_NOTE = 'Your sections as HTML. Paste over it to use another email.';
+/** At the bottom of the Content card when that HTML could not be fetched (the box stays empty). */
+export const SECTIONS_HTML_FAILED = 'Your sections couldn’t be loaded as HTML. Paste your HTML instead.';
+
+/** Switching to HTML fills the box from the sections only when the box is empty and there is at least one section. */
+export function fillsFromSections(d: { content: DraftContent; blocks: readonly unknown[] }): boolean {
+  return d.content.html_document.trim() === '' && d.blocks.length > 0;
+}
+
+/** The box still holds exactly the generated HTML (the note and "no own-unsubscribe note" apply only then). */
+export function isGeneratedHtml(value: string, generated: string | null): boolean {
+  return generated !== null && value.trim() !== '' && value.trim() === generated.trim();
+}

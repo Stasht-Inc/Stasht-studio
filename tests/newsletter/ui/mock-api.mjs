@@ -1210,6 +1210,13 @@ export function createMockApi(options = {}) {
         state.newsletters.push(copy);
         return ok(copy, 201);
       }
+      // Chris 23 Nov 2026 (A): POST /newsletters/{id}/sections-html — the sections as standalone HTML (read only).
+      // options.sectionsHtml: the real API output for the scenario's sections; sectionsHtmlFail: answer 500.
+      if (action === 'sections-html') {
+        state.sectionsHtmlCalls = (state.sectionsHtmlCalls ?? 0) + 1;
+        if (state.sectionsHtmlFail) return fail(500, { success: false, message: 'Server Error' });
+        return ok({ html: options.sectionsHtml ?? `<!DOCTYPE html><html><body><div data-mock-sections>${(n.blocks ?? []).length} sections</div></body></html>`, sections: (n.blocks ?? []).length });
+      }
       if (action === 'preview' && isHtmlNewsletter(n)) {
         state.previewCalls += 1;
         // The API's own email for the fixture template (tests/newsletter/ui/fixtures, rendered by NewsletterRenderer),
@@ -1352,6 +1359,7 @@ export function createMockApi(options = {}) {
       state.uploads.push({ bytes: buf?.length ?? 0, type: /Content-Type:\s*([^\r\n]+)/i.exec(head)?.[1]?.trim() ?? null, name: /filename="([^"]*)"/.exec(head)?.[1] ?? null });
       if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     }
+    if (/^\/newsletters\/\d+\/sections-html$/.test(path) && state.sectionsHtmlDelayMs) await new Promise((r) => setTimeout(r, state.sectionsHtmlDelayMs));
     if (path === '/newsletters/campaign-options' && state.optionsDelayMs) await new Promise((r) => setTimeout(r, state.optionsDelayMs));
     if (state.leadsDelayMs && request.method() === 'GET' && ['/leads', '/lead-groups', '/my-conversations', '/contact-lists'].includes(path)) await new Promise((r) => setTimeout(r, state.leadsDelayMs));
     const answer = handle(request.method(), path, url.searchParams, body);
