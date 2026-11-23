@@ -60,3 +60,28 @@ export function itemCount(count: number, kind: PickedCampaign['kind']): string {
 export function fallbackDraft(count: number, kind: PickedCampaign['kind']): string {
   return `Here ${count === 1 ? 'is' : 'are'} ${itemCount(count, kind).replace(/^1 /, 'a ')} picked for you: ${CAMPAIGN_PLACEHOLDER}`;
 }
+
+// ---- "+ Campaign" = the account's EXISTING campaigns (Chris 23 Nov 2026, G) -------------------------------------------
+// "+ Products" keeps making a new campaign of picked products on Send. "+ Campaign" lists the campaigns the account
+// already has (the newsletter's "Choose campaigns" list) and puts each one's title and public link into the box at the
+// cursor. The first one goes with Send as memory_id, so the server sends its link as the lead's tracked link (the
+// "viewed" line in the thread), as a Storeel send does.
+
+export interface ExistingCampaignPick { id: number; title: string; url: string }
+
+/** "Title: link", one line per campaign (the products share's own "Name: link" lines). Ones without a link are left out. */
+export function existingCampaignsText(picks: ReadonlyArray<ExistingCampaignPick>): string {
+  return picks
+    .filter((p) => /^https?:\/\/\S+$/i.test(p.url.trim()))
+    .map((p) => {
+      const title = p.title.replace(/\s+/g, ' ').trim();
+      return title ? `${title}: ${p.url.trim()}` : p.url.trim();
+    })
+    .join('\n');
+}
+
+/** The campaign whose link the server tracks: the first picked one still in the box (null = none). */
+export function trackedCampaignId(text: string, picks: ReadonlyArray<ExistingCampaignPick>): number | null {
+  const found = picks.find((p) => p.url.trim() !== '' && text.includes(p.url.trim()));
+  return found ? found.id : null;
+}

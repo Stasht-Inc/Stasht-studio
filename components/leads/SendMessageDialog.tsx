@@ -11,11 +11,13 @@ import CountrySelect from '../CountrySelect';
 import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phoneUtils';
 import { useProperty } from '../../contexts/PropertyContext';
 import { actingPerson, messageSignoff } from '../../utils/messageSignoff';
-import { fallbackDraft, removeDraft, replaceDraft } from '../../utils/composerCampaign';
+import { existingCampaignsText, fallbackDraft, insertDraft, removeDraft, replaceDraft, trackedCampaignId, type ExistingCampaignPick } from '../../utils/composerCampaign';
+import CampaignPickerDialog from '../newsletters/CampaignPickerDialog';
+import type { CampaignItem } from '../../services/newslettersAPI';
 import { defaultSendAs, offersBusiness, SEND_AS_BUSINESS } from '../../utils/sendAsDefault';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { findPropertyRow } from '../../utils/propertyRows';
-import { CAMPAIGN_PILL, ProductsPickButton, useHasProducts } from './CampaignPickButtons';
+import { CAMPAIGN_PILL, EXISTING_CAMPAIGNS_DESCRIPTION, EXISTING_CAMPAIGNS_TITLE, ProductsPickButton, useCampaignSources, VehiclesPickButton } from './CampaignPickButtons';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
@@ -94,7 +96,11 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const [showPicker, setShowPicker] = useState(false);
   // "+ Products" opens the picker on its Products tab; "+ Campaign" and Edit as before (undefined).
   const [pickerKind, setPickerKind] = useState<PickKind | undefined>(undefined);
-  const hasProducts = useHasProducts(open);
+  const pickSources = useCampaignSources(open);
+  const hasProducts = pickSources.products;
+  // "+ Campaign" (Chris 23 Nov 2026, G): the account's existing campaigns, their title + link put in the message.
+  const [showExistingPicker, setShowExistingPicker] = useState(false);
+  const [existingPicks, setExistingPicks] = useState<ExistingCampaignPick[]>([]);
   const [propertyId, setPropertyId] = useState<string>('');
   const [properties, setProperties] = useState<Option[]>([]);
   const [sending, setSending] = useState(false);
@@ -105,7 +111,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   useEffect(() => {
     if (!open) return;
     setChannel('sms'); setName(''); setPhoneCountry('+1'); setPhone(''); setEmail(''); setSubjectOverride(null); setBodyOverride(null);
-    setPicked(null); setShowPicker(false); setError(null);
+    setPicked(null); setShowPicker(false); setError(null); setShowExistingPicker(false); setExistingPicks([]);
 
     let cancelled = false;
     // The full GET /properties rows, found however the response is wrapped (utils/propertyRows, as AccountChoiceModal).
@@ -184,6 +190,19 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     setError(null);
   };
 
+  // "+ Campaign" → Done (G): each picked campaign's "Title: link" goes in at the cursor (after the suggested text).
+  const pickExisting = (_selections: unknown, items: CampaignItem[]) => {
+    const picks = items.filter((i) => i.kind === 'campaign' && i.url).map((i) => ({ id: i.id, title: i.title, url: i.url }));
+    const text = existingCampaignsText(picks);
+    if (!text) return;
+    const el = bodyRef.current;
+    const at = bodyOverride === null ? body.length : el?.selectionStart ?? body.length;
+    const next = insertDraft(body, at, bodyOverride === null ? body.length : el?.selectionEnd ?? body.length, text);
+    setBodyOverride(next.text);
+    setExistingPicks((prev) => [...prev, ...picks.filter((p) => !prev.some((q) => q.id === p.id))]);
+    setError(null);
+  };
+
   const removeCampaign = () => {
     if (picked?.draft) {
       const rest = removeDraft(body, picked.draft);
@@ -205,6 +224,8 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
         body: body.trim(),
         ...(asBusiness ? { send_as: 'account' } : propertyId ? { property_id: propertyId } : {}),
         ...(picked ? { ...campaignIdsBody(picked.kind, picked.ids), campaign_title: picked.name } : {}),
+        // An existing campaign put in with "+ Campaign" (G): the server tracks its link (never with new items).
+        ...(!picked && trackedCampaignId(body, existingPicks) ? { memory_id: trackedCampaignId(body, existingPicks) as number } : {}),
       });
       if (res.success && res.data) {
         const what = picked ? `Message sent with a new campaign, "${picked.name}"` : 'Message sent';
@@ -330,7 +351,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           )}
 
           <div>
-            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — the items go into your message; the campaign is created when you send)</span></span>
+            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — goes into your message; products make a new campaign when you send)</span></span>
             {picked ? (
               <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-[#F3F4F6] px-3 py-2">
                 <span aria-hidden="true" className="w-8 h-8 shrink-0 rounded-md bg-white flex items-center justify-center">
@@ -360,10 +381,12 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
               // Same "＋ Products" / "＋ Campaign" pills as the lead chat composer (CampaignPickButtons).
               <div className="flex flex-wrap items-center gap-2">
                 {hasProducts && <ProductsPickButton onClick={() => { setPickerKind('product'); setShowPicker(true); }} />}
+                {pickSources.vehicles && !hasProducts && <VehiclesPickButton onClick={() => { setPickerKind('vehicle'); setShowPicker(true); }} />}
                 <button
                   type="button"
                   aria-labelledby="sm-campaign-label"
-                  onClick={() => { setPickerKind(undefined); setShowPicker(true); }}
+                  title="Add a campaign to your message"
+                  onClick={() => setShowExistingPicker(true)}
                   className={CAMPAIGN_PILL}
                 >
                   <Plus className="w-4 h-4" aria-hidden="true" />
@@ -417,6 +440,17 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           initialCampaignName={pickerKind && picked && !samePickTab(picked.kind, pickerKind) ? undefined : picked?.name}
           initialKind={pickerKind && picked && samePickTab(picked.kind, pickerKind) ? picked.kind : (pickerKind ?? picked?.kind)}
           onPick={pickCampaign}
+        />
+        <CampaignPickerDialog
+          open={showExistingPicker}
+          onOpenChange={setShowExistingPicker}
+          only="campaign"
+          title={EXISTING_CAMPAIGNS_TITLE}
+          description={EXISTING_CAMPAIGNS_DESCRIPTION}
+          initialSelections={[]}
+          knownItems={[]}
+          onDone={pickExisting}
+          onCloseAutoFocus={(e) => { e.preventDefault(); bodyRef.current?.focus(); }}
         />
 
         <div className="border-t border-gray-100 px-6 py-4 flex gap-3">
