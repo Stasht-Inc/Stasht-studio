@@ -164,7 +164,9 @@ export type ContentMode = 'sections' | 'html';
 export interface NewsletterContent { mode: ContentMode; html_document?: string | null }
 /** What the API's cleaning removed from a pasted template ("4 scripts"): POST /newsletters/{id}/preview, HTML only. */
 export interface RemovedItem { type: string; count: number; label: string }
-export interface NewsletterPreview { html: string; size_kb?: number; size_limit_kb?: number; mode?: ContentMode; removed?: RemovedItem[] }
+/** HTML mode (Chris 22 Nov 2026, Q4): `switched` = http pictures the API switched to https; `removed_pictures` = the
+ *  addresses of pictures it removed (data:, no web address), at most 10. */
+export interface NewsletterPreview { html: string; size_kb?: number; size_limit_kb?: number; mode?: ContentMode; removed?: RemovedItem[]; switched?: number; removed_pictures?: string[] }
 
 /** Who set a locked header: { by: 'Serpa Chrysler', message: 'Header set by Serpa Chrysler' }. */
 export interface HeaderLock { by: string; message: string }

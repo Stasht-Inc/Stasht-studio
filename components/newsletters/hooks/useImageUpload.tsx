@@ -4,12 +4,16 @@ import { newslettersAPI } from '../../../services/newslettersAPI';
 import { PICK_ACCEPT, imageFileProblem, prepareImage } from '../lib/images';
 import { httpsUrl } from '../lib/urls';
 
-/** A hidden file input plus upload to /newsletters/images. Render `input` once; call `choose()` from a button. */
-export function useImageUpload(onUploaded: (url: string) => void, testId?: string) {
+/** A hidden file input plus upload to /newsletters/images. Render `input` once; call `choose()` from a button.
+ *  onError: show problems yourself (e.g. at the bottom of the card; called with null when an upload starts) instead of a toast. */
+export function useImageUpload(onUploaded: (url: string) => void, testId?: string, onError?: (message: string | null) => void) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const onUploadedRef = useRef(onUploaded);
   onUploadedRef.current = onUploaded;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const fail = (message: string) => (onErrorRef.current ? onErrorRef.current(message) : composerToast.error(message));
 
   // One upload at a time: a second file chosen or dropped while one is on its way is ignored.
   const busyRef = useRef(false);
@@ -18,13 +22,14 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
     if (busyRef.current) return;
     busyRef.current = true;
     setUploading(true);
+    onErrorRef.current?.(null);
     // Phone photos: shrunk and saved as JPEG in the browser first (HEIC too, where the browser can open it).
     const prepared = await prepareImage(picked);
     const problem = 'error' in prepared ? prepared.error : imageFileProblem(prepared.file);
     if (problem || 'error' in prepared) {
       busyRef.current = false;
       setUploading(false);
-      composerToast.error(problem ?? 'The image could not be uploaded. Try again.');
+      fail(problem ?? 'The image could not be uploaded. Try again.');
       return;
     }
     const res = await newslettersAPI.uploadImage(prepared.file);
@@ -32,7 +37,7 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
     setUploading(false);
     const url = res.ok ? httpsUrl(res.data?.url) : null;
     if (url) onUploadedRef.current(url);
-    else composerToast.error(res.fieldErrors.file ?? res.error ?? 'The image could not be uploaded. Try again.');
+    else fail(res.fieldErrors.file ?? res.error ?? 'The image could not be uploaded. Try again.');
   }, []);
 
   const input = (

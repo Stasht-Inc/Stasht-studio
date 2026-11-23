@@ -49,3 +49,39 @@ export function removedSummary(removed: readonly RemovedItem[] | null | undefine
     detail: items.map((r) => r.label).join(', '),
   };
 }
+
+// ---- pictures (Chris 22 Nov 2026, Q4 follow-up: pasted templates keep their fonts and pictures)
+
+/** Under the box when the paste had pictures written inside the HTML (data:): Gmail blocks those. */
+export const DATA_PICTURES_HINT = 'Gmail blocks pictures saved inside the HTML. Use Add image to upload them.';
+
+/** "3 pictures switched to https" (info: the API draws http:// pictures from https://); null for none. */
+export function switchedNote(switched: number | null | undefined): string | null {
+  const n = Number.isFinite(switched) ? Math.max(0, Math.floor(switched as number)) : 0;
+  if (!n) return null;
+  return `${formatCount(n)} ${n === 1 ? 'picture' : 'pictures'} switched to https`;
+}
+
+/** "2 pictures didn't load" for the preview's pictures that failed, with their addresses (no repeats); null for none. */
+export function brokenPicturesNote(urls: readonly string[]): { title: string; urls: string[] } | null {
+  const list = [...new Set(urls.filter((u) => typeof u === 'string' && u.trim() !== ''))];
+  if (!list.length) return null;
+  return { title: `${formatCount(list.length)} ${list.length === 1 ? "picture didn't" : "pictures didn't"} load`, urls: list };
+}
+
+/** The tag Add image puts in the HTML for an uploaded picture (full width on phones, 600 px on a computer). */
+export function imageTag(url: string): string {
+  const src = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<img src="${src}" alt="" style="display:block;max-width:100%;height:auto;" width="600">`;
+}
+
+/** The HTML with `snippet` put where the cursor was (replacing a selection), or at the end on a new line when there is
+ *  no cursor; and where the cursor goes after it. */
+export function insertSnippet(value: string, snippet: string, start: number | null, end: number | null): { value: string; cursor: number } {
+  if (start == null || end == null || start < 0 || end < start || end > value.length) {
+    const sep = value === '' || value.endsWith('\n') ? '' : '\n';
+    const next = `${value}${sep}${snippet}`;
+    return { value: next, cursor: next.length };
+  }
+  return { value: value.slice(0, start) + snippet + value.slice(end), cursor: start + snippet.length };
+}

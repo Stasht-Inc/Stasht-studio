@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Code, Loader2 } from 'lucide-react';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
@@ -6,11 +6,15 @@ import type { HtmlDocumentPreviewState } from './hooks/useHtmlDocumentPreview';
 import type { PreviewDevice } from './DeviceToggle';
 import InboxRow from './InboxRow';
 import { LINK_BUTTON } from './lib/ui';
+import { brokenPicturesNote } from './lib/htmlMode';
 
 /**
  * Chris 22 Nov 2026 (Q4): the EMAIL PREVIEW in HTML mode, in the editor's frame (Inbox line, grey page, phone frame for
  * Phone view). It shows the API's own email (the cleaned template with our footer and unsubscribe link, fetched after
  * each save: useHtmlDocumentPreview) in a frame that runs no scripts, sized to its content. Nothing is edited here.
+ *
+ * Q4 follow-up: the frame loads the template's web fonts (font services only, from the API) and pictures; it is fitted
+ * again once the fonts are in. Pictures that fail to load are listed at the bottom of the card ("2 pictures didn't load").
  */
 export default function HtmlDocumentPreview({ draft, profile, device, preview, saved, saving }: {
   draft: NewsletterDraft;
@@ -25,11 +29,20 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
   const phone = device === 'phone';
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
-  // Fit the frame to the email once it (and its pictures) have loaded.
+  const [broken, setBroken] = useState<string[]>([]);
+  // Fit the frame to the email once it (and its pictures) have loaded, and again when its web fonts are in (text set in
+  // a web font takes another height). The frame's pictures that failed are listed under it.
   const fit = useCallback(() => {
     const doc = frameRef.current?.contentDocument;
-    if (doc?.documentElement) setHeight(Math.max(240, Math.ceil(doc.documentElement.scrollHeight)));
+    if (!doc?.documentElement) return;
+    const measure = () => setHeight(Math.max(240, Math.ceil(doc.documentElement.scrollHeight)));
+    measure();
+    setBroken([...doc.images].filter((img) => img.complete && img.naturalWidth === 0 && img.getAttribute('src')).map((img) => img.getAttribute('src') as string));
+    void doc.fonts?.ready.then(measure).catch(() => undefined);
   }, []);
+  // A new email: what failed before is for the old one.
+  useEffect(() => setBroken([]), [preview.html]);
+  const brokenNote = preview.html !== null ? brokenPicturesNote(broken) : null;
   const pasted = draft.content.html_document.trim() !== '';
 
   let body;
@@ -78,6 +91,14 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
         <div className={phone ? 'mx-auto w-[375px] max-w-full overflow-hidden rounded-[2rem] border-[6px] border-gray-900 bg-white' : 'overflow-hidden rounded-lg bg-white'}>
           {body}
         </div>
+        {brokenNote ? (
+          <div role="status" data-nl-html-broken-pictures="" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <p className="font-medium">{brokenNote.title}</p>
+            <ul className="mt-1 list-none space-y-0.5 break-all">
+              {brokenNote.urls.map((url) => <li key={url}>{url}</li>)}
+            </ul>
+          </div>
+        ) : null}
         {preview.error && preview.html !== null ? (
           <p role="alert" className="mt-3 text-center text-xs text-red-600">{preview.error} <button type="button" onClick={preview.reload} className={LINK_BUTTON}>Try again</button></p>
         ) : null}

@@ -1019,6 +1019,8 @@ export function createMockApi(options = {}) {
       return ok(n, 201);
     }
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
+    // uploadFailMessage (Q4 follow-up): the next uploads are refused with this 422 file error.
+    if (path === '/newsletters/images' && state.uploadFailMessage) return fail(422, { success: false, message: state.uploadFailMessage, errors: { file: [state.uploadFailMessage] } });
     if (path === '/newsletters/images') return ok({ url: state.uploadUrl ?? IMG }, 201);
     if (path === '/newsletters/lead-options' && method === 'GET') {
       // NewsletterLeadOptionsController: 20 a page, newest first; search matches name, email or phone digits; lead_id
@@ -1212,8 +1214,13 @@ export function createMockApi(options = {}) {
         state.previewCalls += 1;
         // The API's own email for the fixture template (tests/newsletter/ui/fixtures, rendered by NewsletterRenderer),
         // else a stand-in: the cleaned paste and the footer with the unsubscribe line.
-        const fx = options.htmlDocumentFixture;
-        if (fx && (n.content.html_document ?? '').trim() === fx.source.trim()) return ok({ html: fx.html, size_kb: state.previewSizeKb ?? fx.size_kb, size_limit_kb: 100, mode: 'html', removed: fx.removed });
+        // htmlDocumentFixture: one fixture or a list (Q4 follow-up: the template before and after Add image).
+        const fixtures = [options.htmlDocumentFixture].flat().filter(Boolean);
+        const fx = fixtures.find((f) => (n.content.html_document ?? '').trim() === f.source.trim());
+        if (fx) {
+          return ok({ html: fx.html, size_kb: state.previewSizeKb ?? fx.size_kb, size_limit_kb: 100, mode: 'html', removed: fx.removed,
+            ...(fx.switched !== undefined ? { switched: fx.switched, removed_pictures: fx.removed_pictures ?? [] } : {}) });
+        }
         const html = `<!doctype html><html><body style="margin:0"><div class="nl-doc" data-mock-doc>${mockCleanHtml(n.content.html_document ?? '')}</div>`
           + '<table width="100%"><tr><td style="padding:16px;text-align:center;color:#6B7280;font-size:12px">You\'re getting this because you\'re in touch with Samantha Smith. <a href="#">Unsubscribe</a><br>Powered by Stasht</td></tr></table></body></html>';
         return ok({ html, size_kb: state.previewSizeKb ?? 3, size_limit_kb: 100, mode: 'html', removed: [] });
@@ -1305,6 +1312,9 @@ export function createMockApi(options = {}) {
       return route.fulfill({ contentType: 'text/javascript', body: 'window.Stripe=function(){return{elements:function(){return{create:function(){return{mount:function(){},on:function(){},destroy:function(){},unmount:function(){}}},getElement:function(){return null}}}}};' });
     }
     if (url.hostname === '127.0.0.1' && url.pathname.startsWith('/nl-img/')) return route.fulfill({ path: `${PUBLIC_DIR}${url.pathname.slice('/nl-img/'.length)}` });
+    // allowHosts (Q4 follow-up, c22-html-media): the ONLY outside hosts a scenario lets through to the real network —
+    // public font services and picture hosts, so the preview shows real web fonts and pictures. Exact host match.
+    if ((options.allowHosts ?? []).includes(url.hostname)) return route.continue();
     if (!['localhost', '127.0.0.1'].includes(url.hostname) || /^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');
     if (!url.pathname.startsWith('/api/')) return route.continue();
     if (!url.pathname.startsWith('/api/react/')) return route.fulfill({ json: { success: true, data: [] } });
@@ -1357,5 +1367,5 @@ export function createMockApi(options = {}) {
     Object.assign(n, patch, { updated_at: new Date(Math.max(Date.now(), Date.parse(n.updated_at) + 1000)).toISOString() });
   }
 
-  return { route, state, editElsewhere };
+  return { route, state, editElsewhere, allowHosts: options.allowHosts ?? [] };
 }

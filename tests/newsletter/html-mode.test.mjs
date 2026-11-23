@@ -93,3 +93,34 @@ test('what the cleaning removed reads as one short line', () => {
   ]), { title: 'We removed 5 unsupported items', detail: '4 scripts, 1 tracking pixel' });
   assert.deepEqual(removedSummary([{ type: 'form', count: 1, label: '1 form' }]), { title: 'We removed 1 unsupported item', detail: '1 form' });
 });
+
+// ---- Q4 follow-up (Chris 22 Nov 2026): fonts and pictures in a pasted template; Add image.
+import { switchedNote, brokenPicturesNote, imageTag, insertSnippet, DATA_PICTURES_HINT } from '../../components/newsletters/lib/htmlMode.ts';
+
+test('http pictures switched to https are noted as info', () => {
+  assert.equal(switchedNote(0), null);
+  assert.equal(switchedNote(undefined), null);
+  assert.equal(switchedNote(1), '1 picture switched to https');
+  assert.equal(switchedNote(3), '3 pictures switched to https');
+});
+
+test('pictures that did not load are listed once each', () => {
+  assert.equal(brokenPicturesNote([]), null);
+  assert.deepEqual(brokenPicturesNote(['https://a.test/x.png', 'https://a.test/x.png', '', 'https://b.test/y.jpg']),
+    { title: "2 pictures didn't load", urls: ['https://a.test/x.png', 'https://b.test/y.jpg'] });
+  assert.equal(brokenPicturesNote(['https://a.test/x.png']).title, "1 picture didn't load");
+});
+
+test('Add image writes an email-safe img tag, its address escaped', () => {
+  assert.equal(imageTag('https://cdn.test/a.jpg'), '<img src="https://cdn.test/a.jpg" alt="" style="display:block;max-width:100%;height:auto;" width="600">');
+  assert.equal(imageTag('https://cdn.test/a.jpg?x=1&y="><script>'), '<img src="https://cdn.test/a.jpg?x=1&amp;y=&quot;&gt;&lt;script&gt;" alt="" style="display:block;max-width:100%;height:auto;" width="600">');
+  assert.match(DATA_PICTURES_HINT, /Add image/);
+});
+
+test('the tag goes at the cursor, over a selection, or at the end on its own line', () => {
+  assert.deepEqual(insertSnippet('<p>a</p><p>b</p>', '<img>', 8, 8), { value: '<p>a</p><img><p>b</p>', cursor: 13 });
+  assert.deepEqual(insertSnippet('<p>a</p>OLD', '<img>', 8, 11), { value: '<p>a</p><img>', cursor: 13 });
+  assert.deepEqual(insertSnippet('<p>a</p>', '<img>', null, null), { value: '<p>a</p>\n<img>', cursor: 14 });
+  assert.deepEqual(insertSnippet('', '<img>', null, null), { value: '<img>', cursor: 5 });
+  assert.deepEqual(insertSnippet('ab', '<img>', 5, 9), { value: 'ab\n<img>', cursor: 8 }, 'a cursor past the end: at the end');
+});

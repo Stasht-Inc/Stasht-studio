@@ -7,6 +7,9 @@ export interface HtmlDocumentPreviewState {
   html: string | null;
   sizeKb: number | null;
   removed: RemovedItem[];
+  /** http pictures the API switched to https, and the addresses of pictures it removed (Q4 follow-up). */
+  switched: number;
+  removedPictures: string[];
   loading: boolean;
   error: string | null;
   reload(): void;
@@ -24,6 +27,8 @@ export function useHtmlDocumentPreview(newsletterId: number | null, savedAt: str
   const [html, setHtml] = useState<string | null>(null);
   const [sizeKb, setSizeKb] = useState<number | null>(null);
   const [removed, setRemoved] = useState<RemovedItem[]>([]);
+  const [switched, setSwitched] = useState(0);
+  const [removedPictures, setRemovedPictures] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -45,6 +50,8 @@ export function useHtmlDocumentPreview(newsletterId: number | null, savedAt: str
           setHtml(res.data.html);
           setSizeKb(typeof res.data.size_kb === 'number' && Number.isFinite(res.data.size_kb) ? res.data.size_kb : null);
           setRemoved(Array.isArray(res.data.removed) ? res.data.removed : []);
+          setSwitched(typeof res.data.switched === 'number' && Number.isFinite(res.data.switched) ? res.data.switched : 0);
+          setRemovedPictures(Array.isArray(res.data.removed_pictures) ? res.data.removed_pictures.filter((u) => typeof u === 'string') : []);
           setError(null);
         } else {
           setError(res.error ?? GENERIC_ERROR);
@@ -59,10 +66,12 @@ export function useHtmlDocumentPreview(newsletterId: number | null, savedAt: str
     setHtml(null);
     setSizeKb(null);
     setRemoved([]);
+    setSwitched(0);
+    setRemovedPictures([]);
     setError(null);
   }, [newsletterId]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
-  return { html, sizeKb, removed, loading, error, reload };
+  return { html, sizeKb, removed, switched, removedPictures, loading, error, reload };
 }

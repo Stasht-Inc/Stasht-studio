@@ -81,8 +81,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     });
     expect(footerBelow, `${tag}: the footer is under the template`);
     expect(!(await page.evaluate(() => window.__hacked === true)), `${tag}: the pasted script never ran`);
-    await expectVisible(content.getByText(/We removed 12 unsupported items/), `${tag}: what the cleaning removed`);
-    expect(/4 scripts, 1 form, 1 embedded item, 2 links, 1 picture not on https, 1 tracking pixel, 2 style sheets/.test(await content.locator('[data-nl-html-removed]').innerText()), `${tag}: the removed items`);
+    await expectVisible(content.getByText(/We removed 10 unsupported items/), `${tag}: what the cleaning removed`);
+    expect(/4 scripts, 1 form, 1 embedded item, 2 links, 1 tracking pixel, 1 web font/.test(await content.locator('[data-nl-html-removed]').innerText()), `${tag}: the removed items`);
+    // Q4 follow-up: the http picture is switched to https (info), not removed; its host doesn't answer here, so the
+    // preview lists it as a picture that didn't load, at the bottom of the preview card.
+    await expectVisible(content.getByText('1 picture switched to https.'), `${tag}: http picture switched note`);
+    const brokenBox = aside.locator('[data-nl-html-broken-pictures]');
+    await expectVisible(brokenBox, `${tag}: pictures that didn't load`);
+    expect(/1 picture didn't load[\s\S]*https:\/\/cdn\.example\.test\/tbp\/old\.png/.test(await brokenBox.innerText().catch(() => '')), `${tag}: the broken picture is listed`);
     const fh = (await frame.boundingBox())?.height ?? 0;
     expect(fh > 600, `${tag}: the preview fits the email (${fh}px)`);
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);

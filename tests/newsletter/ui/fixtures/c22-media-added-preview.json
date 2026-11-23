@@ -1,0 +1,24 @@
+{
+    "removed": [
+        {
+            "type": "data",
+            "count": 1,
+            "label": "1 picture inside the HTML"
+        },
+        {
+            "type": "stylesheet",
+            "count": 2,
+            "label": "2 style sheets"
+        },
+        {
+            "type": "font",
+            "count": 2,
+            "label": "2 web fonts"
+        }
+    ],
+    "switched": 2,
+    "removed_pictures": [
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFT\u2026"
+    ],
+    "size_kb": 11.1
+}

@@ -559,7 +559,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                   <HtmlDocumentStep value={draft.content.html_document} readOnly={readOnly}
                     onChange={(html_document) => update((d) => ({ content: { ...d.content, html_document } }))}
                     error={state.fieldErrors['content.html_document'] ?? state.fieldErrors['content.mode'] ?? null}
-                    removed={htmlPreview.removed} sizeKb={htmlPreview.sizeKb} />
+                    removed={htmlPreview.removed} sizeKb={htmlPreview.sizeKb}
+                    switched={htmlPreview.switched} removedPictures={htmlPreview.removedPictures} />
                 ) : (
                   <TemplatePicker value={draft.template} readOnly={readOnly} />
                 )}
