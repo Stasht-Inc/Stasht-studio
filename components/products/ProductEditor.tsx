@@ -386,6 +386,15 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
 
             {/* A website product: on a phone the groups it can change (status, categories, tags, notes) come first. */}
             <div className={`min-w-0 space-y-4 ${website && !readOnly ? 'order-first lg:order-none' : ''}`}>
+              {/* Chris 22 Nov 2026 (Q1): Links (the Buy link and its Button text) first, above Visibility — on a phone too. */}
+              <Section title="Links">
+                <Field id="p-buy" label='External "Buy" link (optional)' error={errors.buy_url} hint="For products you also sell or book somewhere else. Shows as a button on the product."><input id="p-buy" placeholder="e.g. https://yourstore.com/walnut-chair" value={form.buy_url} disabled={!can('buy_url')} onChange={(e) => set('buy_url', e.target.value)} className={inputClass(Boolean(errors.buy_url))} /></Field>
+                {/* Chris 20 Nov 2026: "the Buy now link should be editable … maybe they want it as Checkout". Offered once the
+                    web API has the column (an existing product's editable_fields); empty = "Buy now". */}
+                {can('buy_label') && (
+                  <Field id="p-buy-label" label="Button text" error={errors.buy_label} hint={BUY_LABEL_HINT}><input id="p-buy-label" data-testid="product-buy-label" placeholder={DEFAULT_BUY_LABEL} maxLength={BUY_LABEL_MAX} value={form.buy_label} onChange={(e) => set('buy_label', e.target.value)} className={inputClass(Boolean(errors.buy_label))} /></Field>
+                )}
+              </Section>
               <Section title="Visibility">
                 <Field id="p-status" label="Status" error={errors.status}><ProductSelect id="p-status" value={form.status} disabled={!can('status')} options={STATUS_OPTIONS} onChange={(v) => set('status', v as ProductForm['status'])} /></Field>
                 <div>
@@ -431,14 +440,6 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 <Field id="p-seo-title" label="Page title" error={errors.seo_title}><input id="p-seo-title" placeholder="e.g. Walnut Dining Chair | Mill & Co" maxLength={191} value={form.seo_title} disabled={!can('seo_title')} onChange={(e) => set('seo_title', e.target.value)} className={inputClass(Boolean(errors.seo_title))} /></Field>
                 <Field id="p-seo-desc" label="Description" error={errors.seo_description}><textarea id="p-seo-desc" placeholder="e.g. A hand-made walnut chair for your dining room." rows={3} maxLength={500} value={form.seo_description} disabled={!can('seo_description')} onChange={(e) => set('seo_description', e.target.value)} className={textareaClass(Boolean(errors.seo_description))} /></Field>
                 <Field id="p-share" label="Share image" error={errors.share_image} hint="A web address of the picture link previews show."><input id="p-share" placeholder="e.g. https://example.com/chair.jpg" value={form.share_image} disabled={!can('share_image')} onChange={(e) => set('share_image', e.target.value)} className={inputClass(Boolean(errors.share_image))} /></Field>
-              </Section>
-              <Section title="Links">
-                <Field id="p-buy" label='External "Buy" link (optional)' error={errors.buy_url} hint="For products you also sell or book somewhere else. Shows as a button on the product."><input id="p-buy" placeholder="e.g. https://yourstore.com/walnut-chair" value={form.buy_url} disabled={!can('buy_url')} onChange={(e) => set('buy_url', e.target.value)} className={inputClass(Boolean(errors.buy_url))} /></Field>
-                {/* Chris 20 Nov 2026: "the Buy now link should be editable … maybe they want it as Checkout". Offered once the
-                    web API has the column (an existing product's editable_fields); empty = "Buy now". */}
-                {can('buy_label') && (
-                  <Field id="p-buy-label" label="Button text" error={errors.buy_label} hint={BUY_LABEL_HINT}><input id="p-buy-label" data-testid="product-buy-label" placeholder={DEFAULT_BUY_LABEL} maxLength={BUY_LABEL_MAX} value={form.buy_label} onChange={(e) => set('buy_label', e.target.value)} className={inputClass(Boolean(errors.buy_label))} /></Field>
-                )}
               </Section>
               {!readOnly && (
                 <Section title="Internal notes">

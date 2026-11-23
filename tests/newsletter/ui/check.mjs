@@ -26,6 +26,8 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 const failures = [];
 const pageErrors = [];
 const blocked = new Set();
+// Hosts a scenario lets through to the real network on purpose (mock-api allowHosts: font and picture hosts only).
+const allowed = new Set();
 
 // Dates and numbers follow the browser's language (wdy2xh2p3p): pinned to en-US so the checks read the same anywhere.
 // timezoneId: the browser's time zone (default: this machine's), for checks that depend on local times.
@@ -44,7 +46,8 @@ async function open({ view = 'composer', query = '', width = 1440, height = 1000
   // Context-wide, so popups and workers are covered too. mock-api aborts every non-local host.
   await context.route('**/*', (route) => {
     const host = new URL(route.request().url()).hostname;
-    if (!['localhost', '127.0.0.1'].includes(host) && host !== 'i.ytimg.com') blocked.add(host);
+    if ((api.allowHosts ?? []).includes(host)) allowed.add(host);
+    else if (!['localhost', '127.0.0.1'].includes(host) && host !== 'i.ytimg.com') blocked.add(host);
     return api.route(route);
   });
   const page = await context.newPage();
@@ -92,6 +95,7 @@ try {
   await browser.close();
 }
 for (const e of pageErrors) failures.push(`page error: ${e}`);
+if (allowed.size) console.log(`real network, allowed on purpose (fonts / pictures): ${[...allowed].join(', ')}`);
 if (blocked.size) console.log(`outside requests (answered locally or aborted; none reached the network): ${[...blocked].join(', ')}`);
 if (failures.length) {
   console.error(`FAIL ${name}\n- ${failures.join('\n- ')}`);

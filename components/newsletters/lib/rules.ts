@@ -12,6 +12,8 @@ export const LIMITS = {
   text_html: 20000,
   // An HTML section (NewsletterCustomHtml::MAX in the API). The ~100 KB email check still applies on top.
   html: 50000,
+  // A whole pasted email template ("Sections | HTML", Chris 22 Nov; NewsletterContentMode::MAX in the API), as typed.
+  html_document: 300000,
   button_label: 40,
   url: 2000,
 } as const;

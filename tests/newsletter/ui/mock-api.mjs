@@ -110,6 +110,20 @@ function mockScale(raw) {
 }
 const pickEditable = (src) => Object.fromEntries(EDITABLE.filter((k) => src && k in src).map((k) => [k, structuredClone(src[k])]));
 
+// Chris 22 Nov 2026 (Q4, NewsletterContentMode): content {mode?, html_document?} merged into what is kept (a key left
+// out keeps its value; the paste is trimmed as Laravel's TrimStrings does). Kept only for HTML or a paste: a sections
+// newsletter with nothing pasted has no `content`, as the API's presenter answers.
+function mergeContent(n, sent) {
+  const next = { mode: n.content?.mode === 'html' ? 'html' : 'sections', html_document: n.content?.html_document ?? null };
+  if (sent && 'mode' in sent) next.mode = sent.mode;
+  if (sent && 'html_document' in sent) next.html_document = typeof sent.html_document === 'string' && sent.html_document.trim() !== '' ? sent.html_document.trim() : null;
+  if (next.mode === 'sections' && next.html_document === null) delete n.content;
+  else n.content = next;
+}
+const isHtmlNewsletter = (n) => n.content?.mode === 'html';
+/** NewsletterContentMode::channels: an HTML newsletter goes out by email only. */
+const sendChannelsOf = (n) => (isHtmlNewsletter(n) ? ['email'] : (n.channels || []).filter((c) => c === 'email' || c === 'sms'));
+
 export function newsletter(id, over = {}) {
   return {
     id, name: null, subject: null, preview_text: null, from_name: null, reply_to_email: null, channels: ['email'], sms_text: null,
@@ -356,6 +370,9 @@ export function createMockApi(options = {}) {
     sendPaused: options.sendPaused ?? null,
     // POST /newsletters/{id}/preview's size_kb (NewsletterSendCheck's rendered size), when set.
     previewSizeKb: options.previewSizeKb ?? null,
+    // Chris 22 Nov 2026 (Q4): every PUT's `content`, and how often an HTML newsletter's preview was drawn.
+    contentBodies: [],
+    previewCalls: 0,
     // POST /newsletters/{id}/unschedule finds sending already started (409).
     unscheduleStarted: options.unscheduleStarted ?? false,
     // Files that reached POST /newsletters/images: {bytes, type, name}.
@@ -491,7 +508,7 @@ export function createMockApi(options = {}) {
   function sendErrors(n) {
     if (state.sendErrors) return state.sendErrors;
     const errors = {};
-    const channels = (n.channels || []).filter((c) => c === 'email' || c === 'sms');
+    const channels = sendChannelsOf(n);
     if (!String(n.subject ?? '').trim()) errors.subject = ['Add a subject line.'];
     // PUT keeps unfinished sections; send names the first one (contract note 6).
     const missing = (n.blocks || []).flatMap((b, i) => {
@@ -499,7 +516,10 @@ export function createMockApi(options = {}) {
       if (b.type === 'campaigns' && !(b.data?.selections ?? b.data?.campaign_ids)?.length) return [`Section ${i + 1} (Campaigns) needs at least one campaign, product or vehicle.`];
       return [];
     });
-    if (!n.blocks?.length) errors.blocks = ['Add at least one section to your newsletter.'];
+    // An HTML newsletter (NewsletterSendCheck, 22 Nov): its paste must show something once cleaned; sections aren't checked.
+    if (isHtmlNewsletter(n)) {
+      if (!mockCleanHtml(n.content?.html_document ?? '').replace(/<[^>]*>/g, '').trim()) errors.content = ['Paste the HTML for your email.'];
+    } else if (!n.blocks?.length) errors.blocks = ['Add at least one section to your newsletter.'];
     else if (missing.length) errors.blocks = [missing[0]];
     if (!channels.length) errors.channels = ['Choose email, text message or both.'];
     if (channels.includes('sms') && !String(n.sms_text ?? '').trim()) errors.sms_text = ['Write the text message people will get.'];
@@ -999,6 +1019,8 @@ export function createMockApi(options = {}) {
       return ok(n, 201);
     }
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
+    // uploadFailMessage (Q4 follow-up): the next uploads are refused with this 422 file error.
+    if (path === '/newsletters/images' && state.uploadFailMessage) return fail(422, { success: false, message: state.uploadFailMessage, errors: { file: [state.uploadFailMessage] } });
     if (path === '/newsletters/images') return ok({ url: state.uploadUrl ?? IMG }, 201);
     if (path === '/newsletters/lead-options' && method === 'GET') {
       // NewsletterLeadOptionsController: 20 a page, newest first; search matches name, email or phone digits; lead_id
@@ -1147,6 +1169,12 @@ export function createMockApi(options = {}) {
           errors.sms_text = [messageLimit >= 2000 ? `The message can be up to ${messageLimit.toLocaleString('en-US')} characters.` : `The text message can be up to ${messageLimit} characters (some symbols, like …, count as more than one).`];
         }
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
+        if (body && typeof body.content === 'object' && body.content !== null) {
+          if ('mode' in body.content && !['sections', 'html'].includes(body.content.mode)) return fail(422, { message: 'Choose Sections or HTML.', errors: { 'content.mode': ['Choose Sections or HTML.'] } });
+          if (typeof body.content.html_document === 'string' && body.content.html_document.length > 300000) return fail(422, { message: 'HTML can be up to 300,000 characters.', errors: { 'content.html_document': ['HTML can be up to 300,000 characters.'] } });
+          state.contentBodies.push(structuredClone(body.content));
+          mergeContent(n, body.content);
+        }
         Object.assign(n, pickEditable(body), { updated_at: now() });
         // Text sizes (Chris, 7 Nov; NewsletterTypeScale): kept whole, null / the usual sizes take them away.
         if (body && 'type_scale' in body) {
@@ -1178,9 +1206,24 @@ export function createMockApi(options = {}) {
       }
       if (action === 'duplicate') {
         // NewsletterController::duplicate: "Copy of <name>" (120 max), a new draft with the same content.
-        const copy = newsletter(state.nextId++, { ...pickEditable(n), name: `Copy of ${n.name ?? ''}`.slice(0, 120) });
+        const copy = newsletter(state.nextId++, { ...pickEditable(n), ...(n.content ? { content: structuredClone(n.content) } : {}), name: `Copy of ${n.name ?? ''}`.slice(0, 120) });
         state.newsletters.push(copy);
         return ok(copy, 201);
+      }
+      if (action === 'preview' && isHtmlNewsletter(n)) {
+        state.previewCalls += 1;
+        // The API's own email for the fixture template (tests/newsletter/ui/fixtures, rendered by NewsletterRenderer),
+        // else a stand-in: the cleaned paste and the footer with the unsubscribe line.
+        // htmlDocumentFixture: one fixture or a list (Q4 follow-up: the template before and after Add image).
+        const fixtures = [options.htmlDocumentFixture].flat().filter(Boolean);
+        const fx = fixtures.find((f) => (n.content.html_document ?? '').trim() === f.source.trim());
+        if (fx) {
+          return ok({ html: fx.html, size_kb: state.previewSizeKb ?? fx.size_kb, size_limit_kb: 100, mode: 'html', removed: fx.removed,
+            ...(fx.switched !== undefined ? { switched: fx.switched, removed_pictures: fx.removed_pictures ?? [] } : {}) });
+        }
+        const html = `<!doctype html><html><body style="margin:0"><div class="nl-doc" data-mock-doc>${mockCleanHtml(n.content.html_document ?? '')}</div>`
+          + '<table width="100%"><tr><td style="padding:16px;text-align:center;background:#F5F5F8;color:#1F2937;font-size:15px">Powered by<br>You\'re receiving this email because you\'re in touch with Samantha Smith.<br>You can <a href="#">unsubscribe here</a>.</td></tr></table></body></html>';
+        return ok({ html, size_kb: state.previewSizeKb ?? 3, size_limit_kb: 100, mode: 'html', removed: [] });
       }
       if (action === 'preview') return ok({ html: previewHtml(n), ...(state.previewSizeKb != null ? { size_kb: state.previewSizeKb } : {}) });
       if (action === 'test') {
@@ -1188,6 +1231,8 @@ export function createMockApi(options = {}) {
         state.testsLeft -= 1;
         // NewsletterTestSendController: 422 channel when the profile has no address, 422 sms_text for an empty text.
         if (body?.channel === 'email' && !state.owner.email) return fail(422, { message: 'Add an email address to your profile to get a test email.', errors: { channel: ['Add an email address to your profile to get a test email.'] } });
+        // NewsletterTestSendController (22 Nov): an HTML newsletter's tests go by email only.
+        if (body?.channel === 'sms' && isHtmlNewsletter(n)) return fail(422, { message: 'HTML newsletters go out by email only.', errors: { channel: ['HTML newsletters go out by email only.'] } });
         if (body?.channel === 'sms' && !String(n.sms_text ?? '').trim()) return fail(422, { message: 'Write the text message first.', errors: { sms_text: ['Write the text message first.'] } });
         const tooLong = body?.channel === 'sms' ? smsPartsInfo(n.from_name || state.owner.name || 'Stasht', n.sms_text).problem : null;
         if (tooLong) return fail(422, { message: tooLong, errors: { sms_text: [tooLong] } });
@@ -1206,7 +1251,7 @@ export function createMockApi(options = {}) {
           if (!at) return fail(422, { message: 'Pick a date and time.', errors: { scheduled_at: ['Pick a date and time.'] } });
           if (at <= Date.now()) return fail(422, { message: 'Pick a time in the future.', errors: { scheduled_at: ['Pick a time in the future.'] } });
           const hour = torontoHour(at);
-          if ((n.channels || []).includes('sms') && (hour < 8 || hour >= 21)) return fail(422, { message: QUIET_HOURS_ERROR, errors: { scheduled_at: [QUIET_HOURS_ERROR] } });
+          if (sendChannelsOf(n).includes('sms') && (hour < 8 || hour >= 21)) return fail(422, { message: QUIET_HOURS_ERROR, errors: { scheduled_at: [QUIET_HOURS_ERROR] } });
         }
         const errors = sendErrors(n);
         if (Object.keys(errors).length) {
@@ -1267,6 +1312,9 @@ export function createMockApi(options = {}) {
       return route.fulfill({ contentType: 'text/javascript', body: 'window.Stripe=function(){return{elements:function(){return{create:function(){return{mount:function(){},on:function(){},destroy:function(){},unmount:function(){}}},getElement:function(){return null}}}}};' });
     }
     if (url.hostname === '127.0.0.1' && url.pathname.startsWith('/nl-img/')) return route.fulfill({ path: `${PUBLIC_DIR}${url.pathname.slice('/nl-img/'.length)}` });
+    // allowHosts (Q4 follow-up, c22-html-media): the ONLY outside hosts a scenario lets through to the real network —
+    // public font services and picture hosts, so the preview shows real web fonts and pictures. Exact host match.
+    if ((options.allowHosts ?? []).includes(url.hostname)) return route.continue();
     if (!['localhost', '127.0.0.1'].includes(url.hostname) || /^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');
     if (!url.pathname.startsWith('/api/')) return route.continue();
     if (!url.pathname.startsWith('/api/react/')) return route.fulfill({ json: { success: true, data: [] } });
@@ -1319,5 +1367,5 @@ export function createMockApi(options = {}) {
     Object.assign(n, patch, { updated_at: new Date(Math.max(Date.now(), Date.parse(n.updated_at) + 1000)).toISOString() });
   }
 
-  return { route, state, editElsewhere };
+  return { route, state, editElsewhere, allowHosts: options.allowHosts ?? [] };
 }

@@ -23,7 +23,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const preview = page.locator('aside');
   // Before any typing: an untouched new draft takes the brand header when it arrives.
   await expectVisible(preview.getByText('Serpa Chrysler').first(), 'header pre-filled from the brand');
-  await expectVisible(preview.getByText('Powered by Stasht'), 'footer');
+  await expectVisible(preview.getByText('Powered by', { exact: true }), 'footer');
   await expectVisible(preview.getByText('Tap + to add your first section.'), 'empty email hint');
   await page.locator('#nl-name').fill('Editor check');
 
