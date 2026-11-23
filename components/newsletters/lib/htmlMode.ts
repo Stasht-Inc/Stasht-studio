@@ -85,3 +85,24 @@ export function insertSnippet(value: string, snippet: string, start: number | nu
   }
   return { value: value.slice(0, start) + snippet + value.slice(end), cursor: start + snippet.length };
 }
+
+/**
+ * 23 Nov 2026 (Deepak): switching to HTML left the HTML box off screen and the empty preview looked like the place to
+ * paste. Brings the box into view, puts the cursor in it and flashes it briefly. Safe to call before the box exists.
+ */
+export function jumpToHtmlBox(): void {
+  if (typeof document === 'undefined') return;
+  const run = (tries: number) => {
+    const box = document.getElementById('nl-html-document') as HTMLTextAreaElement | null;
+    if (!box) {
+      if (tries > 0) window.requestAnimationFrame(() => run(tries - 1));
+      return;
+    }
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    box.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    box.focus({ preventScroll: true });
+    box.setAttribute('data-nl-flash', '');
+    window.setTimeout(() => box.removeAttribute('data-nl-flash'), 1600);
+  };
+  run(10);
+}

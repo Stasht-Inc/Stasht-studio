@@ -46,7 +46,7 @@ import SegmentedSwitch from './SegmentedSwitch';
 import HtmlDocumentStep from './HtmlDocumentStep';
 import HtmlDocumentPreview from './HtmlDocumentPreview';
 import { useHtmlDocumentPreview } from './hooks/useHtmlDocumentPreview';
-import { CONTENT_MODE_OPTIONS, EMAIL_ONLY_NOTE, isHtmlMode, sendChannels } from './lib/htmlMode';
+import { CONTENT_MODE_OPTIONS, EMAIL_ONLY_NOTE, isHtmlMode, jumpToHtmlBox, sendChannels } from './lib/htmlMode';
 import type { ContentMode } from '../../services/newslettersAPI';
 
 export interface NewsletterComposerHandle {
@@ -154,6 +154,11 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const htmlPreview = useHtmlDocumentPreview(state.newsletter?.id ?? null, state.newsletter?.updated_at ?? null,
     htmlMode && htmlSaved && !hidden && !state.loading && draft.content.html_document.trim() !== '');
   const changeContentMode = (mode: ContentMode) => update((d) => (d.content.mode === mode ? null : { content: { ...d.content, mode } }));
+  // Switching to HTML with nothing pasted yet takes you to the HTML box (it sits in step 4, off screen).
+  const pickContentMode = (mode: ContentMode) => {
+    changeContentMode(mode);
+    if (mode === 'html' && draft.content.mode !== 'html' && draft.content.html_document.trim() === '') jumpToHtmlBox();
+  };
   // Live recipient counts only while the Newsletter tab shows on a paid plan (debounced in the hook).
   // A Single person box still being typed counts as nobody yet (lib/person.ts).
   const audienceCount = useAudienceCount(countableAudience(draft.audience), channelsOut, enabled && !hidden && !state.loading);
@@ -506,7 +511,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
             {/* Chris 22 Nov 2026 (Q4): the email is its sections or a pasted HTML template. Both are kept; the one
                 showing at Send is what goes out. */}
             <div className="flex justify-center lg:col-span-2">
-              <SegmentedSwitch label="Email content" options={CONTENT_MODE_OPTIONS} value={draft.content.mode} onChange={changeContentMode} disabled={readOnly} />
+              <SegmentedSwitch label="Email content" options={CONTENT_MODE_OPTIONS} value={draft.content.mode} onChange={pickContentMode} disabled={readOnly} />
             </div>
             <div className="min-w-0 space-y-5">
               {readOnly && state.newsletter ? (
@@ -595,7 +600,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               {htmlMode ? (
                 <HtmlDocumentPreview draft={draft} profile={profile} device={device} preview={htmlPreview}
                   saved={Boolean(state.newsletter)} saving={!htmlRefused && (state.saveState === 'saving' || !htmlSaved)}
-                  saveBusy={state.saveState === 'saving'} onRetrySave={() => { void state.saveNow(); }} />
+                  saveBusy={state.saveState === 'saving'} onRetrySave={() => { void state.saveNow(); }} onGoToBox={readOnly ? undefined : jumpToHtmlBox} />
               ) : (
               <NewsletterEditor
                 draft={draft}

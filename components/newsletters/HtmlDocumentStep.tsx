@@ -85,7 +85,7 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
       <textarea ref={boxRef} id="nl-html-document" value={value} readOnly={readOnly} spellCheck={false} autoCapitalize="off" autoCorrect="off" rows={16}
         placeholder="Paste your HTML code here..." aria-invalid={Boolean(message)} aria-describedby="nl-html-document-hint nl-html-document-help"
         onChange={(e) => onChange(e.target.value)}
-        className={`${textareaClass(Boolean(message))} min-h-[12rem] resize-y font-mono text-xs leading-5`} />
+        className={`${textareaClass(Boolean(message))} min-h-[12rem] resize-y font-mono text-xs leading-5 transition-shadow duration-300 data-[nl-flash]:ring-4 data-[nl-flash]:ring-[#6C60FF]/30`} />
       <div id="nl-html-document-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
         <span role={message ? 'alert' : undefined} className={message ? 'text-red-600' : 'text-gray-500'}>
           {message ?? 'Scripts, forms and tracking pixels are removed — email apps don’t run them. The preview shows what people get.'}

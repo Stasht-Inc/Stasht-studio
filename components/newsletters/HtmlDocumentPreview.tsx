@@ -5,7 +5,7 @@ import { initialsFrom, type SenderProfile } from './lib/profile';
 import type { HtmlDocumentPreviewState } from './hooks/useHtmlDocumentPreview';
 import type { PreviewDevice } from './DeviceToggle';
 import InboxRow from './InboxRow';
-import { LINK_BUTTON } from './lib/ui';
+import { BUTTON_SMALL, LINK_BUTTON } from './lib/ui';
 import { brokenPicturesNote } from './lib/htmlMode';
 
 /**
@@ -19,7 +19,7 @@ import { brokenPicturesNote } from './lib/htmlMode';
 /** How long "Saving…" may show while no save is running before it says the HTML was not kept (23 Nov: it spun forever). */
 export const STUCK_SAVE_MS = 12000;
 
-export default function HtmlDocumentPreview({ draft, profile, device, preview, saved, saving, saveBusy = false, onRetrySave }: {
+export default function HtmlDocumentPreview({ draft, profile, device, preview, saved, saving, saveBusy = false, onRetrySave, onGoToBox }: {
   draft: NewsletterDraft;
   profile: SenderProfile | null;
   device: PreviewDevice;
@@ -32,6 +32,8 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
   saveBusy?: boolean;
   /** Save again (offered when the HTML was not kept). */
   onRetrySave?: () => void;
+  /** Take the user to the HTML box (the empty preview is not where you paste). */
+  onGoToBox?: () => void;
 }) {
   const phone = device === 'phone';
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -65,9 +67,15 @@ export default function HtmlDocumentPreview({ draft, profile, device, preview, s
   let body;
   if (!pasted) {
     body = (
-      <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-gray-200 bg-white px-4 py-12 text-center">
+      <div className={`flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-gray-200 bg-white px-4 py-12 text-center${onGoToBox ? ' cursor-pointer hover:border-[#6C60FF]/40' : ''}`}
+        onClick={onGoToBox} data-testid="nl-html-empty-preview">
         <Code className="h-6 w-6 text-[#6C60FF]" aria-hidden="true" />
-        <p className="text-sm text-gray-600">Paste your HTML to see your email here.</p>
+        <p className="text-sm text-gray-600">Paste your HTML in step 4, Content.<br />Your email shows here.</p>
+        {onGoToBox ? (
+          <button type="button" onClick={(e) => { e.stopPropagation(); onGoToBox(); }} className={`${BUTTON_SMALL} mt-1`} data-testid="nl-html-go-to-box">
+            Go to HTML box
+          </button>
+        ) : null}
       </div>
     );
   } else if (waiting && stuck) {
