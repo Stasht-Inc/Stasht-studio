@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, RotateCcw, X } from 'lucide-react';
 import type { CampaignItem, CardOverride } from '../../../services/newslettersAPI';
 import { useImageUpload } from '../hooks/useImageUpload';
-import { CARD_LIMITS, cardEditNote, cardHasEdits, displayCard, itemButtonText, plainCardText } from '../lib/campaignsBlock';
+import { CARD_LIMITS, cardEditNote, cardHasButton, cardHasEdits, displayCard, itemButtonText, plainCardText } from '../lib/campaignsBlock';
 import { httpsUrl } from '../lib/urls';
 import { BUTTON_SMALL, LABEL, inputClass, textareaClass } from '../lib/ui';
 
@@ -100,11 +100,13 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
           onBlur={(e) => leave('description', e.target.value)}
           className={`${textareaClass()} resize-y`} />
       </div>
+      {cardHasButton(item) ? (
       <div>
         <label htmlFor={`${id}-button`} className={LABEL}>Button text</label>
         <input id={`${id}-button`} type="text" value={text.button_text} maxLength={CARD_LIMITS.button_text} placeholder={itemButtonText(item)}
           onChange={(e) => type('button_text', e.target.value)} onBlur={(e) => leave('button_text', e.target.value)} className={inputClass()} />
       </div>
+      ) : null}
 
       <div>
         <button type="button" onClick={(e) => { e.stopPropagation(); reset(); }} disabled={!edited} className={BUTTON_SMALL}>
