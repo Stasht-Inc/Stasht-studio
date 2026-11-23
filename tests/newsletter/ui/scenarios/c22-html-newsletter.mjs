@@ -72,6 +72,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
     // Paste the whole template: saved as typed, the API's email shows.
     await box.fill(TEMPLATE);
+    // 23 Nov: the template has its own unsubscribe link, so the short note shows (never for templates without one).
+    await expectVisible(content.getByText('Your email has its own unsubscribe link. You can remove it; ours is added.'), `${tag}: own-unsubscribe note`);
+    await expectVisible(content.getByText('Paste a whole email from Mailchimp or Canva.'), `${tag}: short hint`);
     const frame = aside.locator('iframe[title="HTML email preview"]');
     await expectVisible(frame, `${tag}: the email preview`);
     const saved = api.state.newsletters[0];

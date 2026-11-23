@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2 } from 'lucide-react';
 import type { RemovedItem } from '../../services/newslettersAPI';
-import { DATA_PICTURES_HINT, HTML_TOO_LONG, imageTag, insertSnippet, removedSummary, switchedNote } from './lib/htmlMode';
+import { DATA_PICTURES_HINT, HTML_TOO_LONG, OWN_UNSUBSCRIBE_NOTE, hasOwnUnsubscribe, imageTag, insertSnippet, removedSummary, switchedNote } from './lib/htmlMode';
 import { useImageUpload } from './hooks/useImageUpload';
 import { LIMITS } from './lib/rules';
 import { previewSizeHint } from './lib/sendChecks';
@@ -80,7 +80,7 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
       </div>
       {upload.input}
       <p id="nl-html-document-hint" className="-mt-0.5 mb-1.5 text-xs text-gray-500">
-        Paste a whole email, for example from Mailchimp or Canva. Your footer with the unsubscribe link and business address is added at the bottom.
+        Paste a whole email from Mailchimp or Canva.
       </p>
       <textarea ref={boxRef} id="nl-html-document" value={value} readOnly={readOnly} spellCheck={false} autoCapitalize="off" autoCorrect="off" rows={16}
         placeholder="Paste your HTML code here..." aria-invalid={Boolean(message)} aria-describedby="nl-html-document-hint nl-html-document-help"
@@ -100,6 +100,9 @@ export default function HtmlDocumentStep({ value, readOnly, onChange, error, rem
           ) : null}
           {hasDataPictures ? <span className="mt-1 block text-gray-600">{DATA_PICTURES_HINT}</span> : null}
         </p>
+      ) : null}
+      {hasOwnUnsubscribe(value) ? (
+        <p role="status" data-nl-html-own-unsubscribe="" className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">{OWN_UNSUBSCRIBE_NOTE}</p>
       ) : null}
       {switchedInfo ? (
         <p role="status" data-nl-html-switched="" className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">{switchedInfo}.</p>
