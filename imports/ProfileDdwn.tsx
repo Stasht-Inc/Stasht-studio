@@ -16,6 +16,7 @@ import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
 import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isExternalOnlyRow, isOwnExternalProperty, propertyAccountGroups, signedInUserOr, withoutCurrentAccountRow } from "../utils/salespersonLanding";
 import { planKey } from "../utils/effectivePlan";
+import { adminAccountDisplay } from "../utils/adminSwitchAccounts";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
 // as the ISO timestamp of when this exact bundle was built.
@@ -1049,7 +1050,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                     {/* Admin Accounts Header - Collapsible */}
                     <button
                       onClick={() => setIsAdminSectionExpanded(!isAdminSectionExpanded)}
-                      className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-all duration-200 flex items-center gap-3"
+                      aria-expanded={isAdminSectionExpanded}
+                      // Chris 23 Nov 2026: open reads as a darker gray, no black click outline; keyboard keeps a ring.
+                      className={`w-full px-4 py-2 text-left transition-all duration-200 flex items-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 ${isAdminSectionExpanded ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
                     >
                       <svg className="w-4 h-4 text-[#6C60FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -1099,9 +1102,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                         <div className="max-h-[240px] overflow-y-auto">
                           {filteredAdminAccounts.length > 0 ? (
                             filteredAdminAccounts.map((adminAccount, index) => {
-                              const adminName = adminAccount.user?.name || '';
-                              const adminEmail = adminAccount.user?.email || '';
-                              const adminDisplayName = adminName || adminEmail || `Admin Account ${index + 1}`;
+                              const shown = adminAccountDisplay(adminAccount);
+                              const adminEmail = shown.email;
+                              const adminDisplayName = shown.name;
                               const isCurrentlySwitching = switchingAccountId === adminAccount.owner_id;
 
                               return (
@@ -1133,7 +1136,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                                           </span>
                                         )}
                                       </div>
-                                      {!isCurrentlySwitching && adminEmail && adminName && (
+                                      {!isCurrentlySwitching && adminEmail && (
                                         <div className="text-xs text-gray-500 truncate mt-0.5" title={adminEmail}>{adminEmail}</div>
                                       )}
                                       {!isCurrentlySwitching && adminAccount.user?.location && (

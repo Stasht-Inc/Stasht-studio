@@ -1205,8 +1205,10 @@ export function createMockApi(options = {}) {
         return ok({});
       }
       if (action === 'duplicate') {
-        // NewsletterController::duplicate: "Copy of <name>" (120 max), a new draft with the same content.
-        const copy = newsletter(state.nextId++, { ...pickEditable(n), ...(n.content ? { content: structuredClone(n.content) } : {}), name: `Copy of ${n.name ?? ''}`.slice(0, 120) });
+        // NewsletterController::duplicate: "Copy of <name>" (120 max), a new draft with the same content. Chris 23 Nov
+        // 2026: the Single person (typed person or picked lead) is not copied; lists, groups and All leads are.
+        const audience = (n.audience ?? []).filter((a) => a && a.type !== 'person' && a.type !== 'lead');
+        const copy = newsletter(state.nextId++, { ...pickEditable(n), ...(n.content ? { content: structuredClone(n.content) } : {}), name: `Copy of ${n.name ?? ''}`.slice(0, 120), audience });
         state.newsletters.push(copy);
         return ok(copy, 201);
       }
