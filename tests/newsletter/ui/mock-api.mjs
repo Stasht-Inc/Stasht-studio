@@ -1222,7 +1222,7 @@ export function createMockApi(options = {}) {
             ...(fx.switched !== undefined ? { switched: fx.switched, removed_pictures: fx.removed_pictures ?? [] } : {}) });
         }
         const html = `<!doctype html><html><body style="margin:0"><div class="nl-doc" data-mock-doc>${mockCleanHtml(n.content.html_document ?? '')}</div>`
-          + '<table width="100%"><tr><td style="padding:16px;text-align:center;color:#6B7280;font-size:12px">You\'re getting this because you\'re in touch with Samantha Smith. <a href="#">Unsubscribe</a><br>Powered by Stasht</td></tr></table></body></html>';
+          + '<table width="100%"><tr><td style="padding:16px;text-align:center;background:#F5F5F8;color:#1F2937;font-size:15px">Powered by<br>You\'re receiving this email because you\'re in touch with Samantha Smith.<br>You can <a href="#">unsubscribe here</a>.</td></tr></table></body></html>';
         return ok({ html, size_kb: state.previewSizeKb ?? 3, size_limit_kb: 100, mode: 'html', removed: [] });
       }
       if (action === 'preview') return ok({ html: previewHtml(n), ...(state.previewSizeKb != null ? { size_kb: state.previewSizeKb } : {}) });

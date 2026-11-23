@@ -1,7 +1,6 @@
-// Chris (11 Nov, point 3): "when you change reply to emails. This should over ride the ebusiness card and change it
-// at bottom also." Checked at 1280 and 390: the preview's e-card shows the profile email while Reply-to is blank,
-// switches to the Reply-to email as it is typed, keeps the profile name when From name changes, and goes back to the
-// profile email when Reply-to is cleared.
+// Chris (11 Nov, point 3) put the Reply-to email on the footer e-card. Deepak, 23 Nov 2026: every newsletter now ends
+// with the Fresha-style footer, which has no e-card, so no email shows in the footer at all — whether Reply-to is blank
+// or typed — and the "in touch with …" line follows the From name. Checked at 1280 and 390.
 import { createMockApi, newsletter } from '../mock-api.mjs';
 
 const OUT = process.env.NL_SHOTS || '/private/tmp/claude-501/newsletters-ui/shots';
@@ -14,25 +13,22 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
     const { page, context } = await open({ width, height: width === 390 ? 844 : 1000, query: '&newsletterId=81', api: createMockApi({ newsletters: [seeded] }) });
     const reply = page.locator('#nl-reply-to');
     await expectVisible(reply, `${width}: Reply-to field`);
-    const card = page.locator('[data-testid="ecard-email"]').last();
-    await card.scrollIntoViewIfNeeded();
-    expect((await card.textContent())?.trim() === PROFILE_EMAIL, `${width}: blank Reply-to → profile email on the card`);
+    const footer = page.locator('[data-nl-footer]').last();
+    await footer.scrollIntoViewIfNeeded();
+    await expectVisible(footer.getByText('unsubscribe here'), `${width}: the footer`);
+    expect(await page.locator('[data-testid="ecard-email"]').count() === 0, `${width}: no e-card`);
+    expect(await footer.getByText(PROFILE_EMAIL).count() === 0, `${width}: no profile email in the footer`);
 
     await reply.scrollIntoViewIfNeeded();
     await reply.fill(REPLY);
     await page.locator('#nl-from-name').fill('Royal Wood News').catch(() => {});
-    await card.scrollIntoViewIfNeeded();
+    await footer.scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
-    expect((await card.textContent())?.trim() === REPLY, `${width}: card shows the Reply-to email live`);
-    expect(await page.getByText(PROFILE_EMAIL).count() === 0, `${width}: profile email no longer shown in the preview`);
-    expect(await page.locator('footer').getByText('Samantha Smith', { exact: true }).count() >= 1, `${width}: card name stays the profile name`);
+    expect(await footer.getByText(REPLY).count() === 0, `${width}: no Reply-to email in the footer`);
+    await expectVisible(footer.getByText(/in touch with Royal Wood News\./), `${width}: the line follows the From name`);
     expect(!(await hasOverflow(page)), `${width}: no sideways scroll`);
-    await page.locator('footer').last().screenshot({ path: `${OUT}/replyto-ecard-${width}-card.png` });
-    console.log('shot', `${OUT}/replyto-ecard-${width}-card.png`);
-
-    await reply.fill('');
-    await page.waitForTimeout(200);
-    expect((await card.textContent())?.trim() === PROFILE_EMAIL, `${width}: cleared Reply-to → profile email again`);
+    await footer.screenshot({ path: `${OUT}/replyto-ecard-${width}-footer.png` });
+    console.log('shot', `${OUT}/replyto-ecard-${width}-footer.png`);
     await context.close();
   }
 }

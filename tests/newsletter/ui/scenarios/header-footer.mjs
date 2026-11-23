@@ -23,13 +23,14 @@ export async function run({ open, shot, expectVisible, expect }) {
   await shot(page, '00-header-logo');
 
   const f = gallery('Footer');
-  await expectVisible(f.getByText('Samantha Smith'), 'e-card name from /user/profile');
-  await expectVisible(f.getByText('samantha@serpachrysler.ca'), 'e-card email');
-  await expectVisible(f.getByText('+1 416 555 0100'), 'e-card phone (GET /user/profile `phone`)');
-  await expectVisible(f.getByText('serpachrysler.ca', { exact: true }), 'website without https://');
-  await expectVisible(f.getByRole('img', { name: 'Instagram' }), 'social icon');
-  await expectVisible(f.getByText('Unsubscribe'), 'unsubscribe line');
-  await expectVisible(f.getByText('Powered by', { exact: false }), 'Powered by');
+  // Deepak 23 Nov (Fresha-style footer): no e-card any more — Powered by + logo, the unsubscribe lines, the address.
+  for (const gone of ['samantha@serpachrysler.ca', '+1 416 555 0100', 'Your e-card comes from Profile settings']) {
+    expect(await f.getByText(gone, { exact: false }).count() === 0, `footer: no ${gone}`);
+  }
+  expect(await f.getByRole('img', { name: 'Instagram' }).count() === 0, 'footer: no social icons');
+  await expectVisible(f.getByText('Powered by', { exact: true }), 'Powered by');
+  await expectVisible(f.getByText(/You’re receiving this email because you’re in touch with/), 'why they get it');
+  await expectVisible(f.getByText('unsubscribe here'), 'unsubscribe line');
   const stashtLink = f.getByRole('link', { name: 'Stasht' });
   await expectVisible(stashtLink, 'Stasht logo link');
   expect(await stashtLink.getAttribute('href') === 'https://stasht.com', 'the logo links to stasht.com');

@@ -73,7 +73,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await h1.evaluate((el) => getComputedStyle(el).color) === 'rgb(46, 59, 48)', `${tag}: and it shows`);
     expect(await email.locator('script, iframe, form, [onclick]').count() === 0, `${tag}: no script, frame, form or handler`);
     expect(await email.locator('img[src*="tracker"]').count() === 0, `${tag}: no tracking pixel`);
-    await expectVisible(email.getByText('Unsubscribe', { exact: true }), `${tag}: our unsubscribe link`);
+    await expectVisible(email.getByText('unsubscribe here', { exact: true }), `${tag}: our unsubscribe link`);
     await expectVisible(email.getByText('22 Commercial Dr, Vancouver, BC'), `${tag}: the business address`);
     const footerBelow = await email.locator('[data-newsletter="footer"]').evaluate((footer) => {
       const doc = footer.ownerDocument.querySelector('[data-newsletter="document"]');

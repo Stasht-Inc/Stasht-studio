@@ -1,4 +1,5 @@
 {
+    "size_kb": 9.8,
     "removed": [
         {
             "type": "data",
@@ -19,6 +20,5 @@
     "switched": 2,
     "removed_pictures": [
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFT\u2026"
-    ],
-    "size_kb": 11
+    ]
 }
