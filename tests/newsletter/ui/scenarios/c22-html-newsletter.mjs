@@ -48,7 +48,18 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(box, `${tag}: HTML Content box`);
     expect(await box.getAttribute('placeholder') === 'Paste your HTML code here...', `${tag}: Storeel's placeholder`);
     expect(await content.getByText('Choose a template').count() === 0, `${tag}: the template cards make way for the HTML box`);
-    await expectVisible(aside.getByText('Paste your HTML to see your email here.'), `${tag}: preview's empty state`);
+    // 23 Nov: switching to HTML with nothing pasted takes you to the box (cursor in it, box on screen).
+    await page.waitForTimeout(700);
+    expect(await box.evaluate((el) => el === document.activeElement), `${tag}: the cursor is in the HTML box after switching`);
+    expect(await box.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }), `${tag}: the HTML box is on screen after switching`);
+    await shot(page, `${tag}-02a-jumped-to-box`);
+    await expectVisible(aside.getByText(/Paste your HTML in step 4, Content\./), `${tag}: preview's empty state points to the box`);
+    await aside.getByTestId('nl-html-empty-preview').scrollIntoViewIfNeeded();
+    await shot(page, `${tag}-02b-empty-preview`);
+    await box.evaluate((el) => el.blur());
+    await aside.getByRole('button', { name: 'Go to HTML box' }).click();
+    await page.waitForTimeout(700);
+    expect(await box.evaluate((el) => el === document.activeElement), `${tag}: Go to HTML box puts the cursor in the box`);
     expect(await step2.getByRole('checkbox', { name: /Text message/ }).count() === 0, `${tag}: Text message is hidden`);
     await expectVisible(step2.getByText('HTML emails go out by email only.'), `${tag}: the email-only note`);
     expect(await step2.getByLabel('Message (optional)', { exact: true }).count() === 0, `${tag}: the Message box is hidden`);
