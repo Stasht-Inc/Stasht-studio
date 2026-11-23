@@ -9,8 +9,10 @@ import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 import ShareCarsDialog, { samePickTab, type PickKind } from './ShareCarsDialog';
-import { campaignPill, ProductsPickButton, useHasProducts } from './leads/CampaignPickButtons';
-import { fallbackDraft, itemCount, removeDraft, replaceDraft, type PickedCampaign } from '../utils/composerCampaign';
+import { campaignPill, EXISTING_CAMPAIGNS_DESCRIPTION, EXISTING_CAMPAIGNS_TITLE, ProductsPickButton, useCampaignSources, VehiclesPickButton } from './leads/CampaignPickButtons';
+import { existingCampaignsText, fallbackDraft, insertDraft, itemCount, removeDraft, replaceDraft, trackedCampaignId, type ExistingCampaignPick, type PickedCampaign } from '../utils/composerCampaign';
+import CampaignPickerDialog from './newsletters/CampaignPickerDialog';
+import type { CampaignItem } from '../services/newslettersAPI';
 import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
@@ -244,9 +246,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [showShareCars, setShowShareCars] = useState(false);
   // "+ Products" opens the picker on its Products tab (Chris, 16 Nov); "+ Campaign" as before (undefined).
   const [pickerKind, setPickerKind] = useState<PickKind | undefined>(undefined);
-  const hasProducts = useHasProducts(open);
-  // "+ Campaign" picked into the message box (Chris 14 Nov 2026): created and sent only with Send.
+  const pickSources = useCampaignSources(open);
+  const hasProducts = pickSources.products;
+  // "+ Products" picked into the message box (Chris 14 Nov 2026): created and sent only with Send.
   const [pickedCampaign, setPickedCampaign] = useState<PickedCampaign | null>(null);
+  // "+ Campaign" (Chris 23 Nov 2026, G): the account's existing campaigns, their title + link put in the box.
+  const [showExistingPicker, setShowExistingPicker] = useState(false);
+  const [existingPicks, setExistingPicks] = useState<ExistingCampaignPick[]>([]);
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
@@ -327,6 +333,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setCurrentStatus(lead.status ?? null);
       setMessage('');
       setPickedCampaign(null);
+      setExistingPicks([]);
       setSubject('');
       setReplyingToMsgId(null);
       setReplyText('');
@@ -583,11 +590,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       const campaign = pickedCampaign
         ? { kind: pickedCampaign.kind, ids: pickedCampaign.ids, ...(pickedCampaign.name ? { title: pickedCampaign.name } : {}) }
         : undefined;
+      // An existing campaign put in with "+ Campaign" (G): its link goes out as the lead's tracked link.
+      const memoryId = campaign ? null : trackedCampaignId(message, existingPicks);
       const res = via === 'chat'
-        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded, campaign)
+        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded, campaign, memoryId)
         : via === 'sms'
-          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded, campaign)
-          : await leadsAPI.sendEmail(lead!.id, subject.trim() || (pickedCampaign ? (pickedCampaign.kind !== 'vehicle' ? 'Products picked for you' : 'New cars just added') : 'Following up'), message.trim(), encoded, key, campaign);
+          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded, campaign, memoryId)
+          : await leadsAPI.sendEmail(lead!.id, subject.trim() || (pickedCampaign ? (pickedCampaign.kind !== 'vehicle' ? 'Products picked for you' : 'New cars just added') : 'Following up'), message.trim(), encoded, key, campaign, memoryId);
       if (res.success) {
         // confirmed success → fresh key for the next compose on THIS channel only
         if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
@@ -597,6 +606,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         setSubject('');
         setAttachments([]);
         setPickedCampaign(null);
+        setExistingPicks([]);
         setShowEmojiPicker(false);
         setLastAiAction(null);
         setChatNotice(null);
@@ -660,6 +670,22 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     const next = replaceDraft(message, pickedCampaign?.draft, draft, start, end);
     setMessage(next.text);
     setPickedCampaign({ ids, name: campaignName, kind, defaultName, draft });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.cursor, next.cursor);
+    });
+  };
+
+  // "+ Campaign" → Done (G): each picked campaign's "Title: link" goes into the box at the cursor.
+  const handleExistingCampaigns = (_selections: unknown, items: CampaignItem[]) => {
+    const picks = items.filter((i) => i.kind === 'campaign' && i.url).map((i) => ({ id: i.id, title: i.title, url: i.url }));
+    const text = existingCampaignsText(picks);
+    if (!text) return;
+    const el = composeInputRef.current;
+    const next = insertDraft(message, el?.selectionStart ?? message.length, el?.selectionEnd ?? message.length, text);
+    setMessage(next.text);
+    setExistingPicks((prev) => [...prev, ...picks.filter((p) => !prev.some((q) => q.id === p.id))]);
     requestAnimationFrame(() => {
       if (!el) return;
       el.focus();
@@ -1626,8 +1652,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   mobile app's "+" reaches on SMS threads. Their own row (review, 16 Nov): with both pills the controls
                   row no longer fits, so attach / emoji / via / Send keep the row they always had, below. */}
               {hasProducts && <ProductsPickButton onClick={() => { setPickerKind('product'); setShowShareCars(true); }} />}
+              {/* "+ Vehicles" only without products: with both, "+ Products" opens the picker's Vehicles / Products switch */}
+              {pickSources.vehicles && !hasProducts && <VehiclesPickButton onClick={() => { setPickerKind('vehicle'); setShowShareCars(true); }} />}
               <button
-                onClick={() => { setPickerKind(undefined); setShowShareCars(true); }}
+                onClick={() => setShowExistingPicker(true)}
                 title="Add a campaign to your message"
                 aria-label="Add a campaign to your message"
                 className={campaignPill()}
@@ -1792,6 +1820,19 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           initialCampaignName={pickerKind && pickedCampaign && !samePickTab(pickedCampaign.kind, pickerKind) ? undefined : pickedCampaign?.name}
           initialKind={pickerKind && pickedCampaign && samePickTab(pickedCampaign.kind, pickerKind) ? pickedCampaign.kind : (pickerKind ?? pickedCampaign?.kind)}
           onPick={handleCampaignPick}
+        />
+
+        {/* "+ Campaign" (Chris 23 Nov 2026, G): the account's existing campaigns, as the newsletter's "Choose campaigns". */}
+        <CampaignPickerDialog
+          open={showExistingPicker}
+          onOpenChange={setShowExistingPicker}
+          only="campaign"
+          title={EXISTING_CAMPAIGNS_TITLE}
+          description={EXISTING_CAMPAIGNS_DESCRIPTION}
+          initialSelections={[]}
+          knownItems={[]}
+          onDone={handleExistingCampaigns}
+          onCloseAutoFocus={(e) => { e.preventDefault(); composeInputRef.current?.focus(); }}
         />
     </div>
   );

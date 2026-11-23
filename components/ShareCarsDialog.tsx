@@ -9,6 +9,7 @@ import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/ca
 import { leadsAPI } from '../services/leadsAPI';
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
 import ProductCoverImage from './products/ProductCoverImage';
+import ProductBrandThumb from './products/ProductBrandThumb';
 import { loadManualProductsForLeadShare } from '../services/productsAPI';
 import { loadShopifyForBrowsing } from '../services/shopifyItemsAPI';
 import { leadShareSources, visibleCategoryNames } from '../utils/products';
@@ -485,8 +486,10 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                       >
                         {isSel && <Check className="w-3.5 h-3.5" />}
                       </span>
-                      {c.cover_video ? (
-                        <span className="w-11 h-11 rounded-md overflow-hidden shrink-0"><ProductCoverImage coverVideo={c.cover_video} mainImage={c.main_image} alt="" className="w-full h-full object-cover" fallback={<span className="block w-full h-full bg-gray-100" />} /></span>
+                      {isProducts ? (
+                        // A product's cover as every other product picker shows it (Chris 23 Nov 2026, G): its intro video,
+                        // else its photo, else the account's brand (ProductBrandThumb) — never the generic box.
+                        <span className="w-11 h-11 rounded-md overflow-hidden shrink-0"><ProductCoverImage coverVideo={c.cover_video} mainImage={c.main_image} alt="" className="w-full h-full object-cover" fallback={<ProductBrandThumb owner={(c as any).owner ?? null} />} /></span>
                       ) : c.main_image ? (
                         <img src={c.main_image} alt="" className="w-11 h-11 rounded-md object-cover shrink-0" />
                       ) : (

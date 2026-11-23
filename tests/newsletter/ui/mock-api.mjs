@@ -432,6 +432,7 @@ export function createMockApi(options = {}) {
         kind, id: x.id, title: x.title, description: x.description ?? null, cover_url: x.cover_url ?? null, date: x.date ?? null,
         public_url: url, shareable: Boolean(url), reason: url ? null : 'This item has no web page',
         price_text: x.price_text ?? null, meta: x.meta ?? null, category: x.category ?? null,
+        ...(x.button_text ? { button_text: x.button_text } : {}), // a manual product's own button words (F, 23 Nov 2026)
         searchText: [x.title, x.sku, x.brand, x.make, x.model, x.stock_number].filter(Boolean).join(' ').toLowerCase(),
       };
     });
@@ -442,7 +443,7 @@ export function createMockApi(options = {}) {
     if (!o || !o.shareable) return null;
     return {
       kind, id, title: o.title, description: String(o.description ?? '').slice(0, 160), cover_url: o.cover_url, url: o.public_url,
-      date: o.date, price_text: o.price_text, meta: o.meta,
+      date: o.date, price_text: o.price_text, meta: o.meta, ...(o.button_text ? { button_text: o.button_text } : {}),
     };
   }
 
