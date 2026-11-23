@@ -8,8 +8,6 @@ import { dashboardAPI, authAPI } from "../utils/authUtils";
 import GooglePlacesInput from "../components/ui/google-places-input";
 import CountrySelect from "../components/CountrySelect";
 import { parsePhonePrefill } from "../utils/phoneUtils";
-import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
-import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
 import { billedByStasht, coveredByNote, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
 import { Switch } from "../components/ui/switch";
@@ -1162,415 +1160,6 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-function AccountSecurity({ sectionRef, isEditing, onEditToggle, updateUser }: {
-  sectionRef: React.RefObject<HTMLDivElement>;
-  isEditing: boolean;
-  onEditToggle: (editing: boolean) => void;
-  updateUser?: (user: Partial<any>) => void;
-}) {
-  console.log('🔍 AccountSecurity component - isEditing:', isEditing);
-  const [settings, setSettings] = useState({
-    twoFactorAuth: false,
-    backupCodes: false
-  });
-  
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [passwordData, setPasswordData] = useState({
-    current_password: '',
-    new_password: '',
-    new_password_confirmation: ''
-  });
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [passwordSecurity, setPasswordSecurity] = useState(() => getPasswordSecurity());
-
-  // Auto-fill current password and open Account Security if user came from login with change_password = 1
-  useEffect(() => {
-    console.log('🔑 [AccountSecurity] Checking for temp_current_password...');
-    const tempPassword = sessionStorage.getItem('temp_current_password');
-    console.log('🔑 [AccountSecurity] temp_current_password:', tempPassword ? `[${tempPassword.length} chars]` : 'NOT FOUND');
-
-    if (tempPassword) {
-      console.log('🔑 [AccountSecurity] ✅ Auto-filling current password from login');
-      setPasswordData(prev => ({ ...prev, current_password: tempPassword }));
-      console.log('🔑 [AccountSecurity] Password field updated');
-      // DON'T clear the temporary password here - keep it until password is successfully changed
-      // This ensures if user navigates away and comes back, the field is still auto-filled
-      console.log('🔑 [AccountSecurity] Keeping temp_current_password in sessionStorage until password change');
-    } else {
-      console.log('🔑 [AccountSecurity] ❌ No temp password found - user will need to enter manually');
-    }
-  }, []);
-
-  const handleSave = () => {
-    console.log('Saving account security settings:', settings);
-    onEditToggle(false);
-  };
-
-  const handleCancel = () => {
-    onEditToggle(false);
-    setSettings({
-      twoFactorAuth: false,
-      backupCodes: false
-    });
-    // Reset password form
-    setPasswordData({
-      current_password: '',
-      new_password: '',
-      new_password_confirmation: ''
-    });
-    setPasswordError('');
-    setShowSuccessModal(false);
-  };
-
-  const handlePasswordChange = async () => {
-    // Validate passwords match
-    if (passwordData.new_password !== passwordData.new_password_confirmation) {
-      setPasswordError('New passwords do not match');
-      return;
-    }
-
-    // Validate password length
-    if (passwordData.new_password.length < 8) {
-      setPasswordError('New password must be at least 8 characters long');
-      return;
-    }
-
-    // Validate all fields are filled
-    if (!passwordData.current_password || !passwordData.new_password || !passwordData.new_password_confirmation) {
-      setPasswordError('Please fill in all password fields');
-      return;
-    }
-
-    setIsChangingPassword(true);
-    setPasswordError('');
-
-    try {
-      const response = await authAPI.changePassword(passwordData);
-
-      if (response.success) {
-        console.log('Password changed successfully');
-
-        // Update user object in localStorage to clear change_password flag
-        const storedUser = localStorage.getItem('stasht_user');
-        if (storedUser) {
-          try {
-            const user = JSON.parse(storedUser);
-            user.change_password = 0;
-            localStorage.setItem('stasht_user', JSON.stringify(user));
-            console.log('🔑 Updated user object in localStorage - change_password flag cleared');
-
-            // Also update the AuthContext user state so UI updates immediately
-            if (updateUser) {
-              updateUser({ change_password: 0 });
-              console.log('🔑 Updated AuthContext user state - banner will disappear');
-            }
-          } catch (e) {
-            console.error('Failed to update user object:', e);
-          }
-        }
-
-        // Clear the require_password_change flag if it exists
-        sessionStorage.removeItem('require_password_change');
-        // Clear the temp_current_password now that password has been successfully changed
-        sessionStorage.removeItem('temp_current_password');
-        console.log('🔑 Cleared temp_current_password after successful password change');
-
-        // Save password security data to local storage
-        savePasswordSecurity(passwordData.new_password);
-        // Update password security state
-        setPasswordSecurity(getPasswordSecurity());
-        // Reset form
-        setPasswordData({
-          current_password: '',
-          new_password: '',
-          new_password_confirmation: ''
-        });
-        // Show success modal
-        setShowSuccessModal(true);
-        // Close edit mode after showing modal
-        setTimeout(() => {
-          onEditToggle(false);
-        }, 100);
-      } else {
-        setPasswordError(response.error || 'Failed to change password');
-      }
-    } catch (error) {
-      console.error('Password change error:', error);
-      setPasswordError('An error occurred while changing password');
-    } finally {
-      setIsChangingPassword(false);
-    }
-  };
-
-  if (isEditing) {
-    return (
-      <div ref={sectionRef} id="security" className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 scroll-mt-8">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Account Security</h2>
-            <p className="text-sm text-gray-500">Manage your password and security settings</p>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="currentPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                Current Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showCurrentPassword ? "text" : "password"}
-                  id="currentPassword"
-                  name="current-password"
-                  value={passwordData.current_password}
-                  onChange={(e) => setPasswordData(prev => ({ ...prev, current_password: e.target.value }))}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-transparent bg-gray-50"
-                  placeholder="Enter current password"
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck="false"
-                />
-                <button 
-                  type="button"
-                  onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showCurrentPassword ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                New Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showNewPassword ? "text" : "password"}
-                  id="newPassword"
-                  name="new-password"
-                  value={passwordData.new_password}
-                  onChange={(e) => setPasswordData(prev => ({ ...prev, new_password: e.target.value }))}
-                  className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-transparent bg-gray-50"
-                  placeholder="Enter new password"
-                  autoComplete="new-password"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck="false"
-                />
-                <button 
-                  type="button"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showNewPassword ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-              <PasswordStrengthIndicator 
-                password={passwordData.new_password} 
-                showFeedback={true}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm New Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  id="confirmPassword"
-                  name="confirm-password"
-                  value={passwordData.new_password_confirmation}
-                  onChange={(e) => setPasswordData(prev => ({ ...prev, new_password_confirmation: e.target.value }))}
-                  className="w-full px-4 py-3 pr-12 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-transparent bg-gray-50"
-                  placeholder="Confirm new password"
-                  autoComplete="new-password"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck="false"
-                />
-                <button 
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showConfirmPassword ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21" />
-                    </svg>
-                  ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Error message */}
-            {passwordError && (
-              <div className="text-red-600 text-sm mt-2">
-                {passwordError}
-              </div>
-            )}
-
-            {/* Change Password Button */}
-            <button
-              onClick={handlePasswordChange}
-              disabled={isChangingPassword || !passwordData.current_password || !passwordData.new_password || !passwordData.new_password_confirmation}
-              className="bg-[#6C60FF] text-white px-4 py-2 rounded-lg hover:bg-[#5A4FFF] transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isChangingPassword ? 'Changing Password...' : 'Change Password'}
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between py-4 border-t border-gray-100">
-            <div>
-              <h3 className="text-base font-medium text-gray-900">Two-Factor Authentication</h3>
-              <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
-            </div>
-            <button
-              onClick={() => setSettings(prev => ({...prev, twoFactorAuth: !prev.twoFactorAuth}))}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                settings.twoFactorAuth ? 'bg-[#6C60FF]' : 'bg-gray-200'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings.twoFactorAuth ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex gap-3 pt-6 border-t border-gray-100">
-          <button 
-            onClick={handleSave}
-            className="bg-[#6C60FF] text-white px-6 py-2 rounded-lg hover:bg-[#5A4FFF] transition-colors"
-          >
-            Save Changes
-          </button>
-          <button 
-            onClick={handleCancel}
-            className="bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div ref={sectionRef} id="security" className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 scroll-mt-8">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Account Security</h2>
-            <p className="text-sm text-gray-500">Manage your password and security settings</p>
-          </div>
-        </div>
-        <button 
-          onClick={() => onEditToggle(true)}
-          className="px-4 py-2 text-[#6C60FF] hover:bg-[#6C60FF]/10 rounded-lg transition-colors font-medium"
-        >
-          Edit
-        </button>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex justify-between items-center py-3">
-          <div>
-            <h3 className="font-medium text-gray-900">Password</h3>
-            <p className="text-sm text-gray-500">Last changed {passwordSecurity.lastChanged}</p>
-          </div>
-          <span className={`px-3 py-1 text-sm font-medium rounded-full capitalize ${
-            passwordSecurity.strength === 'weak' ? 'bg-red-100 text-red-700' :
-            passwordSecurity.strength === 'medium' ? 'bg-orange-100 text-orange-700' :
-            'bg-green-100 text-green-700'
-          }`}>
-            {passwordSecurity.strength}
-          </span>
-        </div>
-        
-        <div className="flex justify-between items-center py-3">
-          <div>
-            <h3 className="font-medium text-gray-900">Two-Factor Authentication</h3>
-            <p className="text-sm text-gray-500">Not enabled</p>
-          </div>
-          <span className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-full">
-            Disabled
-          </span>
-        </div>
-      </div>
-
-      {/* Success Modal */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
-            <div className="flex items-center justify-center mb-4">
-              <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 text-center mb-2">
-              Password Changed Successfully
-            </h3>
-            <p className="text-sm text-gray-600 text-center mb-6">
-              Your password has been updated and saved securely.
-            </p>
-            <button
-              onClick={() => setShowSuccessModal(false)}
-              className="w-full bg-[#6C60FF] text-white py-2 px-4 rounded-lg hover:bg-[#5A4FFF] transition-colors"
-            >
-              Continue
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -3121,7 +2710,7 @@ function RemoveAccount({ sectionRef }: { sectionRef: React.RefObject<HTMLDivElem
 }
 
 export default function ProfileSettingsPage() {
-  const { user, updateUser } = useAuth();
+  const { user } = useAuth();
   const [activeSection, setActiveSection] = useState('personal');
   const [editingSection, setEditingSection] = useState<string | null>(null);
   
@@ -3176,37 +2765,6 @@ export default function ProfileSettingsPage() {
     }
   }, [user?.name, user?.email, user?.avatar, user?.profile_image]);
 
-  // Auto-open Account Security section when redirected for password change
-  useEffect(() => {
-    const tempPassword = sessionStorage.getItem('temp_current_password');
-
-    // Also check if user object has change_password flag set
-    const storedUser = localStorage.getItem('stasht_user');
-    let userNeedsPasswordChange = false;
-
-    if (storedUser) {
-      try {
-        const user = JSON.parse(storedUser);
-        userNeedsPasswordChange = user.change_password === 1;
-        console.log('🔍 ProfileSettingsPage - user.change_password:', user.change_password);
-      } catch (e) {
-        console.error('Failed to parse user object:', e);
-      }
-    }
-
-    console.log('🔍 ProfileSettingsPage - temp password check:', tempPassword);
-    console.log('🔍 ProfileSettingsPage - userNeedsPasswordChange:', userNeedsPasswordChange);
-
-    if (tempPassword || userNeedsPasswordChange) {
-      console.log('🔑 Auto-opening security section and edit mode');
-      setActiveSection('security');
-      setEditingSection('security');
-      console.log('🔍 Set activeSection to security and editingSection to security');
-      // DON'T clear the temporary password here - AccountSecurity component needs to read it first
-      // It will be cleared after AccountSecurity component has auto-filled the password
-    }
-  }, []);
-
   // Debug logging for state changes
   useEffect(() => {
     console.log('🔍 ProfileSettingsPage state update - activeSection:', activeSection, 'editingSection:', editingSection);
@@ -3214,7 +2772,6 @@ export default function ProfileSettingsPage() {
 
   // Create refs for each section
   const personalRef = useRef<HTMLDivElement>(null);
-  const securityRef = useRef<HTMLDivElement>(null);
   const storageRef = useRef<HTMLDivElement>(null);
   const categoriesRef = useRef<HTMLDivElement>(null);
   const privacyRef = useRef<HTMLDivElement>(null);
@@ -3224,7 +2781,6 @@ export default function ProfileSettingsPage() {
 
   const sectionRefs = {
     personal: personalRef,
-    security: securityRef,
     storage: storageRef,
     categories: categoriesRef,
     privacy: privacyRef,
@@ -3255,15 +2811,6 @@ export default function ProfileSettingsPage() {
           <circle cx="12" cy="12" r="10" strokeWidth={2}/>
           <circle cx="12" cy="8" r="3" strokeWidth={2}/>
           <path d="M6.168 18.849A6 6 0 0 1 12 16a6 6 0 0 1 5.832 2.849" strokeWidth={2} strokeLinecap="round"/>
-        </svg>
-      )
-    },
-    {
-      id: 'security',
-      name: 'Account Security',
-      icon: (
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
       )
     },
@@ -3341,15 +2888,6 @@ export default function ProfileSettingsPage() {
         </div>
         
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <AccountSecurity
-            sectionRef={securityRef}
-            isEditing={editingSection === 'security'}
-            onEditToggle={(editing) => setEditingSection(editing ? 'security' : null)}
-            updateUser={updateUser}
-          />
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <StorageManagement sectionRef={storageRef} />
         </div>
 
@@ -3403,54 +2941,6 @@ export default function ProfileSettingsPage() {
           Done
         </button> */}
       </div>
-
-      {/* Security Warning Banner - Show when user needs to change password */}
-      {user?.change_password === 1 && (
-        <div className="mb-4 md:mb-6 bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-500 rounded-lg p-4 md:p-6 shadow-md">
-          <div className="flex flex-col md:flex-row md:items-start gap-3 md:gap-4">
-            {/* Icon - Hidden on mobile for cleaner look */}
-            <div className="hidden md:block flex-shrink-0">
-              <svg className="w-8 h-8 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.314 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 min-w-0">
-              <h3 className="text-base md:text-lg font-bold text-orange-900 mb-2 flex items-center gap-2">
-                <span className="text-xl md:hidden">⚠️</span>
-                <span>Password Change Required</span>
-              </h3>
-              <p className="text-sm md:text-base text-orange-800 mb-3">
-                For security reasons, you must change your temporary password before using the website.
-                Please scroll down to the <strong>Account Security</strong> section below to set a new permanent password.
-              </p>
-              <div className="flex items-start gap-2 text-xs md:text-sm text-orange-700 bg-orange-100/50 p-2 rounded">
-                <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                <span>Your current password field has been pre-filled. Just enter your new password.</span>
-              </div>
-            </div>
-
-            {/* Button - Full width on mobile, auto width on desktop */}
-            <button
-              onClick={() => {
-                setActiveSection('security');
-                setEditingSection('security');
-                // Scroll to security section
-                const securitySection = document.getElementById('security');
-                if (securitySection) {
-                  securitySection.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-              }}
-              className="w-full md:w-auto md:flex-shrink-0 px-4 py-2.5 md:py-2 bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white text-sm md:text-base font-medium rounded-lg transition-colors"
-            >
-              Change Password Now
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Content Sections */}
       {renderAllSections()}
