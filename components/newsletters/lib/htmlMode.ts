@@ -53,6 +53,14 @@ export function removedSummary(removed: readonly RemovedItem[] | null | undefine
 // ---- pictures (Chris 22 Nov 2026, Q4 follow-up: pasted templates keep their fonts and pictures)
 
 /** Under the box when the paste had pictures written inside the HTML (data:): Gmail blocks those. */
+/** 23 Nov 2026 (Deepak): shown only when the paste has its own unsubscribe link, since ours is always added. */
+export const OWN_UNSUBSCRIBE_NOTE = 'Your email has its own unsubscribe link. You can remove it; ours is added.';
+
+/** The paste carries its own unsubscribe link or tag (Mailchimp *|UNSUB|*, a link or text saying unsubscribe). */
+export function hasOwnUnsubscribe(html: string): boolean {
+  return /unsubscribe|\*\|UNSUB\|\*|\{\{\s*unsubscribe|list-manage\.com\/unsubscribe|\[unsubscribe\]/i.test(html);
+}
+
 export const DATA_PICTURES_HINT = 'Gmail blocks pictures saved inside the HTML. Use Add image to upload them.';
 
 /** "3 pictures switched to https" (info: the API draws http:// pictures from https://); null for none. */

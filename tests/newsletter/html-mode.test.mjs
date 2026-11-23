@@ -124,3 +124,15 @@ test('the tag goes at the cursor, over a selection, or at the end on its own lin
   assert.deepEqual(insertSnippet('', '<img>', null, null), { value: '<img>', cursor: 5 });
   assert.deepEqual(insertSnippet('ab', '<img>', 5, 9), { value: 'ab\n<img>', cursor: 8 }, 'a cursor past the end: at the end');
 });
+
+// 23 Nov 2026 (Deepak): the "own unsubscribe link" note shows only when the paste carries one.
+import { hasOwnUnsubscribe, OWN_UNSUBSCRIBE_NOTE } from '../../components/newsletters/lib/htmlMode.ts';
+test('hasOwnUnsubscribe: Mailchimp tag, links and words; plain templates without one', () => {
+  assert.equal(hasOwnUnsubscribe('<a href="*|UNSUB|*">Leave</a>'), true);
+  assert.equal(hasOwnUnsubscribe('<a href="https://x.us1.list-manage.com/unsubscribe?u=1">here</a>'), true);
+  assert.equal(hasOwnUnsubscribe('<p>You can Unsubscribe any time</p>'), true);
+  assert.equal(hasOwnUnsubscribe('<a href="{{ unsubscribe_url }}">Opt out</a>'), true);
+  assert.equal(hasOwnUnsubscribe('<table><tr><td><h1>Holiday lash packages</h1></td></tr></table>'), false);
+  assert.equal(hasOwnUnsubscribe(''), false);
+  assert.match(OWN_UNSUBSCRIBE_NOTE, /ours is added/);
+});
