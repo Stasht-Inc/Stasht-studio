@@ -292,6 +292,7 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
                       </span>
                     ) : null}
                     {!o.shareable && o.reason ? <span id={`${inputId}-reason`} className="block text-xs text-amber-700">{o.reason}</span> : null}
+                    {o.shareable && o.note ? <span id={`${inputId}-note`} className="block text-xs text-gray-500">{o.note}</span> : null}
                   </span>
                 </label>
               </li>

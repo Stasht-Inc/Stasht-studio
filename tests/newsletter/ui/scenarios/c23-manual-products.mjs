@@ -22,6 +22,13 @@ const products = [
   { id: 9103, title: 'Full Back', description: 'Laser hair removal, full back.', cover_url: IMG, date: '2026-11-19', url: 'https://www.fresha.com/a/the-body-politik-vancouver/booking?pId=572380', price_text: '$75 CAD', meta: 'Body', category: 'Body', button_text: 'Book now' },
   { id: 9104, title: 'Brazilian (V)', description: '', cover_url: null, date: '2026-11-18', url: null, price_text: '$80 CAD', meta: 'Face & Bikini', category: 'Face & Bikini' },
 ];
+// F2 (Deepak 23 Nov 2026): what the web API now answers for products with no buy link and no public campaign —
+// the business website with "Visit website", or (no website either) no link at all: still addable, a card with no button.
+const productsF2 = [
+  ...products.slice(0, 3),
+  { id: 9105, title: 'Full Front Torso', description: 'Laser hair removal, full front torso.', cover_url: IMG, date: '2026-11-17', url: 'https://thebodypolitik.com', price_text: '$75 CAD', meta: 'Body', category: 'Body', button_text: 'Visit website' },
+  { id: 9106, title: 'Half Back', description: 'Laser hair removal, half back.', cover_url: IMG, date: '2026-11-16', url: null, noLink: true, price_text: '$45 CAD', meta: 'Body', category: 'Body' },
+];
 const USER = { id: 2, external_user_id: 991201, name: 'TheBodyPolitik', email: 'hello@thebodypolitik.test', role: '2', phone_number: '+1 604 555 0100', profile_image: null, profile_color: '#1F4D3A' };
 
 async function cardTitles(scope) {
@@ -87,5 +94,42 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(s2.getByText('Half Front Torso'), `${width}: cards after reload`);
     await expectVisible(s2.getByText('Book now', { exact: true }), `${width}: Book now after reload`);
     await again.context.close();
+  }
+
+  // ---- F2: never disabled for "no web page"; "Visit website" card; a no-link card has no button.
+  for (const [width, height] of [[1280, 1500], [390, 1800]]) {
+    const api = createMockApi({ campaigns, products: productsF2, businessAddress: ADDRESS });
+    const { page, context } = await open({ width, height, api, user: USER });
+    await page.locator('#nl-name').fill('November Newsletter 2026');
+    const preview = page.locator('aside');
+    await preview.getByRole('button', { name: 'Add a section at the top' }).click();
+    await page.getByRole('menuitem', { name: /^Campaign\b/ }).click();
+    const picker = page.getByRole('dialog', { name: TITLE });
+    await expectVisible(picker.locator('#nl-campaign-product-9106'), `${width} F2: products listed`);
+    expect(!(await picker.locator('#nl-campaign-product-9105').isDisabled()), `${width} F2: Full Front Torso (business website) can be picked`);
+    expect(!(await picker.locator('#nl-campaign-product-9106').isDisabled()), `${width} F2: Half Back (no link) can be picked`);
+    await expectVisible(picker.locator('#nl-campaign-product-9106-note').getByText('No link'), `${width} F2: small "No link" note`);
+    expect(!(await picker.getByText('This item has no web page').count()), `${width} F2: no "This item has no web page" on products`);
+    await shot(page, `nopage-${width}-01-picker`);
+    await picker.locator('#nl-campaign-product-9105').check();
+    await picker.locator('#nl-campaign-product-9106').check();
+    await picker.getByRole('button', { name: 'Done' }).click();
+    const section = preview.getByRole('group', { name: 'Campaigns section' }).first();
+    const items = section.getByRole('list', { name: 'Campaigns in this section' }).getByRole('listitem');
+    await expectVisible(items.first(), `${width} F2: cards in the preview`);
+    const titles = await cardTitles(section);
+    expect(JSON.stringify(titles) === JSON.stringify(['Full Front Torso', 'Half Back']), `${width} F2: both cards (got ${JSON.stringify(titles)})`);
+    await expectVisible(section.getByText('Visit website', { exact: true }), `${width} F2: "Visit website" button`);
+    const halfBack = items.filter({ hasText: 'Half Back' });
+    expect(!(await halfBack.getByText(/View product|Visit website|Book now/).count()), `${width} F2: the no-link card has no button`);
+    await expectVisible(halfBack.getByText('$45 CAD'), `${width} F2: the no-link card keeps its price`);
+    await expectVisible(halfBack.getByText('Laser hair removal, half back.'), `${width} F2: and its description`);
+    await page.waitForTimeout(1500);
+    const saved = api.state.newsletters[0];
+    expect(saved?.blocks?.[0]?.data?.items?.length === 2, `${width} F2: both saved`);
+    expect(!(await hasOverflow(page)), `${width} F2: nothing scrolls sideways`);
+    await section.scrollIntoViewIfNeeded();
+    await shot(page, `nopage-${width}-02-cards`);
+    await context.close();
   }
 }

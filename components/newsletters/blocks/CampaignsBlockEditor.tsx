@@ -4,7 +4,7 @@ import type { CampaignColumns, CampaignItem, CampaignsBlockData, CardOverride } 
 import SegmentedSwitch from '../SegmentedSwitch';
 import { contrastInk } from '../lib/colors';
 import {
-  CAMPAIGNS_MAX, EDIT_ITEMS_LABEL, campaignButtonColor, campaignColumns, cardButtonColor, cardEditPatch, cardEditorAfter, cardHasEdits, cardResetPatch, displayCard,
+  CAMPAIGNS_MAX, EDIT_ITEMS_LABEL, campaignButtonColor, campaignColumns, cardButtonColor, cardHasButton, cardEditPatch, cardEditorAfter, cardHasEdits, cardResetPatch, displayCard,
   missingItemsNote, previewColumns, resolveCampaignItems, selectionKey,
 } from '../lib/campaignsBlock';
 import { campaignSelections } from '../lib/blocks';
@@ -54,9 +54,10 @@ export default function CampaignsBlockEditor({ blockId, data, selected, readOnly
   /** A change worked out from the section's data as it is at that moment (null: nothing to change). */
   onUpdate?(fn: (latest: CampaignsBlockData) => Partial<CampaignsBlockData> | null): void;
 }) {
-  // The email leaves out a card with no link (blocks/campaigns.blade.php via NewsletterRenderer::campaignItems).
+  // The email leaves out a card with no link (blocks/campaigns.blade.php via NewsletterRenderer::campaignItems), except a
+  // product: one with no link at all is a card with no button (F2, 23 Nov 2026).
   const selections = campaignSelections(data);
-  const cards = resolveCampaignItems(selections, serverItems, data.items).filter((c) => c.url);
+  const cards = resolveCampaignItems(selections, serverItems, data.items).filter((c) => c.url || c.kind === 'product');
   const color = campaignButtonColor(accent);
   const canPick = !readOnly && Boolean(onPick);
   const columns = campaignColumns(data);
@@ -113,7 +114,8 @@ export default function CampaignsBlockEditor({ blockId, data, selected, readOnly
                 {c.price_text ? <p className="mb-1 break-words text-[0.9375rem] font-bold leading-[1.375rem] text-gray-900">{c.price_text}</p> : null}
                 {c.meta ? <p className="mb-2 break-words text-[0.8125rem] leading-5 text-gray-500">{c.meta}</p> : null}
                 {card.description ? <p className="mb-3.5 break-words text-[0.9375rem] leading-[1.375rem] text-gray-600">{card.description}</p> : null}
-                <span className={`inline-block max-w-full break-words rounded-[10px] px-6 py-3 text-[0.9375rem] font-bold leading-5 ${card.description ? '' : 'mt-2'}`} style={{ backgroundColor: cardButtonColor(c, color), color: contrastInk(cardButtonColor(c, color)) }}>{card.button}</span>
+                {/* A product with no link at all has no button, as in the email (F2). */}
+                {cardHasButton(c) ? <span className={`inline-block max-w-full break-words rounded-[10px] px-6 py-3 text-[0.9375rem] font-bold leading-5 ${card.description ? '' : 'mt-2'}`} style={{ backgroundColor: cardButtonColor(c, color), color: contrastInk(cardButtonColor(c, color)) }}>{card.button}</span> : null}
               </div>
               {editable ? (
                 <div className="flex items-center justify-between gap-2 border-t border-dashed border-gray-200 px-4 py-2">

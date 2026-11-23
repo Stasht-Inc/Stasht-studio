@@ -131,6 +131,8 @@ export interface CampaignOption {
   button_color?: string;
   /** A manual product's own button words (F), as on CampaignItem. */
   button_text?: string;
+  /** A product with no link at all: "No link" (F2). It can still be added; its card has no button. */
+  note?: string | null;
 }
 
 export type NewsletterBlock =

@@ -194,6 +194,12 @@ export function itemButtonLabel(kind: CampaignKind | undefined): string {
   return BUTTON_LABELS[kindOf(kind)];
 }
 
+/** Whether a card has a button (and links anywhere): always, except a product with no link at all — no page, buy link,
+ *  campaign or business website (Deepak 23 Nov 2026, F2: such a product still goes in, as a card with no button). */
+export function cardHasButton(item: Pick<CampaignItem, 'kind' | 'url'>): boolean {
+  return item.kind !== 'product' || Boolean(item.url);
+}
+
 /** One card's button before any edit: a manual product's own words (its buy link's "Button text"), else the kind's. */
 export function itemButtonText(item: Pick<CampaignItem, 'kind' | 'button_text'>): string {
   return item.button_text || itemButtonLabel(item.kind);

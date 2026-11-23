@@ -430,7 +430,10 @@ export function createMockApi(options = {}) {
       const url = /^https?:\/\//i.test(x.url || '') ? x.url : null;
       return {
         kind, id: x.id, title: x.title, description: x.description ?? null, cover_url: x.cover_url ?? null, date: x.date ?? null,
-        public_url: url, shareable: Boolean(url), reason: url ? null : 'This item has no web page',
+        // noLink (F2, 23 Nov 2026): a product with no link at all is still addable, with the note "No link"
+        public_url: url, shareable: Boolean(url) || (kind === 'product' && x.noLink === true),
+        reason: url || (kind === 'product' && x.noLink === true) ? null : 'This item has no web page',
+        ...(kind === 'product' && !url && x.noLink === true ? { note: 'No link' } : {}),
         price_text: x.price_text ?? null, meta: x.meta ?? null, category: x.category ?? null,
         ...(x.button_text ? { button_text: x.button_text } : {}), // a manual product's own button words (F, 23 Nov 2026)
         searchText: [x.title, x.sku, x.brand, x.make, x.model, x.stock_number].filter(Boolean).join(' ').toLowerCase(),
