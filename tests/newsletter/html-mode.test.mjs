@@ -156,3 +156,14 @@ test('the note shows only while the box holds exactly the generated HTML', () =>
   assert.equal(SECTIONS_AS_HTML_NOTE, 'Your sections as HTML. Paste over it to use another email.');
   assert.match(SECTIONS_HTML_FAILED, /Paste your HTML/);
 });
+
+test('an empty Message section alone never fills the box (a new draft is ready for a pasted template)', () => {
+  const empty = { content: { mode: 'sections', html_document: '' } };
+  const message = (html) => ({ id: 'nl-message', type: 'text', data: { html } });
+  assert.equal(fillsFromSections({ ...empty, blocks: [message('')] }), false, 'empty Message');
+  assert.equal(fillsFromSections({ ...empty, blocks: [message('<p><br></p>')] }), false, 'blank editor Message');
+  assert.equal(fillsFromSections({ ...empty, blocks: [message('<p>&nbsp; </p>')] }), false, 'spaces only');
+  assert.equal(fillsFromSections({ ...empty, blocks: [message('<p>Lashes all year</p>')] }), true, 'a Message with words counts');
+  assert.equal(fillsFromSections({ ...empty, blocks: [message(''), { id: 'b1', type: 'image', data: { url: null, alt: '', link: null } }] }), true, 'any other section counts');
+  assert.equal(fillsFromSections({ ...empty, blocks: [{ id: 'b2', type: 'text', data: { html: '' } }] }), true, 'an ordinary text section counts even empty');
+});

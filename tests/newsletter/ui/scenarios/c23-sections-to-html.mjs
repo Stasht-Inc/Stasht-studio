@@ -4,7 +4,8 @@
 // API output for these sections: tests/newsletter/ui/fixtures/c23-*) and is saved → the note "Your sections as HTML…"
 // shows, no own-unsubscribe note, nothing removed → the preview (the real API email for that HTML) has ONE footer →
 // the sections are untouched → typing in the box hides the note → Sections and back: the box is kept, no new fetch.
-// Then: a newsletter with no sections keeps the empty box; a failed fetch leaves it empty with an error at the bottom.
+// Then: a brand-new draft (empty Message) and a draft with only an empty Message section keep the empty box and jump to it;
+// a newsletter with no sections keeps the empty box; a failed fetch leaves it empty with an error at the bottom.
 import { readFileSync } from 'fs';
 import { createMockApi, newsletter } from '../mock-api.mjs';
 
@@ -92,6 +93,38 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await modeSwitch.getByRole('radio', { name: 'HTML' }).click();
     expect((await box.inputValue()).endsWith('<!-- edited -->'), `${tag}: the box is kept`);
     expect(api.state.sectionsHtmlCalls === 1, `${tag}: no new fetch`);
+    await context.close();
+  }
+
+  // A brand-new draft, its Message empty (coordinator, 23 Nov): the empty box, ready to paste a template, and the jump to it.
+  for (const [width, height, tag] of [[1280, 1000, '1280'], [390, 844, '390']]) {
+    const api = createMockApi({ sectionsHtml: SECTIONS });
+    const { page, context } = await open({ width, height, api });
+    await page.locator('#nl-name').fill(`Mailchimp paste ${tag}`);
+    await page.waitForTimeout(1200);
+    await page.getByRole('radiogroup', { name: 'Email content' }).getByRole('radio', { name: 'HTML' }).click();
+    const box = page.locator('#nl-step-content').getByLabel('HTML Content');
+    await expectVisible(box, `${tag} new draft: the box`);
+    await page.waitForTimeout(900);
+    expect((await box.inputValue()) === '' && !api.state.sectionsHtmlCalls, `${tag} new draft: empty box, no fetch (${api.state.sectionsHtmlCalls ?? 0})`);
+    expect(await page.getByText(NOTE).count() === 0 && await page.getByText('Loading your sections…').count() === 0, `${tag} new draft: no note, no loading`);
+    expect(await box.evaluate((el) => el === document.activeElement), `${tag} new draft: the cursor is in the box`);
+    expect(await box.evaluate((el) => { const r = el.getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }), `${tag} new draft: the box is on screen`);
+    await page.screenshot({ path: shotPath(tag, '06-new-draft-empty-box'), fullPage: false });
+    console.log('shot', shotPath(tag, '06-new-draft-empty-box'));
+    await context.close();
+  }
+
+  // An existing draft whose only section is an empty Message section: the empty box too.
+  {
+    const api = createMockApi({ newsletters: [seeded(80, { blocks: [{ id: 'nl-message', type: 'text', data: { html: '<p><br></p>' } }] })], sectionsHtml: SECTIONS });
+    const { page, context } = await open({ width: 1280, height: 1000, api, query: '&newsletterId=80' });
+    await page.waitForTimeout(1000);
+    await page.getByRole('radiogroup', { name: 'Email content' }).getByRole('radio', { name: 'HTML' }).click();
+    const box = page.locator('#nl-step-content').getByLabel('HTML Content');
+    await expectVisible(box, 'empty Message: the box');
+    await page.waitForTimeout(800);
+    expect((await box.inputValue()) === '' && !api.state.sectionsHtmlCalls, 'empty Message: empty box, no fetch');
     await context.close();
   }
 
