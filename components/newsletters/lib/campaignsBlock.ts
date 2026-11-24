@@ -280,7 +280,7 @@ export function categoryLabel(kind: CampaignKind, raw: string): string {
 
 /** The API's limits for a card's edits (shared brief 2026-10-29 round 2). */
 export const CARD_LIMITS = { title: 120, description: 300, button_text: 30 } as const;
-const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text'] as const;
+const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text', 'button_full'] as const;
 type OverrideField = typeof OVERRIDE_FIELDS[number];
 const KEY = /^(campaign|product|vehicle):[1-9]\d*$/;
 
@@ -330,11 +330,13 @@ const plainText = plainCardText;
 const cleanField = (f: OverrideField, v: unknown): string | null => {
   if (typeof v !== 'string') return null;
   if (f === 'image_url') return httpsUrl(v.trim()) ?? null;
+  // Chris 24 Nov: "1" makes the card's button the card's full width; anything else is no edit.
+  if (f === 'button_full') return v.trim() === '1' ? '1' : null;
   const text = plainText(v).slice(0, CARD_LIMITS[f]).trim();
   return text || null;
 };
 
-/** The edits as a PUT sends them: only cards still picked (in the picks' order), only the four fields (in a fixed
+/** The edits as a PUT sends them: only cards still picked (in the picks' order), only the known fields (in a fixed
  *  order), trimmed, within the limits, https images. Empty fields and cards are left out. */
 export function overridesForInput(overrides: CardOverrides | undefined, selections: readonly CampaignSelection[]): CardOverrides {
   const out: CardOverrides = {};
@@ -362,7 +364,7 @@ export function pruneOverrides(overrides: CardOverrides | undefined, selections:
 
 /** A card as the email draws it: the edit when there is one, the item's own value otherwise. The link is always
  *  the item's own. */
-export function displayCard(item: CampaignItem, o: CardOverride | undefined | null): { image: string | null; title: string; description: string; button: string; url: string } {
+export function displayCard(item: CampaignItem, o: CardOverride | undefined | null): { image: string | null; title: string; description: string; button: string; url: string; buttonFull: boolean } {
   const pick = (f: OverrideField) => (o ? cleanField(f, o[f]) : null);
   return {
     image: pick('image_url') ?? item.cover_url,
@@ -370,6 +372,7 @@ export function displayCard(item: CampaignItem, o: CardOverride | undefined | nu
     description: pick('description') ?? item.description,
     button: pick('button_text') ?? itemButtonText(item),
     url: item.url,
+    buttonFull: pick('button_full') === '1',
   };
 }
 

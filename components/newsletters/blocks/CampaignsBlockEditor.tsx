@@ -115,7 +115,7 @@ export default function CampaignsBlockEditor({ blockId, data, selected, readOnly
                 {c.meta ? <p className="mb-2 break-words text-[0.8125rem] leading-5 text-gray-500">{c.meta}</p> : null}
                 {card.description ? <p className="mb-3.5 break-words text-[0.9375rem] leading-[1.375rem] text-gray-600">{card.description}</p> : null}
                 {/* A product with no link at all has no button, as in the email (F2). */}
-                {cardHasButton(c) ? <span className={`inline-block max-w-full break-words rounded-[10px] px-6 py-3 text-[0.9375rem] font-bold leading-5 ${card.description ? '' : 'mt-2'}`} style={{ backgroundColor: cardButtonColor(c, color), color: contrastInk(cardButtonColor(c, color)) }}>{card.button}</span> : null}
+                {cardHasButton(c) ? <span data-nl-card-button="" data-full={card.buttonFull ? '' : undefined} className={`${card.buttonFull ? 'block w-full text-center' : 'inline-block max-w-full'} break-words rounded-[10px] px-6 py-3 text-[0.9375rem] font-bold leading-5 ${card.description ? '' : 'mt-2'}`} style={{ backgroundColor: cardButtonColor(c, color), color: contrastInk(cardButtonColor(c, color)) }}>{card.button}</span> : null}
               </div>
               {editable ? (
                 <div className="flex items-center justify-between gap-2 border-t border-dashed border-gray-200 px-4 py-2">

@@ -60,7 +60,7 @@ import { maybeAskForDesktopAlerts } from './components/leads/desktopAlertsPrompt
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
 import { SyncProgressProvider } from './contexts/SyncProgressContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus, Package } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Camera, Users, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus, Package } from 'lucide-react';
 import ProductsPage from "./pages/ProductsPage";
 import { useProductsStatus } from './hooks/useProductsStatus';
 import { productPageId, productPageIdOf, showsProductsNav } from './utils/products';
@@ -4841,21 +4841,7 @@ function MainApp() {
                 <span className={phoneLabelClass}>Users</span>
               </button>
 
-              {/* Apps: same rule as Dashboard (utils/planGate) */}
-              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
-                <button
-                  onClick={() => {
-                    handleNavigation("apps");
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
-                    currentPage === "apps" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
-                  }`}
-                >
-                  <Grid3x3 className="w-7 h-7 mb-1" />
-                  <span className={phoneLabelClass}>Apps</span>
-                </button>
-              )}
+              {/* No Apps on the phone (Chris 24 Nov): API keys are a desktop task; the sidebar keeps Apps. */}
             </div>
           </nav>
 
