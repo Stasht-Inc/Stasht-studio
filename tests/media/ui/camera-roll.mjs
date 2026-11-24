@@ -315,7 +315,7 @@ try {
       expect(await isTab(p3, 'Media'), `${tag}: stasht_open_media_tab → opens on the Media tab`);
       expect((await p3.evaluate(() => sessionStorage.getItem('stasht_open_media_tab'))) === null, `${tag}: …and the one-shot key is used up`);
       // Away and back in-app: Camera Roll again (default)
-      await p3.getByRole('button', { name: /^Dashboard( \d+)?$/ }).filter({ visible: true }).first().click();
+      await p3.getByRole('button', { name: /^Stats( \d+)?$/ }).filter({ visible: true }).first().click();
       await p3.waitForTimeout(1200);
       await p3.getByRole('button', { name: /^Media( \d+)?$/ }).filter({ visible: true }).first().click();
       await tab(p3, 'Camera Roll').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});

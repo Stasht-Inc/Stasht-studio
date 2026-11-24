@@ -464,7 +464,7 @@ export default function Dashboard({
       )}
       {/* Page Header */}
       <div className="flex items-center justify-between gap-3 px-0 md:px-4">
-        <h1 className="text-xl md:text-2xl font-bold text-gray-900">Dashboard</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-gray-900">Stats</h1>
         <div className="flex items-center gap-3 md:gap-6">
           <div className="hidden md:block text-sm text-gray-500 italic">
             [Last updated: {new Date().toLocaleTimeString()}]

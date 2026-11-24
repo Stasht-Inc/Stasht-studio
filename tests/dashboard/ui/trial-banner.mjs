@@ -100,8 +100,8 @@ async function open({ properties, width = 1280, height = 900, cards = 'none', co
   });
   const page = await context.newPage();
   page.on('pageerror', (e) => { pageErrors.push(e.message); if (process.env.TB_DEBUG) console.log('pageerror', e.stack); });
-  await page.goto(`${BASE}/`);
-  await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 40000 });
+  await page.goto(`${BASE}/dashboard`); // Stats (was Dashboard; '/' opens Campaigns since 24 Nov)
+  await page.getByRole('heading', { name: 'Stats', exact: true }).first().waitFor({ state: 'visible', timeout: 40000 });
   await page.waitForTimeout(2500); // properties + dashboard calls settle
   return { context, page };
 }
@@ -172,8 +172,8 @@ try {
     expect(paymentCalls.length === 1, `2f: first Dashboard visit asks once (${paymentCalls.length})`);
     await page.getByRole('button', { name: /^Campaigns/ }).filter({ visible: true }).first().click();
     await page.waitForTimeout(1500);
-    await page.getByRole('button', { name: /^Dashboard/ }).filter({ visible: true }).first().click();
-    await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.getByRole('button', { name: /^Stats/ }).filter({ visible: true }).first().click();
+    await page.getByRole('heading', { name: 'Stats', exact: true }).first().waitFor({ state: 'visible', timeout: 20000 });
     await page.waitForTimeout(2000);
     const text = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
     expect(text.includes(ADD_CARD), '2f: the line still shows on the second visit');

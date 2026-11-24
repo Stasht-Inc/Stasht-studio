@@ -95,8 +95,8 @@ async function open({ properties, width = 1280, height = 900, cards = 'none', co
   });
   const page = await context.newPage();
   page.on('pageerror', (e) => { pageErrors.push(e.message); if (process.env.TB_DEBUG) console.log('pageerror', e.stack); });
-  await page.goto(`${BASE}/`);
-  await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 40000 });
+  await page.goto(`${BASE}/dashboard`); // Stats (was Dashboard; '/' opens Campaigns since 24 Nov)
+  await page.getByRole('heading', { name: 'Stats', exact: true }).first().waitFor({ state: 'visible', timeout: 40000 });
   await page.waitForTimeout(2500); // properties + dashboard calls settle
   return { context, page };
 }

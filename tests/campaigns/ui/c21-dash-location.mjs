@@ -126,7 +126,7 @@ try {
 
     // ── P4 Dashboard (the card is hidden on phones, as before: 1280 only) ─────────────────────────────────────────
     if (width >= 768) {
-      const { page, context, state } = await open({ width, height, path: '/' });
+      const { page, context, state } = await open({ width, height, path: '/dashboard' }); // Stats ('/' = Campaigns since 24 Nov)
       const heading = page.getByRole('heading', { name: 'Recent Activity' });
       await heading.waitFor({ timeout: 40000 });
       const rows = page.getByTestId('recent-activity-row');

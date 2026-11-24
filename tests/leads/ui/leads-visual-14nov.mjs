@@ -122,8 +122,8 @@ try {
       const shift = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--phone-bar-shift').trim());
       expect(shift === '336px', `m2: shift applied (${shift})`);
       await shot(page, 'lv-m2-ios-stuck-fixed');
-      // Other pages at 390: Dashboard and Media.
-      for (const label of ['Dashboard', 'Media']) {
+      // Other pages at 390: Stats (was Dashboard) and Media.
+      for (const label of ['Stats', 'Media']) {
         await nav.getByText(label, { exact: true }).click();
         await page.waitForTimeout(1200);
         await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));

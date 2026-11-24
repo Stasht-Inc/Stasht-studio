@@ -275,7 +275,7 @@ try {
     if (tag === 'phone') {
       // Review: the phone bottom bar follows the sidebar — no Dashboard / Apps in a property view.
       const bar = page.locator('div.flex.items-center.justify-around.h-24');
-      expect(await bar.getByText('Dashboard', { exact: true }).count() === 0 && await bar.getByText('Apps', { exact: true }).count() === 0, '6 phone: no Dashboard / Apps on the bottom bar in a property view');
+      expect(await bar.getByText('Stats', { exact: true }).count() === 0 && await bar.getByText('Apps', { exact: true }).count() === 0, '6 phone: no Stats / Apps on the bottom bar in a property view');
       expect(await bar.getByText('Campaigns', { exact: true }).count() === 1, '6 phone: the bottom bar is there (Campaigns)');
     }
     await shot(page, `6-01-pedalheads-point-grey-no-gate-${tag}`);
@@ -402,17 +402,17 @@ try {
     }
   }
 
-  // ── R1. Release E2E B1: a Teams self sign-up (role 3) opening the app on Campaigns, then clicking Dashboard, stays there ──
+  // ── R1. Release E2E B1: a Teams self sign-up (role 3) opening the app on Campaigns, then clicking Stats (was Dashboard), stays there ──
   for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
     if (!run('R1')) break;
     console.log(`R1 (${tag}): Teams role 3 opens on Campaigns → Dashboard`);
     const { page, context } = await open({ width: w, height: h, path: '/stories', seed: session(BODY, { view_type: 'personal' }), waitFor: appReady });
     await page.waitForTimeout(3500);
-    const dash = page.getByRole('button', { name: /^Dashboard/ }).filter({ visible: true }).first();
+    const dash = page.getByRole('button', { name: /^Stats/ }).filter({ visible: true }).first();
     await dash.click();
-    await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    await page.getByRole('heading', { name: 'Stats', exact: true }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(3000);
-    expect(await page.getByRole('heading', { name: 'Dashboard', exact: true }).filter({ visible: true }).count() > 0, `R1 ${tag}: first Dashboard click stays on Dashboard`);
+    expect(await page.getByRole('heading', { name: 'Stats', exact: true }).filter({ visible: true }).count() > 0, `R1 ${tag}: first Stats click stays on Stats`);
     expect(!/\/(stories|memories)/.test(new URL(page.url()).pathname), `R1 ${tag}: not bounced to Campaigns (${new URL(page.url()).pathname})`);
     await shot(page, `R1-01-teams-dashboard-first-click-${tag}`);
     await context.close();
@@ -538,14 +538,15 @@ try {
     console.log(`4 (${tag}): TheBodyPolitik role 3 on Teams`);
     const { page, context } = await open({ width: w, height: h, seed: session(BODY, { view_type: 'personal' }), waitFor: appReady });
     await page.waitForTimeout(3000);
-    const dash = page.getByRole('button', { name: /^Dashboard/ }).filter({ visible: true });
+    const dash = page.getByRole('button', { name: /^Stats/ }).filter({ visible: true });
     const apps = page.getByRole('button', { name: /^Apps/ }).filter({ visible: true });
-    expect(await dash.count() > 0 && await inViewport(dash.first(), w, h), `4 ${tag}: Dashboard in the menu, in view`);
-    expect(await apps.count() > 0, `4 ${tag}: Apps in the menu`);
+    expect(await dash.count() > 0 && await inViewport(dash.first(), w, h), `4 ${tag}: Stats in the menu, in view`);
+    // No Apps on the phone bar since Chris 24 Nov (API keys are a desktop task); the sidebar keeps it.
+    expect(tag === 'phone' ? await apps.count() === 0 : await apps.count() > 0, `4 ${tag}: ${tag === 'phone' ? 'no Apps on the phone bar (Chris 24 Nov)' : 'Apps in the menu'}`);
     await shot(page, `4-01-bodypolitik-teams-dashboard-${tag}`);
     await dash.first().click();
-    await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-    expect(await page.getByRole('heading', { name: 'Dashboard', exact: true }).filter({ visible: true }).count() > 0, `4 ${tag}: Dashboard opens`);
+    await page.getByRole('heading', { name: 'Stats', exact: true }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    expect(await page.getByRole('heading', { name: 'Stats', exact: true }).filter({ visible: true }).count() > 0, `4 ${tag}: Stats opens`);
     await shot(page, `4-02-bodypolitik-dashboard-open-${tag}`);
     await context.close();
   }
@@ -555,14 +556,14 @@ try {
     console.log('4b: Starter → (Admin Portal upgrade) → Teams without signing in again');
     const { page, context, state } = await open({ seed: session(BODY, { view_type: 'personal' }), plans: { 'body-token': 'Starter' }, waitFor: appReady });
     await page.waitForTimeout(3000);
-    const dash = () => page.getByRole('button', { name: /^Dashboard/ }).filter({ visible: true });
-    expect(await dash().count() === 0, '4b: on Starter, no Dashboard (as before)');
+    const dash = () => page.getByRole('button', { name: /^Stats/ }).filter({ visible: true });
+    expect(await dash().count() === 0, '4b: on Starter, no Stats (as before)');
     await shot(page, '4b-01-starter-no-dashboard');
     state.plans['body-token'] = 'Teams';
     await page.waitForTimeout(31000); // past the 30 s refresh window
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await dash().first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-    expect(await dash().count() > 0, '4b: after the upgrade, Dashboard appears on returning to the tab (no sign-in)');
+    expect(await dash().count() > 0, '4b: after the upgrade, Stats appears on returning to the tab (no sign-in)');
     await shot(page, '4b-02-upgraded-dashboard-appears');
     await context.close();
   }

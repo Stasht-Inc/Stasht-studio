@@ -39,7 +39,8 @@ export default function ProductsPage({ onNavigate, onOpenProduct, detailOpen = f
 
   // Not available for this account / view (or the status can't be read): leave rather than sit on a dead page.
   useEffect(() => {
-    if (!loading && gate === 'hidden') onNavigate(viewType === 'property' ? 'memories' : 'dashboard');
+    // Off for this account: to the landing page, Campaigns (Deepak, 24 Nov 2026; was Dashboard outside a property view).
+    if (!loading && gate === 'hidden') onNavigate('memories');
   }, [loading, gate, viewType, onNavigate]);
 
   return (

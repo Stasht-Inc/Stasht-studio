@@ -37,7 +37,7 @@ import { PopupBlockedGuideModal } from './components/PopupBlockedGuideModal';
 import UpgradePlanModal from './components/UpgradePlanModal';
 import PlanGateExits from './components/PlanGateExits';
 import { useIsStarterPlan } from './hooks/usePlan';
-import { landingAfterSignIn } from './utils/landing';
+import { landingAfterSignIn, LANDING_PAGE } from './utils/landing';
 import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
 import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
 import { mediaAPI, mediaTransformers, resetMediaCache } from './services/mediaAPI';
@@ -1710,7 +1710,8 @@ function MainApp() {
       console.log('🔍 Detected /marketplace URL - setting currentPage to marketplace');
       handleNavigation('marketplace');
     }
-    // If pathname is '/' or '/dashboard', do nothing - let default 'dashboard' stay
+    // '/', '/dashboard' and unknown paths: nothing to do — useAppNavigation already started on Campaigns, or on Stats for
+    // /dashboard (utils/landing initialPage; Deepak, 24 Nov 2026)
   }, []); // Run only once on mount
 
   // Media page navigation - activeServiceTab is now automatically preserved via sessionStorage
@@ -2271,8 +2272,8 @@ function MainApp() {
     setCategories(categoriesData);
     setLabels(labelsData);
     
-    // Reset navigation state
-    handleNavigation('dashboard');
+    // Reset navigation state: back to the landing page, Campaigns (Deepak, 24 Nov 2026; was Dashboard)
+    handleNavigation(LANDING_PAGE);
 
     // Reset initial redirect flag for next login
     setHasInitialRedirectHappened(false);
@@ -2684,7 +2685,7 @@ function MainApp() {
     if (redirectUrl) {
       // Handle frontend route navigation
       if (redirectUrl === '/dashboard') {
-        handleNavigation('dashboard');
+        handleNavigation('dashboard'); // Stats (was Dashboard): an explicit /dashboard still opens it
       } else if (redirectUrl === '/stories') {
         handleNavigation('memories');
       } else if (redirectUrl === '/media') {
@@ -2696,12 +2697,12 @@ function MainApp() {
         console.log('Redirecting to login page');
         return; // Exit early, login page will show
       } else {
-        // Default to dashboard for any other route
-        handleNavigation('dashboard');
+        // Any other route: the landing page, Campaigns (Deepak, 24 Nov 2026; was Dashboard)
+        handleNavigation(LANDING_PAGE);
       }
     } else {
-      // Default: go to dashboard
-      handleNavigation('dashboard');
+      // Default: the landing page, Campaigns (was Dashboard)
+      handleNavigation(LANDING_PAGE);
     }
   };
 
@@ -4755,22 +4756,6 @@ function MainApp() {
             </div>
 
                         <div className={`flex items-center justify-around h-24`}>
-              {/* Dashboard: every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
-              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
-                <button
-                  onClick={() => {
-                    handleNavigation("dashboard");
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
-                    currentPage === "dashboard" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
-                  }`}
-                >
-                  <LayoutDashboard className="w-7 h-7 mb-1" />
-                  <span className={phoneLabelClass}>Dashboard</span>
-                </button>
-              )}
-
               <button
                 onClick={() => {
                   handleNavigation("memories");
@@ -4797,6 +4782,23 @@ function MainApp() {
                 <Target className="w-7 h-7 mb-1" />
                 <span className={phoneLabelClass}>Leads</span>
               </button>
+
+              {/* Stats (was Dashboard; after Leads, Deepak 24 Nov 2026): every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
+              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
+                <button
+                  data-testid="phone-bar-stats"
+                  onClick={() => {
+                    handleNavigation("dashboard");
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
+                    currentPage === "dashboard" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
+                  }`}
+                >
+                  <LayoutDashboard className="w-7 h-7 mb-1" />
+                  <span className={phoneLabelClass}>Stats</span>
+                </button>
+              )}
 
               <button
                 onClick={() => {
