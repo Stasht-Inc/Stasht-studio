@@ -82,7 +82,7 @@ function updateErrors(body) {
 // Shared brief 2026-10-29 round 2: what the API keeps of a Campaigns section's layout (columns, absent = 1) and its
 // per-card edits (only cards still picked, only the four fields, plain text: runs of spaces one space, trimmed;
 // answered as {} when there are none).
-const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text'];
+const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text', 'button_full'];
 function campaignLayout(data, selections = []) {
   const keys = new Set(selections.map((p) => `${p.kind}:${p.id}`));
   const overrides = {};

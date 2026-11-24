@@ -20,9 +20,9 @@ test('limits from the contract', () => {
 
 test('displayCard: an edit wins, an empty or missing one shows the item’s own value; the link never changes', () => {
   const it = item('product', 881);
-  assert.deepEqual(displayCard(it, undefined), { image: 'https://x.ca/881.jpg', title: 'product 881', description: 'About 881', button: 'View product', url: 'https://shop.ca/881' });
+  assert.deepEqual(displayCard(it, undefined), { image: 'https://x.ca/881.jpg', title: 'product 881', description: 'About 881', button: 'View product', url: 'https://shop.ca/881', buttonFull: false });
   const edited = displayCard(it, { image_url: 'https://cdn.x.ca/mine.jpg', title: 'Brass handle, 20% off', description: 'This week only.', button_text: 'Shop now', url: 'https://evil.example' });
-  assert.deepEqual(edited, { image: 'https://cdn.x.ca/mine.jpg', title: 'Brass handle, 20% off', description: 'This week only.', button: 'Shop now', url: 'https://shop.ca/881' });
+  assert.deepEqual(edited, { image: 'https://cdn.x.ca/mine.jpg', title: 'Brass handle, 20% off', description: 'This week only.', button: 'Shop now', url: 'https://shop.ca/881', buttonFull: false });
   assert.deepEqual(displayCard(it, { title: '   ', description: '', button_text: null, image_url: 'http://not-https.ca/a.jpg' }), displayCard(it, undefined));
   assert.equal(displayCard(item('vehicle', 45), {}).button, 'View vehicle');
   assert.equal(displayCard(item('campaign', 12, { cover_url: null }), {}).image, null);
@@ -160,4 +160,18 @@ test('cardEditorAfter: the last card of the edited card’s row', async () => {
   assert.equal(cardEditorAfter(3, 4, 2), 3);
   assert.equal(cardEditorAfter(0, 4, 1), 0);
   assert.equal(cardEditorAfter(2, 4, 1), 2);
+});
+
+// Chris 24 Nov: "There should be option to make button full width" — a per-card edit, "1" or nothing.
+test('a card\'s button can be made full width, and only "1" counts', () => {
+  const it = item('product', 881);
+  assert.equal(displayCard(it, { button_full: '1' }).buttonFull, true);
+  assert.equal(displayCard(it, { button_full: 'yes' }).buttonFull, false);
+  assert.equal(cardHasEdits({ button_full: '1' }), true);
+  const on = setCardOverride(undefined, 'product:881', { button_full: '1' });
+  assert.deepEqual(on, { 'product:881': { button_full: '1' } });
+  assert.deepEqual(setCardOverride(on, 'product:881', { button_full: '' }), {});
+  assert.deepEqual(overridesForInput({ 'product:881': { button_full: '1', title: 'T' } }, [p(881)]), { 'product:881': { title: 'T', button_full: '1' } });
+  assert.deepEqual(overridesForInput({ 'product:881': { button_full: 'true' } }, [p(881)]), {});
+  assert.deepEqual(normaliseOverrides({ 'product:881': { button_full: '1' } }), { 'product:881': { button_full: '1' } });
 });

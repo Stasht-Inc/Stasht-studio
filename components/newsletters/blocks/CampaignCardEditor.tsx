@@ -10,7 +10,7 @@ import { BUTTON_SMALL, LABEL, inputClass, textareaClass } from '../lib/ui';
  * One card's edits for this newsletter only (Chris, 29 Oct round 2): its image (upload, replace, back to the
  * original), title, description and button text. The boxes start filled with what the card shows now, so a few
  * letters can be changed (Deepak, 30 Oct). Text equal to the original, or an emptied box, keeps the item's own value;
- * an emptied box refills with it once left. The card's link can't be changed. "Reset to original" drops every edit.
+ * an emptied box refills with it once left. The button can be made full width (Chris 24 Nov). The card's link can't be changed. "Reset to original" drops every edit.
  */
 type TextField = 'title' | 'description' | 'button_text';
 
@@ -105,6 +105,13 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
         <label htmlFor={`${id}-button`} className={LABEL}>Button text</label>
         <input id={`${id}-button`} type="text" value={text.button_text} maxLength={CARD_LIMITS.button_text} placeholder={itemButtonText(item)}
           onChange={(e) => type('button_text', e.target.value)} onBlur={(e) => leave('button_text', e.target.value)} className={inputClass()} />
+        {/* Chris 24 Nov: the button can span the card, as the Button section's "Full width" does. */}
+        <label className="mt-2 inline-flex cursor-pointer select-none items-center gap-2">
+          <input id={`${id}-button-full`} type="checkbox" checked={shown.buttonFull}
+            onChange={(e) => onChange({ button_full: e.target.checked ? '1' : '' })}
+            onClick={(e) => e.stopPropagation()} className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+          <span className="text-sm text-gray-700">Full width</span>
+        </label>
       </div>
       ) : null}
 

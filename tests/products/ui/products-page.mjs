@@ -329,7 +329,7 @@ try {
   }
 
   if (run('nav')) {
-    // Phone bar with 7 items (Products shown): every label inside the viewport, none overlapping another.
+    // Phone bar with 6 items (Products shown; no Apps on the phone since Chris 24 Nov): every label inside the viewport, none overlapping another.
     for (const width of [320, 360, 390]) {
       const { page, context } = await open(world(), { width, height: 740, path: '/' });
       const boxes = await page.evaluate(() => {
@@ -337,7 +337,8 @@ try {
         return nav ? [...nav.querySelectorAll('button span')].map((s) => { const r = s.getBoundingClientRect(); return { t: s.textContent, l: r.left, r: r.right, w: s.scrollWidth, cw: s.clientWidth }; }) : [];
       });
       if (process.env.PR_DEBUG) console.log(width, JSON.stringify(boxes.map((b) => [b.t, Math.round(b.l), Math.round(b.r)])));
-      expect(boxes.length >= 7, `phone-${width}: the bar shows 7 labels (got ${boxes.length})`);
+      expect(boxes.length === 6, `phone-${width}: the bar shows 6 labels (got ${boxes.length})`);
+      expect(!boxes.some((b) => b.t === 'Apps'), `phone-${width}: no Apps on the phone bar (Chris 24 Nov)`);
       expect(boxes.every((b) => b.l >= 0 && b.r <= width), `phone-${width}: every label is inside the viewport`);
       expect(boxes.every((b, i) => i === 0 || b.l >= boxes[i - 1].r - 0.5), `phone-${width}: no two labels overlap`);
       await page.screenshot({ path: `${OUT}/phone-${width}-bar.png` });

@@ -228,6 +228,26 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await panel.scrollIntoViewIfNeeded();
     await shot(page, '1280-05-card-editor');
 
+    // Chris 24 Nov: "There should be option to make button full width".
+    const fullBox = panel.getByLabel('Full width', { exact: true });
+    const cardButton = fall.locator('[data-nl-card-button]');
+    expect(!(await fullBox.isChecked()), 'Full width is off at first');
+    const narrow = (await cardButton.boundingBox()).width;
+    await fullBox.check();
+    const cardBox = await fall.boundingBox();
+    const wide = (await cardButton.boundingBox()).width;
+    expect(wide > narrow && wide > cardBox.width * 0.8, `the card's button spans the card (was ${narrow}, now ${wide} of ${cardBox.width})`);
+    await page.waitForTimeout(1500);
+    expect(lastOverrides()?.['campaign:601']?.button_full === '1', `full width saved (got ${JSON.stringify(lastOverrides())})`);
+    await fall.scrollIntoViewIfNeeded();
+    await shot(page, '1280-05b-card-button-full-width');
+    await fullBox.uncheck();
+    await page.waitForTimeout(1500);
+    expect(!lastOverrides()?.['campaign:601']?.button_full, 'unticked: no full width in the save');
+    expect(Math.round((await cardButton.boundingBox()).width) === Math.round(narrow), 'the button is back to its words');
+    await fullBox.check();
+    await page.waitForTimeout(1500);
+
     // A card with no picture: add one, then back to the original (none).
     await section.getByRole('button', { name: 'Edit card: Winter tire swap' }).click();
     const panel2 = section.getByRole('group', { name: 'Edit card: Winter tire swap' });
