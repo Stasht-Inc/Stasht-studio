@@ -9,7 +9,7 @@ import { useIsStarterPlan } from '../hooks/usePlan';
 import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import * as Popover from '@radix-ui/react-popover';
-import { clearApiCache, dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
+import { apiRequest, clearApiCache, dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
 import { dayOf, isoToApiDay, localDateISO } from '../utils/localDate';
 import { loadCatalogueForBrowsing } from '../services/catalogueAPI';
 import { loadShopifyForBrowsing } from '../services/shopifyItemsAPI';
@@ -50,16 +50,17 @@ import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '.
 import { cn } from './ui/utils';
 import StepCard from './newsletters/StepCard';
 import StoreelSendStep, { SEND_STEP_ID } from './storeel/StoreelSendStep';
-import StoreelMomentsCard, { MOMENTS_STEP_ID, type MomentRow } from './storeel/StoreelMomentsCard';
+import StoreelMomentsCard, { MOMENTS_STEP_ID, type MomentRow, type WidgetRow } from './storeel/StoreelMomentsCard';
 import {
   CURRENT_CATEGORY, coverFromSeed, createdToast, flowView, formFromSeed, saveBlockedReason, seedFromMemory, stepNumber, updatePayload,
   type CampaignSeed,
 } from './storeel/lib/storeelFlow';
 import { senderLabelFor } from './storeel/lib/storeelSms';
 import { sentMessage, type StoreelSendSummary } from './storeel/lib/storeelSend';
-import { requestOpenCampaign } from './storeel/lib/openCampaign';
 import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './widgets/addWidgetOptions';
-import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewCardButton, type PreviewWidget } from './storeel/lib/storeelWidgets';
+import { postIdsAfterCreate, widgetAnchorPostId, type PreviewCardButton, type PreviewWidget } from './storeel/lib/storeelWidgets';
+import { failedWidgetsMessage, isPinnedPending, movePending, orderedPending, pendingCreateBodies, pendingMoves, pendingPreviewWidgets, resolveAnchor, type PendingWidget } from './storeel/lib/pendingWidgets';
+import StoreelWidgetEditors, { type SavedWidget, type WidgetEditorRequest } from './storeel/StoreelWidgetEditors';
 import { useProductsStatus } from '../hooks/useProductsStatus';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { opensAtTarget, type StepperOpensAt } from './storeel/lib/publishing';
@@ -109,6 +110,33 @@ export interface CreateMemoryHandle {
 
 /** Step 2's photos get a key of their own when added (a removed photo never shifts another row's caption editor). */
 let photoIdSeq = 0;
+/**
+ * Voice to Text's "no image" picture (public/no-image-placeholder.svg — the one the campaign page gives a part with no
+ * photo) as a PNG, since the photo upload takes photos only (P1, 24 Nov 2026). Null when it can't be drawn.
+ */
+async function placeholderPhoto(): Promise<File | null> {
+  try {
+    const svg = await (await fetch('/no-image-placeholder.svg')).text();
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = url; });
+      const width = img.naturalWidth || 800;
+      const height = img.naturalHeight || 600;
+      const scale = Math.max(1, 800 / width);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      return blob ? new File([blob], 'no-image-placeholder.png', { type: 'image/png' }) : null;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
+  }
+}
+
 function withPhotoIds<T extends object>(photos: T[]): Array<T & { id: string }> {
   return photos.map((p) => ({ ...p, id: (p as { id?: string }).id || `p${Date.now().toString(36)}${(photoIdSeq += 1)}` }));
 }
@@ -251,9 +279,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [extraCars, setExtraCars] = useState<InventoryPick[]>([]);
   // Add a Moment's "Campaigns (optional)" before the campaign exists (Chris, 8 Nov 2026): sent as linked_memory_ids.
   const [extraCampaigns, setExtraCampaigns] = useState<CampaignPick[]>([]);
-  // A non-Moment widget picked before the campaign exists: "Save as Draft first?" (Chris, 8 Nov 2026, point 1).
-  const [widgetAsk, setWidgetAsk] = useState<{ kind: AddWidgetKind; label: string; anchor: string | null | undefined } | null>(null);
-  const widgetAfterSaveRef = useRef<{ kind: AddWidgetKind; anchor: string | null | undefined } | null>(null);
+  // Deepak 24 Nov 2026 (P1): a widget picked here opens its editor right here (no "Save as Draft first?"); saved, it
+  // waits in the preview (pendingWidgets) until Save as Draft / Save & Send makes the Storeel, then is made at its place.
+  // widgetEditor: the editor open now (its "+" in widgetEditorAnchorRef). flushedWidgets: ones already made on this
+  // Storeel (after Save & Send), still shown in the preview.
+  const [pendingWidgets, setPendingWidgets] = useState<PendingWidget[]>([]);
+  const pendingWidgetsRef = useRef<PendingWidget[]>([]);
+  pendingWidgetsRef.current = pendingWidgets;
+  const pendingSeqRef = useRef(0);
+  const [widgetEditor, setWidgetEditor] = useState<WidgetEditorRequest | null>(null);
+  const widgetEditorAnchorRef = useRef<string | null>(null);
+  const [flushedWidgets, setFlushedWidgets] = useState<PreviewWidget[]>([]);
   const addAnchorRef = useRef<string | null | undefined>(undefined);
   const [momentBusy, setMomentBusy] = useState(false);
   const [deleteAsk, setDeleteAsk] = useState<PreviewMoment | null>(null);
@@ -1235,6 +1271,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setMomentOrder([]);
       setExtraCatalog([]);
       setExtraCars([]);
+      setPendingWidgets([]);
+      setFlushedWidgets([]);
+      setWidgetEditor(null);
       addAnchorRef.current = undefined;
       setModerationChoice(null);
       setPhotosWithMetadata([]);
@@ -1545,7 +1584,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setExtraCatalog([]);
     setExtraCars([]);
     setExtraCampaigns([]);
-    setWidgetAsk(null);
+    // Closing without saving drops the widgets added here, as it drops the photos (P1, 24 Nov 2026).
+    setPendingWidgets([]);
+    setFlushedWidgets([]);
+    setWidgetEditor(null);
     setDeleteAsk(null);
     setModerationChoice(null);
     onOpenChange(false);
@@ -2243,28 +2285,47 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   /**
-   * A widget picked before its editor could open (Chris, 8 Nov 2026, point 1): remember it for the campaign page, after
-   * the moment its "+" followed — just created: the new moments' ids matched to the form's (products then photos, as
-   * sent); already saved: the moments' own ids. The page then opens Edit Storeel with that editor.
+   * The widgets added here (P1, 24 Nov 2026), made on the Storeel once it exists: each with the same request the
+   * campaign page's editor sends (POST /memories/{id}/widgets), after the moment its "+" followed — just created: the
+   * new moments' ids matched to the form's (the old hand-off's mapping, postIdsAfterCreate); already saved: the
+   * moments' own ids. One that fails is named in a message; the Storeel stays made and the rest go on.
    */
-  const handOffWidget = async (id: number, w: { kind: AddWidgetKind; anchor: string | null | undefined }, justCreated: boolean) => {
-    let after: number | null = null;
-    if (justCreated) {
-      if (w.anchor !== null) {
-        try {
-          clearApiCache();
-          const res = await dashboardAPI.getMemoryDetails(String(id));
-          const fresh = res?.success ? (seedFromMemory(res.data)?.previewMoments ?? []) : [];
-          const ids = postIdsAfterCreate(sentPostKeys(createMoments), fresh);
-          after = widgetAnchorPostId(previewMoments, w.anchor, (m) => ids.get(m.key));
-          // Not matched (the API skipped a product): after the campaign's last moment.
-          if (after === null && ids.size === 0) after = widgetAnchorPostId(fresh, undefined, (m) => (m.kind === 'photo' ? m.postId : undefined));
-        } catch { /* top */ }
-      }
-    } else {
-      after = widgetAnchorPostId(previewMoments, w.anchor, (m) => (m.kind === 'photo' ? m.postId : undefined));
+  const flushPendingWidgets = async (id: number, justCreated: boolean): Promise<void> => {
+    const list = pendingWidgetsRef.current;
+    if (!list.length) return;
+    let postIdOf: (m: PreviewMoment) => number | undefined = (m) => (m.kind === 'photo' ? m.postId : undefined);
+    let fallbackAfter: number | null = null;
+    if (justCreated && list.some((w) => w.anchor !== null)) {
+      try {
+        clearApiCache();
+        const res = await dashboardAPI.getMemoryDetails(String(id));
+        const fresh = res?.success ? (seedFromMemory(res.data)?.previewMoments ?? []) : [];
+        const ids = postIdsAfterCreate(sentPostKeys(createMoments), fresh);
+        postIdOf = (m) => ids.get(m.key);
+        // Not matched (the API skipped a product): after the campaign's last moment.
+        if (ids.size === 0) fallbackAfter = widgetAnchorPostId(fresh, undefined, (m) => (m.kind === 'photo' ? m.postId : undefined));
+      } catch { postIdOf = () => undefined; }
     }
-    saveWidgetIntent({ memoryId: id, kind: w.kind, afterPostId: after });
+    // Already on this Storeel (an earlier Save & Send): after them in their place.
+    const base = (after: string | null) => flushedWidgets.filter((w) => (w.afterPostId ?? null) === after).reduce((n, w) => Math.max(n, w.order + 1), 0);
+    const bodies = pendingCreateBodies(list, previewMoments, postIdOf, base, fallbackAfter);
+    const made: PreviewWidget[] = [];
+    const failed: string[] = [];
+    const shown = new Map(pendingPreviewWidgets(list, previewMoments).map((w) => [w.id, w]));
+    for (const b of bodies) {
+      try {
+        const res = await apiRequest(`/memories/${id}/widgets`, { method: 'POST', body: JSON.stringify(b.body) });
+        if (!res.success) { failed.push(b.label); continue; }
+        const raw = (res.data as any)?.data || res.data;
+        const drawn = shown.get(b.key);
+        if (drawn) made.push({ ...drawn, id: String(raw?.id ?? b.key), anchorKey: undefined, afterPostId: b.body.after_post_id, order: b.body.widget_order });
+      } catch {
+        failed.push(b.label);
+      }
+    }
+    setPendingWidgets([]);
+    if (made.length) setFlushedWidgets((prev) => [...prev, ...made]);
+    if (failed.length) toast.error(failedWidgetsMessage(failed), { duration: ACTION_TOAST_MS });
   };
 
   /**
@@ -2437,17 +2498,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         }
         // The Campaigns page shows Storeels with the new campaign (the Sidebar's Create goes there too).
         writeCampaignsView('storeels');
+        // The widgets added here, at their places (P1, 24 Nov 2026), before the page closes or the Send card asks.
+        if (created) await flushPendingWidgets(created.id, true);
         if (onMemoryCreated) await onMemoryCreated();
-        const widgetNext = widgetAfterSaveRef.current;
-        widgetAfterSaveRef.current = null;
-        if (created && widgetNext && !andSend) {
-          // A widget was picked before the Storeel existed (Chris, 8 Nov 2026): open the campaign page's Edit Storeel
-          // with that widget's editor, after the moment its "+" followed (the new moments' ids, matched to the form's).
-          await handOffWidget(created.id, widgetNext, true);
-          toast.success(createdToast(sendFilled));
-          handleModalClose();
-          requestOpenCampaign(created.id);
-        } else if (!andSend || !created) {
+        if (!andSend || !created) {
           // Save as Draft: done — the Campaigns list shows it (a filled-in Send card was not sent).
           toast.success(createdToast(sendFilled));
           handleModalClose();
@@ -2461,7 +2515,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           void refreshSavedMoments(created.id).finally(() => setMomentBusy(false));
         }
       } else {
-        widgetAfterSaveRef.current = null;
         console.error('Failed to create memory:', response);
 
         if ((response as { code?: string }).code === 'memory_limit_reached') {
@@ -2532,16 +2585,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             return;
           }
         }
+        // Widgets added here after Save & Send made the Storeel (P1, 24 Nov 2026): made now, at their places.
+        await flushPendingWidgets(c.id, false);
         onCampaignSaved?.(c.id);
         void triggerMemoryCountsRefresh();
         if (andSend) { setSendRequest((n) => n + 1); if (flowEditing) setChangesSaved(true); }
         else {
-          const widgetNext = widgetAfterSaveRef.current;
-          widgetAfterSaveRef.current = null;
-          if (widgetNext) await handOffWidget(c.id, widgetNext, false);
           toast.success(view.savedToast);
           handleModalClose();
-          if (widgetNext) requestOpenCampaign(c.id);
         }
         return;
       }
@@ -2847,7 +2898,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Create (no campaign page): DocuSign when connected (review I3), through the same save-first path. Edit still loading
   // or not loaded: the editors need the campaign, so only Moment can be picked (review M6).
   const editNotReady = flowEditing && (flowLoading || Boolean(flowLoadError) || !flowCampaign);
-  const chooserOptions = (widgetOptions ?? addWidgetOptions({ docuSign: docuSignOn, shopifyProduct: true })).map((o) => (
+  // Create: every option works here (P1, 24 Nov 2026) except DocuSign (hidden by its feature flag anyway), which sends a
+  // saved moment's document for signature, so it stays on the campaign page.
+  const chooserOptions = (widgetOptions ?? addWidgetOptions({ docuSign: docuSignOn, shopifyProduct: true }).filter((o) => o.kind !== 'docusign')).map((o) => (
     editNotReady && o.kind !== 'moment' ? { ...o, disabled: true, disabledReason: flowLoadError ? 'Reload the Storeel to add this' : 'Available once the Storeel has loaded' } : o
   ));
   /** An option picked at a place (`anchor` as for Add a Moment). Moment: Add a Moment. The rest: their own editors. */
@@ -2859,23 +2912,90 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       onAddWidget(kind, after === null ? null : String(after));
       return;
     }
-    // Before the campaign exists (or after Save & Send, away from the campaign page): its editor needs the saved
-    // campaign and lives on its page, so save first — asked, never silently.
-    setWidgetAsk({ kind, label: chooserOptions.find((o) => o.kind === kind)?.label ?? 'This widget', anchor });
+    // Create (Deepak 24 Nov 2026, P1): the same editor, right here; saved, it waits in the preview at this "+" until
+    // Save as Draft / Save & Send. Voice to Text adds moments here. (The Moments card's Add a Moment: at the end.)
+    widgetEditorAnchorRef.current = resolveAnchor(previewMoments, anchor);
+    addAnchorRef.current = anchor;
+    setWidgetEditor({ kind });
   };
-  const confirmWidgetAsk = async () => {
-    const ask = widgetAsk;
-    if (!ask) return;
-    setWidgetAsk(null);
-    widgetAfterSaveRef.current = { kind: ask.kind, anchor: ask.anchor };
-    try {
-      if (view.save.action === 'create') await handleSubmit(false);
-      else await saveSetup(false);
-    } finally {
-      // A refused save (a missing title…) leaves the page as it was; the next Save as Draft is an ordinary one.
-      widgetAfterSaveRef.current = null;
+
+  /** An editor saved (P1): a new widget goes at its "+"; an Edit keeps its place. */
+  const savePendingWidgets = (saved: SavedWidget[], editingKey?: string) => {
+    if (editingKey) {
+      setPendingWidgets((prev) => prev.map((w) => (w.key === editingKey ? { ...w, ...saved[0], key: w.key, anchor: w.anchor } : w)));
+      return;
     }
+    const anchor = widgetEditorAnchorRef.current;
+    setPendingWidgets((prev) => {
+      const added = saved.map((w) => ({ ...w, key: `pw-${(pendingSeqRef.current += 1)}`, anchor }));
+      // After the widgets already at this "+" (in the preview's order).
+      const ordered = orderedPending(prev, previewMoments);
+      let at = -1;
+      ordered.forEach((w, i) => { if (w.anchor === anchor) at = i; });
+      if (at < 0) return [...ordered, ...added];
+      return [...ordered.slice(0, at + 1), ...added, ...ordered.slice(at + 1)];
+    });
   };
+
+  /**
+   * Voice to Text before the campaign exists (P1): each part becomes a moment here, where the "+" was — its photo, or
+   * the same "no image" picture the campaign page uses (as a PNG: the upload takes photos only). Uploaded as Add a
+   * Moment uploads, sent with Save as Draft.
+   */
+  const addVoiceMoments = async (parts: Array<{ text: string; file: File | null }>): Promise<boolean> => {
+    let placeholder: File | null = null;
+    const photos: typeof mainPhotosArray = [];
+    for (const part of parts) {
+      let file = part.file;
+      if (!file) {
+        if (!placeholder) placeholder = await placeholderPhoto();
+        file = placeholder;
+      }
+      if (!file) { toast.error('Failed to create moments. Please try again.'); return false; }
+      const res = await dashboardAPI.uploadImageWithMetadata(file, file.name, 1).catch(() => null);
+      const data = (res?.data as any)?.data || res?.data;
+      if (!res?.success || !data?.fileUrl) { toast.error(res?.error || 'Failed to create moments. Please try again.'); return false; }
+      const today = localDateISO();
+      photos.push({
+        name: file.name, title: '', description: part.text, location: '', capture_date: data.capture_date || today, capture_time: '',
+        fileUrl: data.fileUrl, imageName: file.name, originalSizeMB: data.originalSizeMB || 0, tags: [],
+      } as (typeof mainPhotosArray)[number]);
+    }
+    const added = withPhotoIds(photos);
+    setMainPhotosArray((prev) => [...prev, ...added]);
+    placeAdded(added.map((p) => `photo-${p.id}`));
+    toast.success(`${added.length} moment${added.length > 1 ? 's' : ''} added.`);
+    return true;
+  };
+
+  /** Each widget's ⋮ in the preview / row in step 2: Edit / Move up / Move down / Delete (not a product's Edit: the
+   *  campaign page has none either). */
+  const pendingActions = (key: string) => {
+    const w = pendingWidgets.find((x) => x.key === key);
+    if (!w) return null;
+    const can = pendingMoves(pendingWidgets, previewMoments, key);
+    return {
+      label: w.label,
+      edit: w.widgetType === 'product' ? undefined : () => { widgetEditorAnchorRef.current = w.anchor; setWidgetEditor({ kind: w.kind as AddWidgetKind, editing: w }); },
+      up: can.up ? () => setPendingWidgets((prev) => movePending(prev, previewMoments, key, 'up')) : undefined,
+      down: can.down ? () => setPendingWidgets((prev) => movePending(prev, previewMoments, key, 'down')) : undefined,
+      remove: () => setPendingWidgets((prev) => prev.filter((x) => x.key !== key)),
+    };
+  };
+  const pendingKindLabel = (w: PendingWidget) => chooserOptions.find((o) => o.kind === w.kind)?.label ?? 'Widget';
+  const widgetRows: WidgetRow[] = orderedPending(pendingWidgets, previewMoments).map((w) => {
+    const act = pendingActions(w.key)!;
+    const after = w.anchor === null ? null : previewMoments.find((m) => m.key === w.anchor);
+    const afterName = after ? (after.title || (after.kind === 'photo' ? after.caption.split('\n')[0] : '') || (after.kind === 'photo' ? (after.video ? 'video' : 'photo') : 'moment')) : '';
+    return {
+      key: w.key, label: w.label, kindLabel: pendingKindLabel(w),
+      place: isPinnedPending(w) ? 'Pinned to bottom' : w.anchor === null ? 'At the top' : after ? `After ${afterName}` : 'At the end',
+      onEdit: act.edit, onRemove: act.remove, onMoveUp: act.up, onMoveDown: act.down,
+    };
+  });
+  const previewWidgetList: PreviewWidget[] | undefined = onAddWidget
+    ? (savedMomentsList ? previewWidgets : undefined)
+    : [...flushedWidgets, ...pendingPreviewWidgets(pendingWidgets, previewMoments)];
 
   refreshSavedRef.current = (id: number) => { void refreshSavedMoments(id); };
 
@@ -2883,6 +3003,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     onAddAfter: (key) => openAddMoment(key),
     widgetOptions: chooserOptions,
     onAddWidget: (kind, key) => pickWidget(kind, key),
+    widgetMenuFor: (id) => pendingActions(id),
     menuFor: (key, index) => {
       const m = previewMoments[index];
       if (!m || m.key !== key) return null;
@@ -2988,7 +3109,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] min-h-[var(--vv-min-height,100dvh)] md:inset-0 md:h-auto md:min-h-0 flex flex-col bg-[#F8F8FA]"
       // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it drops to the app's top bar's level:
       // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
-      style={{ zIndex: widgetEditorOpen ? 50 : 99999 }}
+      style={{ zIndex: widgetEditorOpen || widgetEditor ? 50 : 99999 }}
     >
       {/* Edit (a saved campaign): one row on phones too (Chris, 19 Nov 2026, point 16) — the title gives way, not the buttons. */}
       <header className={cn('flex flex-shrink-0 items-center gap-x-2 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:gap-x-3 md:px-6', flowEditing || flowCampaign ? 'flex-nowrap' : 'flex-wrap')}>
@@ -3887,6 +4008,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
             <StoreelMomentsCard
               rows={momentRowsWithOrder}
+              widgetRows={widgetRows}
               // P7: a moment with no picture shows the brand the preview's cover falls back to.
               brand={{ name: user?.name ?? null, profile_image: storeelBrandImage({ viewType, propertyImage: currentProperty?.image, userAvatar: user?.avatar }) ?? null, profile_color: user?.profile_color ?? null }}
               note={view.momentsNote}
@@ -3973,7 +4095,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               avatarUrl={user?.avatar ?? null}
               avatarColor={user?.profile_color ?? null}
               controls={flowLoading || flowLoadError ? undefined : previewControls}
-              widgets={savedMomentsList ? previewWidgets : undefined}
+              widgets={previewWidgetList}
               cardButtons={savedMomentsList ? previewCardButtons : undefined}
               productButtonColor={productsStatus?.button_color?.color ?? null}
             />
@@ -3989,23 +4111,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               <>
                 <button type="button" onClick={() => setPlansAsk(null)} className={BUTTON_OUTLINE}>Stay</button>
                 <button type="button" onClick={() => { const msg = plansAsk ?? undefined; setPlansAsk(null); handleModalClose(); requestUpgrade(msg); }} className={BUTTON_PRIMARY}>Leave and see plans</button>
-              </>
-            )}
-          />
-          {/* A widget's editor needs the saved Storeel and its page (Chris, 8 Nov 2026, point 1): save first, asked. */}
-          <ComposerDialog
-            open={widgetAsk !== null}
-            onOpenChange={(o) => { if (!o) setWidgetAsk(null); }}
-            title={flowCampaign ? 'Continue on the Storeel’s page?' : 'Save this Storeel as a draft first?'}
-            description={flowCampaign
-              ? `${widgetAsk?.label ?? 'This widget'} is added on the Storeel’s page. We’ll save your changes, then open the ${widgetAsk?.label ?? ''} editor at this place.`
-              : `${widgetAsk?.label ?? 'This widget'} is added to a saved Storeel. We’ll save your draft, then open the ${widgetAsk?.label ?? ''} editor at this place on the Storeel’s page.`}
-            footer={(
-              <>
-                <button type="button" onClick={() => setWidgetAsk(null)} className={BUTTON_OUTLINE}>Cancel</button>
-                <button type="button" onClick={() => { void confirmWidgetAsk(); }} disabled={isSubmitting} className={BUTTON_PRIMARY}>
-                  {flowCampaign ? 'Save and continue' : 'Save draft and continue'}
-                </button>
               </>
             )}
           />
@@ -4054,6 +4159,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         onClose={() => setShowExifModal(false)}
         extractionResults={exifExtractionResults}
       />
+
+      {/* Create Storeel's widget editors (P1, 24 Nov 2026): the campaign page's own editors, over this page. */}
+      {open ? (
+        <StoreelWidgetEditors
+          request={widgetEditor}
+          onClose={() => setWidgetEditor(null)}
+          onSave={savePendingWidgets}
+          onVoiceMoments={addVoiceMoments}
+          userProfileImage={user?.avatar || undefined}
+        />
+      ) : null}
 
       {/* Add Moment Modal - opens with selected images from media block */}
       {createPortal(

@@ -45,6 +45,9 @@ export interface PreviewWidget {
   image?: string | null;
   /** A Call to Action pinned to the bottom (pinToBottom). */
   pinned?: boolean;
+  /** Create Storeel's widget not saved yet (Deepak 24 Nov 2026, P1): the form moment it follows (null = the top),
+   *  as the moments have no ids yet. When set, it is used instead of afterPostId. */
+  anchorKey?: string | null;
 }
 
 /**
@@ -87,9 +90,11 @@ export function postIdsAfterCreate(sentKeys: ReadonlyArray<string>, fresh: Reado
 export function widgetsByAnchor(moments: ReadonlyArray<PreviewMoment>, widgets: ReadonlyArray<PreviewWidget>): Map<string, PreviewWidget[]> {
   const keyOfPost = new Map<string, string>();
   for (const m of moments) if (m.kind === 'photo' && typeof m.postId === 'number') keyOfPost.set(String(m.postId), m.key);
+  const shownKeys = new Set(moments.map((m) => m.key));
   const out = new Map<string, PreviewWidget[]>();
   for (const w of orderTimelineWidgets(widgets)) {
     const key = w.type === 'cta' && w.pinned ? WIDGET_PINNED
+      : w.anchorKey !== undefined ? (w.anchorKey === null ? WIDGET_TOP : shownKeys.has(w.anchorKey) ? w.anchorKey : WIDGET_END)
       : w.afterPostId === null || w.afterPostId === '' ? WIDGET_TOP : keyOfPost.get(String(w.afterPostId)) ?? WIDGET_END;
     out.set(key, [...(out.get(key) ?? []), w]);
   }

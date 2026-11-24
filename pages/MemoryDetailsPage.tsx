@@ -70,6 +70,8 @@ import { DocuSignEnvelopesSection } from "../components/DocuSignEnvelopesSection
 import { DOCUSIGN_ENABLED } from "../constants/features.ts";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import { VoiceToTextModal } from "../components/VoiceToTextModal";
+import { AiCreatorWidgetDialog, CtaWidgetDialog, HtmlWidgetDialog, QuoteWidgetDialog, YoutubeWidgetDialog } from "../components/widgets/WidgetEditorDialogs";
+import { CTA_DEFAULT_BORDER_RADIUS, CTA_DEFAULT_BUTTON_COLOR, CTA_DEFAULT_BUTTON_WIDTH, CTA_DEFAULT_FONT_SIZE, CTA_DEFAULT_ICON_SIZE, CTA_DEFAULT_TEXT_COLOR, CTA_ICONS, CTA_REQUEST_MOMENT_ICON, ctaIsValidUrl, ctaNormalizeUrl, type CtaMode } from "../components/widgets/ctaWidget";
 import ShopifyProductPicker, { ShopifyProduct } from "../components/ShopifyProductPicker";
 import { CameraInterface } from "../components/CameraInterface";
 import { PurchaseCreditsModal } from "../components/PurchaseCreditsModal";
@@ -292,14 +294,8 @@ interface MemoryDetailsProps {
 
 // ── Call to Action (CTA) widget helpers ──────────────────────────────────────
 // Shape stored in widget_data: { title, buttonText, buttonLink, buttonColor, textColor, icon, iconSize, mode }
-//
-// `mode` distinguishes the two things a CTA can be:
-//   'link'           — the normal CTA: the button opens buttonLink
-//   'request_moment' — "Share Request a Moment": the button opens the photo/caption
-//                      submission form on the published page. It has no URL, so the
-//                      link field is hidden and its icon is fixed to Upload.
-// Stored as widget_type 'cta' either way, so the API needs no new widget type.
-export type CtaMode = 'link' | 'request_moment';
+// `mode`: see CtaMode (components/widgets/ctaWidget.ts — shared with Create Storeel, Deepak 24 Nov 2026).
+export type { CtaMode };
 
 type CtaWidget = {
   id: string;
@@ -329,50 +325,12 @@ type CtaWidget = {
   createdAt: number;
 };
 
-// Fixed icon set offered for CTA buttons (key must match the imported lucide component)
-const CTA_ICONS: Record<string, React.ComponentType<{ style?: React.CSSProperties; className?: string }>> = {
-  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send, Upload,
-};
-// Upload is registered above but kept out of the picker: it is the fixed icon for
-// "Share Request a Moment", whose icon is not user-selectable.
-const CTA_ICON_KEYS = Object.keys(CTA_ICONS).filter((k) => k !== 'Upload');
-// The icon a "Share Request a Moment" button always uses.
-const CTA_REQUEST_MOMENT_ICON = 'Upload';
-const CTA_DEFAULT_BUTTON_COLOR = '#6C60FF';
-const CTA_DEFAULT_TEXT_COLOR = '#FFFFFF';
-const CTA_DEFAULT_ICON_SIZE = 18;
-const CTA_DEFAULT_FONT_SIZE = 16;
-const CTA_DEFAULT_BUTTON_WIDTH = 0; // 0 = full width (fills card); otherwise fixed width in px
-const CTA_DEFAULT_BORDER_RADIUS = 12; // button corner radius in px (rounded by default)
+// The CTA icons, defaults and URL helpers live in components/widgets/ctaWidget.ts (shared with Create Storeel).
 
 // Nav/sidebar label for a CTA, so a request-moment button is not called
 // "Call to Action" in the timeline.
 function ctaSidebarTitle(widget: { title?: string | null; mode?: CtaMode }): string {
   return widget.title || (widget.mode === 'request_moment' ? 'Share Request a Moment' : 'Call to Action');
-}
-
-// Heading for the CTA modal, which serves both CTA kinds.
-function ctaModalNoun(isRequestMoment: boolean, isEditing: boolean): string {
-  const noun = isRequestMoment ? 'Share Request a Moment' : 'Call to Action';
-  return `${isEditing ? 'Edit' : 'Add'} ${noun}`;
-}
-
-// Ensure the URL has a scheme so the anchor navigates to an absolute address
-function ctaNormalizeUrl(url: string): string {
-  const u = (url || '').trim();
-  if (!u) return '';
-  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
-}
-// Valid only if it parses as an http(s) URL (scheme optional in input; we prepend https://)
-function ctaIsValidUrl(url: string): boolean {
-  const u = (url || '').trim();
-  if (!u) return false;
-  try {
-    const parsed = new URL(ctaNormalizeUrl(u));
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !!parsed.hostname && parsed.hostname.includes('.');
-  } catch {
-    return false;
-  }
 }
 
 // A linked memory that is actually a car listing (lm.is_car) carries make/model/year/price/
@@ -8321,971 +8279,424 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         onSubmitted={() => { fetchWidgets(); }}
       />
       {/* Add/Edit HTML Modal */}
-      <Dialog open={isAddHtmlModalOpen} onOpenChange={(open) => {
-        setIsAddHtmlModalOpen(open);
-        if (!open) {
+      <HtmlWidgetDialog
+        open={isAddHtmlModalOpen}
+        onOpenChange={(open) => {
+          setIsAddHtmlModalOpen(open);
+          if (!open) {
+            setAddHtmlTitle('');
+            setAddHtmlContent('');
+            setEditingHtmlWidgetId(null);
+            setHtmlWidgetAfterPostId(null);
+          }
+        }}
+        editing={!!editingHtmlWidgetId}
+        title={addHtmlTitle}
+        onTitleChange={setAddHtmlTitle}
+        content={addHtmlContent}
+        onContentChange={setAddHtmlContent}
+        onSubmit={async () => {
+          if (editingHtmlWidgetId) {
+            try {
+              await apiRequest(`/memories/${memoryId}/widgets/${editingHtmlWidgetId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ widget_data: { title: addHtmlTitle, content: addHtmlContent } }),
+              });
+              setHtmlWidgets(prev => prev.map(w => w.id === editingHtmlWidgetId ? { ...w, title: addHtmlTitle, content: addHtmlContent, updatedAt: Date.now() } : w));
+              toast.success("HTML block updated");
+            } catch { toast.error("Failed to update HTML block"); return; }
+          } else {
+            try {
+              const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === htmlWidgetAfterPostId);
+              const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+              const res = await postNewWidget({
+                  widget_type: 'html',
+                  after_post_id: htmlWidgetAfterPostId,
+                  widget_order,
+                  widget_data: { title: addHtmlTitle, content: addHtmlContent },
+                });
+              if (!res.success) { toast.error("Failed to add HTML block"); return; }
+              const htmlRaw = res.data?.data || res.data;
+              // Collaborator adds on a shared memory come back pending admin approval
+              // (admin_approval: 0). Don't show it in the timeline until it's approved.
+              if (res.pending_approval === true || htmlRaw?.admin_approval === 0 || htmlRaw?.admin_approval === '0') {
+                toast.warning('HTML block added! It will appear after admin approval.', {
+                  duration: 5000,
+                  style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                });
+              } else {
+                const now = Date.now();
+                const newWidgetId = htmlRaw?.id?.toString() || `html_${now}`;
+                pendingScrollWidgetRef.current = { type: 'html', id: newWidgetId };
+                setHtmlWidgets(prev => [...prev, {
+                  id: newWidgetId,
+                  title: addHtmlTitle,
+                  content: addHtmlContent,
+                  afterPostId: htmlWidgetAfterPostId,
+                  widget_order,
+                  createdAt: now,
+                  updatedAt: now,
+                }]);
+                toast.success("HTML block added");
+              }
+            } catch { toast.error("Failed to add HTML block"); return; }
+          }
+          setIsAddHtmlModalOpen(false);
           setAddHtmlTitle('');
           setAddHtmlContent('');
           setEditingHtmlWidgetId(null);
           setHtmlWidgetAfterPostId(null);
-        }
-      }}>
-        <DialogContent className="max-w-none md:max-w-[800px] w-full h-full md:h-auto md:w-[calc(100%-30px)] md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingHtmlWidgetId ? 'Edit HTML' : 'Add HTML'}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingHtmlWidgetId ? 'Edit HTML' : 'Add HTML'}</DialogTitle>
-              </DialogHeader>
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Title (Optional)</label>
-                <input
-                  type="text"
-                  value={addHtmlTitle}
-                  onChange={(e) => setAddHtmlTitle(e.target.value)}
-                  placeholder="Enter a title for this HTML block"
-                  className="mt-1.5 w-full h-12 md:h-10 px-4 md:px-3 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                />
-              </div>
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">HTML Content</label>
-                <textarea
-                  value={addHtmlContent}
-                  onChange={(e) => setAddHtmlContent(e.target.value)}
-                  placeholder="Paste your HTML code here..."
-                  rows={10}
-                  className="mt-1.5 w-full px-4 md:px-3 py-3 md:py-2.5 border border-gray-300 rounded-lg text-[14px] md:text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                />
-                <p className="mt-2 text-sm text-gray-500">You can paste any valid HTML code including divs, images, iframes, and more.</p>
-              </div>
-              {addHtmlContent && (
-                <div>
-                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Preview</label>
-                  <div
-                    className="mt-1.5 w-full px-4 py-3 border border-gray-300 rounded-lg min-h-[80px] bg-white overflow-auto [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:text-xs [&_h6]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic"
-                    dangerouslySetInnerHTML={{ __html: addHtmlContent }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddHtmlModalOpen(false);
-                setAddHtmlTitle('');
-                setAddHtmlContent('');
-                setEditingHtmlWidgetId(null);
-                setHtmlWidgetAfterPostId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                if (editingHtmlWidgetId) {
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingHtmlWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: { title: addHtmlTitle, content: addHtmlContent } }),
-                    });
-                    setHtmlWidgets(prev => prev.map(w => w.id === editingHtmlWidgetId ? { ...w, title: addHtmlTitle, content: addHtmlContent, updatedAt: Date.now() } : w));
-                    toast.success("HTML block updated");
-                  } catch { toast.error("Failed to update HTML block"); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === htmlWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await postNewWidget({
-                        widget_type: 'html',
-                        after_post_id: htmlWidgetAfterPostId,
-                        widget_order,
-                        widget_data: { title: addHtmlTitle, content: addHtmlContent },
-                      });
-                    if (!res.success) { toast.error("Failed to add HTML block"); return; }
-                    const htmlRaw = res.data?.data || res.data;
-                    // Collaborator adds on a shared memory come back pending admin approval
-                    // (admin_approval: 0). Don't show it in the timeline until it's approved.
-                    if (res.pending_approval === true || htmlRaw?.admin_approval === 0 || htmlRaw?.admin_approval === '0') {
-                      toast.warning('HTML block added! It will appear after admin approval.', {
-                        duration: 5000,
-                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
-                      });
-                    } else {
-                      const now = Date.now();
-                      const newWidgetId = htmlRaw?.id?.toString() || `html_${now}`;
-                      pendingScrollWidgetRef.current = { type: 'html', id: newWidgetId };
-                      setHtmlWidgets(prev => [...prev, {
-                        id: newWidgetId,
-                        title: addHtmlTitle,
-                        content: addHtmlContent,
-                        afterPostId: htmlWidgetAfterPostId,
-                        widget_order,
-                        createdAt: now,
-                        updatedAt: now,
-                      }]);
-                      toast.success("HTML block added");
-                    }
-                  } catch { toast.error("Failed to add HTML block"); return; }
-                }
-                setIsAddHtmlModalOpen(false);
-                setAddHtmlTitle('');
-                setAddHtmlContent('');
-                setEditingHtmlWidgetId(null);
-                setHtmlWidgetAfterPostId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
-            >
-              {editingHtmlWidgetId ? 'Save Changes' : 'Add HTML'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        }}
+      />
 
       {/* Embed YouTube Video Dialog */}
-      <Dialog open={isAddYoutubeModalOpen} onOpenChange={(open) => {
-        setIsAddYoutubeModalOpen(open);
-        if (!open) { setYoutubeUrl(''); setYoutubeTitle(''); setYoutubeWidgetAfterPostId(null); setEditingYoutubeWidgetId(null); }
-      }}>
-        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingYoutubeWidgetId ? 'Edit YouTube Video' : 'Embed YouTube Video'}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingYoutubeWidgetId ? 'Edit YouTube Video' : 'Embed YouTube Video'}</DialogTitle>
-                <p className="text-sm text-gray-500">Enter a YouTube URL to embed in your timeline</p>
-              </DialogHeader>
-              <label className="text-[14px] md:text-sm font-medium text-gray-700 md:hidden">Enter a YouTube URL to embed in your timeline</label>
-              <input
-                type="text"
-                value={youtubeTitle}
-                onChange={(e) => setYoutubeTitle(e.target.value)}
-                placeholder="Video title (optional)"
-                className="w-full h-12 px-4 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-              <input
-                type="text"
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-                className="w-full h-12 px-4 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-              {(() => {
-                const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-                const videoId = match ? match[1] : null;
-                return videoId ? (
-                  <div className="w-full rounded-lg overflow-hidden border border-gray-200">
-                    <iframe
-                      width="100%"
-                      height="240"
-                      src={`https://www.youtube.com/embed/${videoId}?autoplay=0`}
-                      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      className="block"
-                    />
-                  </div>
-                ) : null;
-              })()}
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddYoutubeModalOpen(false);
-                setYoutubeUrl('');
-                setYoutubeTitle('');
-                setYoutubeWidgetAfterPostId(null);
-                setEditingYoutubeWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!youtubeUrl.trim()}
-              onClick={async () => {
-                const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-                const videoId = match ? match[1] : null;
-                if (!videoId) {
-                  toast.error('Please enter a valid YouTube URL');
-                  return;
-                }
-                if (editingYoutubeWidgetId) {
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingYoutubeWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: { title: youtubeTitle, url: youtubeUrl, videoId } }),
-                    });
-                    setYoutubeWidgets(prev => prev.map(w => w.id === editingYoutubeWidgetId ? { ...w, title: youtubeTitle, url: youtubeUrl, videoId } : w));
-                    toast.success('YouTube video updated');
-                  } catch { toast.error('Failed to update YouTube video'); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === youtubeWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await postNewWidget({
-                        widget_type: 'youtube',
-                        after_post_id: youtubeWidgetAfterPostId,
-                        widget_order,
-                        widget_data: { title: youtubeTitle, url: youtubeUrl, videoId },
-                      });
-                    if (!res.success) { toast.error('Failed to add YouTube video'); return; }
-                    const ytRaw = res.data?.data || res.data;
-                    if (res.pending_approval === true || ytRaw?.admin_approval === 0 || ytRaw?.admin_approval === '0') {
-                      toast.warning('YouTube video added! It will appear after admin approval.', {
-                        duration: 5000,
-                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
-                      });
-                    } else {
-                      const newWidgetId = ytRaw?.id?.toString() || `yt_${Date.now()}`;
-                      pendingScrollWidgetRef.current = { type: 'youtube', id: newWidgetId };
-                      setYoutubeWidgets(prev => [...prev, {
-                        id: newWidgetId,
-                        title: youtubeTitle,
-                        url: youtubeUrl,
-                        videoId,
-                        afterPostId: youtubeWidgetAfterPostId,
-                        widget_order,
-                        createdAt: Date.now(),
-                      }]);
-                      toast.success('YouTube video added');
-                    }
-                  } catch { toast.error('Failed to add YouTube video'); return; }
-                }
-                setIsAddYoutubeModalOpen(false);
-                setYoutubeUrl('');
-                setYoutubeTitle('');
-                setYoutubeWidgetAfterPostId(null);
-                setEditingYoutubeWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editingYoutubeWidgetId ? 'Save Changes' : 'Add Video'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <YoutubeWidgetDialog
+        open={isAddYoutubeModalOpen}
+        onOpenChange={(open) => {
+          setIsAddYoutubeModalOpen(open);
+          if (!open) { setYoutubeUrl(''); setYoutubeTitle(''); setYoutubeWidgetAfterPostId(null); setEditingYoutubeWidgetId(null); }
+        }}
+        editing={!!editingYoutubeWidgetId}
+        title={youtubeTitle}
+        onTitleChange={setYoutubeTitle}
+        url={youtubeUrl}
+        onUrlChange={setYoutubeUrl}
+        onSubmit={async () => {
+          const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+          const videoId = match ? match[1] : null;
+          if (!videoId) {
+            toast.error('Please enter a valid YouTube URL');
+            return;
+          }
+          if (editingYoutubeWidgetId) {
+            try {
+              await apiRequest(`/memories/${memoryId}/widgets/${editingYoutubeWidgetId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ widget_data: { title: youtubeTitle, url: youtubeUrl, videoId } }),
+              });
+              setYoutubeWidgets(prev => prev.map(w => w.id === editingYoutubeWidgetId ? { ...w, title: youtubeTitle, url: youtubeUrl, videoId } : w));
+              toast.success('YouTube video updated');
+            } catch { toast.error('Failed to update YouTube video'); return; }
+          } else {
+            try {
+              const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === youtubeWidgetAfterPostId);
+              const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+              const res = await postNewWidget({
+                  widget_type: 'youtube',
+                  after_post_id: youtubeWidgetAfterPostId,
+                  widget_order,
+                  widget_data: { title: youtubeTitle, url: youtubeUrl, videoId },
+                });
+              if (!res.success) { toast.error('Failed to add YouTube video'); return; }
+              const ytRaw = res.data?.data || res.data;
+              if (res.pending_approval === true || ytRaw?.admin_approval === 0 || ytRaw?.admin_approval === '0') {
+                toast.warning('YouTube video added! It will appear after admin approval.', {
+                  duration: 5000,
+                  style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                });
+              } else {
+                const newWidgetId = ytRaw?.id?.toString() || `yt_${Date.now()}`;
+                pendingScrollWidgetRef.current = { type: 'youtube', id: newWidgetId };
+                setYoutubeWidgets(prev => [...prev, {
+                  id: newWidgetId,
+                  title: youtubeTitle,
+                  url: youtubeUrl,
+                  videoId,
+                  afterPostId: youtubeWidgetAfterPostId,
+                  widget_order,
+                  createdAt: Date.now(),
+                }]);
+                toast.success('YouTube video added');
+              }
+            } catch { toast.error('Failed to add YouTube video'); return; }
+          }
+          setIsAddYoutubeModalOpen(false);
+          setYoutubeUrl('');
+          setYoutubeTitle('');
+          setYoutubeWidgetAfterPostId(null);
+          setEditingYoutubeWidgetId(null);
+        }}
+      />
 
       {/* Add Quote Dialog */}
-      <Dialog open={isAddQuoteModalOpen} onOpenChange={(open) => {
-        setIsAddQuoteModalOpen(open);
-        if (!open) { setQuoteText(''); setQuoteAuthor(''); setQuoteWidgetAfterPostId(null); setEditingQuoteWidgetId(null); }
-      }}>
-        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingQuoteWidgetId ? 'Edit Quote' : 'Add Quote'}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingQuoteWidgetId ? 'Edit Quote' : 'Add Quote'}</DialogTitle>
-                <p className="text-sm text-gray-500">Enter a quote and author to add to your timeline</p>
-              </DialogHeader>
-              <label className="text-[14px] md:text-sm font-medium text-gray-700 md:hidden">Enter a quote and author to add to your timeline</label>
-              <textarea
-                value={quoteText}
-                onChange={(e) => setQuoteText(e.target.value)}
-                placeholder="Enter your quote here..."
-                rows={4}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-              <input
-                type="text"
-                value={quoteAuthor}
-                onChange={(e) => setQuoteAuthor(e.target.value)}
-                placeholder="Enter author name here..."
-                className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddQuoteModalOpen(false);
-                setQuoteText('');
-                setQuoteAuthor('');
-                setQuoteWidgetAfterPostId(null);
-                setEditingQuoteWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!quoteText.trim()}
-              onClick={async () => {
-                if (editingQuoteWidgetId) {
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingQuoteWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: { text: quoteText, author: quoteAuthor } }),
-                    });
-                    setQuoteWidgets(prev => prev.map(w => w.id === editingQuoteWidgetId ? { ...w, text: quoteText, author: quoteAuthor } : w));
-                    toast.success('Quote updated');
-                  } catch { toast.error('Failed to update quote'); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === quoteWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await postNewWidget({
-                        widget_type: 'quote',
-                        after_post_id: quoteWidgetAfterPostId,
-                        widget_order,
-                        widget_data: { text: quoteText, author: quoteAuthor },
-                      });
-                    if (!res.success) { toast.error('Failed to add quote'); return; }
-                    const qRaw = res.data?.data || res.data;
-                    if (res.pending_approval === true || qRaw?.admin_approval === 0 || qRaw?.admin_approval === '0') {
-                      toast.warning('Quote added! It will appear after admin approval.', {
-                        duration: 5000,
-                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
-                      });
-                    } else {
-                      const newWidgetId = qRaw?.id?.toString() || `q_${Date.now()}`;
-                      pendingScrollWidgetRef.current = { type: 'quote', id: newWidgetId };
-                      setQuoteWidgets(prev => [...prev, {
-                        id: newWidgetId,
-                        text: quoteText,
-                        author: quoteAuthor,
-                        afterPostId: quoteWidgetAfterPostId,
-                        widget_order,
-                        createdAt: Date.now(),
-                      }]);
-                      toast.success('Quote added');
-                    }
-                  } catch { toast.error('Failed to add quote'); return; }
-                }
-                setIsAddQuoteModalOpen(false);
-                setQuoteText('');
-                setQuoteAuthor('');
-                setQuoteWidgetAfterPostId(null);
-                setEditingQuoteWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editingQuoteWidgetId ? 'Save Changes' : 'Add Quote'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <QuoteWidgetDialog
+        open={isAddQuoteModalOpen}
+        onOpenChange={(open) => {
+          setIsAddQuoteModalOpen(open);
+          if (!open) { setQuoteText(''); setQuoteAuthor(''); setQuoteWidgetAfterPostId(null); setEditingQuoteWidgetId(null); }
+        }}
+        editing={!!editingQuoteWidgetId}
+        text={quoteText}
+        onTextChange={setQuoteText}
+        author={quoteAuthor}
+        onAuthorChange={setQuoteAuthor}
+        onSubmit={async () => {
+          if (editingQuoteWidgetId) {
+            try {
+              await apiRequest(`/memories/${memoryId}/widgets/${editingQuoteWidgetId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ widget_data: { text: quoteText, author: quoteAuthor } }),
+              });
+              setQuoteWidgets(prev => prev.map(w => w.id === editingQuoteWidgetId ? { ...w, text: quoteText, author: quoteAuthor } : w));
+              toast.success('Quote updated');
+            } catch { toast.error('Failed to update quote'); return; }
+          } else {
+            try {
+              const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === quoteWidgetAfterPostId);
+              const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+              const res = await postNewWidget({
+                  widget_type: 'quote',
+                  after_post_id: quoteWidgetAfterPostId,
+                  widget_order,
+                  widget_data: { text: quoteText, author: quoteAuthor },
+                });
+              if (!res.success) { toast.error('Failed to add quote'); return; }
+              const qRaw = res.data?.data || res.data;
+              if (res.pending_approval === true || qRaw?.admin_approval === 0 || qRaw?.admin_approval === '0') {
+                toast.warning('Quote added! It will appear after admin approval.', {
+                  duration: 5000,
+                  style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                });
+              } else {
+                const newWidgetId = qRaw?.id?.toString() || `q_${Date.now()}`;
+                pendingScrollWidgetRef.current = { type: 'quote', id: newWidgetId };
+                setQuoteWidgets(prev => [...prev, {
+                  id: newWidgetId,
+                  text: quoteText,
+                  author: quoteAuthor,
+                  afterPostId: quoteWidgetAfterPostId,
+                  widget_order,
+                  createdAt: Date.now(),
+                }]);
+                toast.success('Quote added');
+              }
+            } catch { toast.error('Failed to add quote'); return; }
+          }
+          setIsAddQuoteModalOpen(false);
+          setQuoteText('');
+          setQuoteAuthor('');
+          setQuoteWidgetAfterPostId(null);
+          setEditingQuoteWidgetId(null);
+        }}
+      />
 
       {/* Add AI Creator Dialog — generates content from a prompt and inserts the
           result into the timeline as a plain content item (like Quote/HTML). */}
-      <Dialog open={isAddAiCreatorModalOpen} onOpenChange={(open) => {
-        setIsAddAiCreatorModalOpen(open);
-        if (!open) resetAiCreatorForm();
-      }}>
-        <DialogContent className="max-w-none md:max-w-[820px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">AI Creator</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <DialogHeader className="space-y-1 pb-4 text-left hidden md:flex md:flex-row md:items-center md:gap-3 md:space-y-0">
-              <div className="w-10 h-10 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-5 h-5 text-[#6C60FF]" />
-              </div>
-              <div>
-                <DialogTitle className="text-lg font-semibold text-gray-900">AI Creator</DialogTitle>
-                <p className="text-sm text-gray-500">Generate custom content with AI</p>
-              </div>
-            </DialogHeader>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Left column: Prompt + options */}
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Prompt</label>
-                  <textarea
-                    value={aiCreatorPrompt}
-                    onChange={(e) => setAiCreatorPrompt(e.target.value)}
-                    placeholder={"Describe the content you want to create...\n\ne.g. A heartfelt thank you message with a soft purple background"}
-                    rows={5}
-                    className="mt-1.5 w-full px-4 py-3 border border-gray-300 rounded-lg text-[14px] md:text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                  />
-                  <p className="mt-1 text-xs text-gray-400">Be specific for better results</p>
-                </div>
-
-                {/* Pin to bottom */}
-                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
-                      <Download className="w-4 h-4 text-[#6C60FF]" />
-                    </div>
-                    <div>
-                      <p className="text-[14px] md:text-sm font-medium text-gray-900">Pin to bottom</p>
-                      <p className="text-xs text-gray-500">Fixed at end of campaign</p>
-                    </div>
-                  </div>
-                  <Switch checked={aiCreatorPinToBottom} onCheckedChange={setAiCreatorPinToBottom} />
-                </div>
-
-                {/* Reference image (optional) */}
-                <div>
-                  <label className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Reference Image <span className="normal-case font-normal text-gray-400">(optional)</span></label>
-                  <label className="mt-1.5 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:border-[#6C60FF]/50 hover:bg-[#6C60FF]/5 transition-colors cursor-pointer">
-                    <input
-                      type="file"
-                      accept={IMAGE_ACCEPT}
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = await preparePickedImage(e.target.files?.[0]);
-                        if (!file) return;
-                        const url = URL.createObjectURL(file);
-                        setAiCreatorReferenceImage(file);
-                        setAiCreatorReferenceImagePreview(url);
-                        setAiCreatorImageIsDark(null);
-                        analyzeAiCreatorImageBrightness(url);
-                      }}
-                    />
-                    {aiCreatorReferenceImagePreview ? (
-                      <div className="relative">
-                        <img src={aiCreatorReferenceImagePreview} alt="Reference" className="h-20 w-20 object-cover rounded-lg" />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setAiCreatorReferenceImage(null);
-                            setAiCreatorReferenceImagePreview(null);
-                            setAiCreatorImageIsDark(null);
-                          }}
-                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white border border-gray-300 flex items-center justify-center hover:bg-gray-50"
-                        >
-                          <X className="w-3 h-3 text-gray-600" />
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <ImageIcon className="w-5 h-5 text-gray-400" />
-                        <span className="text-xs text-gray-500">Tap to add image or drag & drop</span>
-                      </>
-                    )}
-                  </label>
-                  <p className="mt-1 text-xs text-gray-400">Used as the background of the generated content — text color adapts to it</p>
-                </div>
-
-                {/* Generate button */}
-                <button
-                  type="button"
-                  disabled={!aiCreatorPrompt.trim() || aiCreatorIsGenerating}
-                  onClick={async () => {
-                    const isRegenerate = aiCreatorGeneratedPreview !== null;
-                    setAiCreatorIsGenerating(true);
-                    setAiCreatorGeneratedPreview(null);
-                    try {
-                      let referenceImageBase64: string | null = null;
-                      let referenceImageMime: string | null = null;
-                      if (aiCreatorReferenceImage) {
-                        referenceImageBase64 = await new Promise<string>((resolve, reject) => {
-                          const reader = new FileReader();
-                          reader.onload = () => resolve(reader.result as string);
-                          reader.onerror = reject;
-                          reader.readAsDataURL(aiCreatorReferenceImage);
-                        });
-                        referenceImageMime = aiCreatorReferenceImage.type;
-                      }
-                      const res = await apiRequest(`/memories/${memoryId}/ai-creator/generate`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                          prompt: aiCreatorPrompt.trim(),
-                          reference_image_base64: referenceImageBase64,
-                          reference_image_mime: referenceImageMime,
-                          after_post_id: aiCreatorWidgetAfterPostId,
-                          ai_credit: isRegenerate ? 0 : 1,
-                        }),
-                      });
-                      if (!res.success) {
-                        toast.error('Failed to generate content');
-                        return;
-                      }
-                      const data = res.data?.data || res.data;
-                      setAiCreatorGeneratedPreview({
-                        text: data.text,
-                        background: data.background,
-                        imageUrl: aiCreatorReferenceImagePreview,
-                        isDark: typeof data.is_dark === 'boolean' ? data.is_dark : aiCreatorImageIsDark,
-                      });
-                    } catch (error) {
-                      console.error('AI Creator generate error:', error);
-                      toast.error('Failed to generate content');
-                    } finally {
-                      setAiCreatorIsGenerating(false);
-                    }
-                  }}
-                  className="w-full h-11 rounded-lg p-[1.5px] border-0 bg-gradient-to-r from-[#6C60FF] to-[#F6339A] transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="h-full rounded-[7px] bg-white flex items-center justify-center gap-2 text-sm font-medium">
-                    <Sparkles className={`w-4 h-4 text-[#6C60FF] ${aiCreatorIsGenerating ? 'animate-pulse' : ''}`} />
-                    <span
-                      style={{
-                        background: 'linear-gradient(90deg, #6C60FF 0%, #F6339A 100%)',
-                        backgroundClip: 'text',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                      }}
-                    >
-                      {aiCreatorIsGenerating ? 'Generating...' : aiCreatorGeneratedPreview ? 'Regenerate' : 'Generate • 1 credit'}
-                    </span>
-                  </div>
-                </button>
-              </div>
-
-              {/* Right column: Preview */}
-              <div>
-                <label className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Preview</label>
-                <div className="mt-1.5 min-h-[280px] rounded-xl border border-gray-200 bg-gray-50 p-5 flex flex-col items-center justify-center text-center gap-2">
-                  {aiCreatorIsGenerating ? (
-                    <>
-                      <Sparkles className="w-8 h-8 text-[#6C60FF] animate-pulse" />
-                      <p className="text-sm font-medium text-gray-700">Generating...</p>
-                    </>
-                  ) : aiCreatorGeneratedPreview ? (
-                    <div
-                      className="relative w-full min-h-[220px] rounded-xl p-6 flex items-center justify-center overflow-hidden bg-cover bg-center"
-                      style={
-                        aiCreatorGeneratedPreview.imageUrl
-                          ? { backgroundImage: `url(${aiCreatorGeneratedPreview.imageUrl})` }
-                          : { background: aiCreatorGeneratedPreview.background }
-                      }
-                    >
-                      {/* Subtle scrim for legibility — darkens light images, lightens dark ones */}
-                      {aiCreatorGeneratedPreview.imageUrl && (
-                        <div
-                          className="absolute inset-0"
-                          style={{ background: aiCreatorGeneratedPreview.isDark === false ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)' }}
-                        />
-                      )}
-                      <p
-                        className={`relative font-semibold text-center break-words ${
-                          aiCreatorGeneratedPreview.imageUrl && aiCreatorGeneratedPreview.isDark === false
-                            ? 'text-gray-900'
-                            : 'text-white'
-                        }`}
-                        dangerouslySetInnerHTML={{ __html: sanitizeAiCreatorText(aiCreatorGeneratedPreview.text) }}
-                      />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="w-14 h-14 rounded-full bg-[#6C60FF]/10 flex items-center justify-center">
-                        <Sparkles className="w-6 h-6 text-[#6C60FF]" />
-                      </div>
-                      <p className="text-sm font-medium text-gray-700">Your content will appear here</p>
-                      <p className="text-xs text-gray-400">Write a prompt and hit Generate</p>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddAiCreatorModalOpen(false);
-                resetAiCreatorForm();
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!aiCreatorGeneratedPreview || aiCreatorIsSaving}
-              onClick={async () => {
-                if (!aiCreatorGeneratedPreview || !memoryId) return;
-                setAiCreatorIsSaving(true);
-                try {
-                  const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets, ...aiCreatorWidgets].filter(w => w.afterPostId === aiCreatorWidgetAfterPostId);
-                  const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                  const widget_data = {
-                    prompt: aiCreatorPrompt.trim(),
-                    text: aiCreatorGeneratedPreview.text,
-                    background: aiCreatorGeneratedPreview.background,
-                    image_url: null,
-                    is_dark: aiCreatorGeneratedPreview.isDark,
-                    pin_to_bottom: aiCreatorPinToBottom,
-                  };
-                  const res = await postNewWidget({
-                      widget_type: 'ai_creator',
-                      after_post_id: aiCreatorWidgetAfterPostId,
-                      widget_order,
-                      widget_data,
-                  });
-                  if (!res.success) { toast.error('Failed to add AI Creator content'); return; }
-                  const raw = res.data?.data || res.data;
-                  const newWidgetId = raw?.id?.toString() || `ai_${Date.now()}`;
-                  pendingScrollWidgetRef.current = { type: 'aiCreator', id: newWidgetId };
-                  setAiCreatorWidgets(prev => [...prev, {
-                    id: newWidgetId,
-                    text: aiCreatorGeneratedPreview.text,
-                    background: aiCreatorGeneratedPreview.background,
-                    imageUrl: aiCreatorGeneratedPreview.imageUrl,
-                    isDark: aiCreatorGeneratedPreview.isDark,
-                    afterPostId: aiCreatorWidgetAfterPostId,
-                    widget_order,
-                    createdAt: Date.now(),
-                  }]);
-                  if (res.pending_approval === true || raw?.admin_approval === 0 || raw?.admin_approval === '0') {
-                    toast.warning('AI Creator content added! It will appear after admin approval.', {
-                      duration: 5000,
-                      style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
-                    });
-                  } else {
-                    toast.success('AI Creator content added');
-                  }
-                } catch (error) {
-                  console.error('AI Creator save error:', error);
-                  toast.error('Failed to add AI Creator content');
-                  return;
-                } finally {
-                  setAiCreatorIsSaving(false);
-                }
-                setIsAddAiCreatorModalOpen(false);
-                resetAiCreatorForm();
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {aiCreatorIsSaving ? 'Adding...' : 'Add to Timeline'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <AiCreatorWidgetDialog
+        open={isAddAiCreatorModalOpen}
+        onOpenChange={(open) => {
+          setIsAddAiCreatorModalOpen(open);
+          if (!open) resetAiCreatorForm();
+        }}
+        prompt={aiCreatorPrompt}
+        onPromptChange={setAiCreatorPrompt}
+        pinToBottom={aiCreatorPinToBottom}
+        onPinToBottomChange={setAiCreatorPinToBottom}
+        referenceImagePreview={aiCreatorReferenceImagePreview}
+        onPickImage={async (picked) => {
+          const file = await preparePickedImage(picked);
+          if (!file) return;
+          const url = URL.createObjectURL(file);
+          setAiCreatorReferenceImage(file);
+          setAiCreatorReferenceImagePreview(url);
+          setAiCreatorImageIsDark(null);
+          analyzeAiCreatorImageBrightness(url);
+        }}
+        onClearImage={() => {
+          setAiCreatorReferenceImage(null);
+          setAiCreatorReferenceImagePreview(null);
+          setAiCreatorImageIsDark(null);
+        }}
+        isGenerating={aiCreatorIsGenerating}
+        generatedPreview={aiCreatorGeneratedPreview}
+        onGenerate={async () => {
+          const isRegenerate = aiCreatorGeneratedPreview !== null;
+          setAiCreatorIsGenerating(true);
+          setAiCreatorGeneratedPreview(null);
+          try {
+            let referenceImageBase64: string | null = null;
+            let referenceImageMime: string | null = null;
+            if (aiCreatorReferenceImage) {
+              referenceImageBase64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(aiCreatorReferenceImage);
+              });
+              referenceImageMime = aiCreatorReferenceImage.type;
+            }
+            const res = await apiRequest(`/memories/${memoryId}/ai-creator/generate`, {
+              method: 'POST',
+              body: JSON.stringify({
+                prompt: aiCreatorPrompt.trim(),
+                reference_image_base64: referenceImageBase64,
+                reference_image_mime: referenceImageMime,
+                after_post_id: aiCreatorWidgetAfterPostId,
+                ai_credit: isRegenerate ? 0 : 1,
+              }),
+            });
+            if (!res.success) {
+              toast.error('Failed to generate content');
+              return;
+            }
+            const data = res.data?.data || res.data;
+            setAiCreatorGeneratedPreview({
+              text: data.text,
+              background: data.background,
+              imageUrl: aiCreatorReferenceImagePreview,
+              isDark: typeof data.is_dark === 'boolean' ? data.is_dark : aiCreatorImageIsDark,
+            });
+          } catch (error) {
+            console.error('AI Creator generate error:', error);
+            toast.error('Failed to generate content');
+          } finally {
+            setAiCreatorIsGenerating(false);
+          }
+        }}
+        isSaving={aiCreatorIsSaving}
+        onSubmit={async () => {
+          if (!aiCreatorGeneratedPreview || !memoryId) return;
+          setAiCreatorIsSaving(true);
+          try {
+            const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets, ...aiCreatorWidgets].filter(w => w.afterPostId === aiCreatorWidgetAfterPostId);
+            const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+            const widget_data = {
+              prompt: aiCreatorPrompt.trim(),
+              text: aiCreatorGeneratedPreview.text,
+              background: aiCreatorGeneratedPreview.background,
+              image_url: null,
+              is_dark: aiCreatorGeneratedPreview.isDark,
+              pin_to_bottom: aiCreatorPinToBottom,
+            };
+            const res = await postNewWidget({
+                widget_type: 'ai_creator',
+                after_post_id: aiCreatorWidgetAfterPostId,
+                widget_order,
+                widget_data,
+            });
+            if (!res.success) { toast.error('Failed to add AI Creator content'); return; }
+            const raw = res.data?.data || res.data;
+            const newWidgetId = raw?.id?.toString() || `ai_${Date.now()}`;
+            pendingScrollWidgetRef.current = { type: 'aiCreator', id: newWidgetId };
+            setAiCreatorWidgets(prev => [...prev, {
+              id: newWidgetId,
+              text: aiCreatorGeneratedPreview.text,
+              background: aiCreatorGeneratedPreview.background,
+              imageUrl: aiCreatorGeneratedPreview.imageUrl,
+              isDark: aiCreatorGeneratedPreview.isDark,
+              afterPostId: aiCreatorWidgetAfterPostId,
+              widget_order,
+              createdAt: Date.now(),
+            }]);
+            if (res.pending_approval === true || raw?.admin_approval === 0 || raw?.admin_approval === '0') {
+              toast.warning('AI Creator content added! It will appear after admin approval.', {
+                duration: 5000,
+                style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+              });
+            } else {
+              toast.success('AI Creator content added');
+            }
+          } catch (error) {
+            console.error('AI Creator save error:', error);
+            toast.error('Failed to add AI Creator content');
+            return;
+          } finally {
+            setAiCreatorIsSaving(false);
+          }
+          setIsAddAiCreatorModalOpen(false);
+          resetAiCreatorForm();
+        }}
+      />
 
       {/* Add / Edit Call to Action Dialog */}
-      <Dialog open={isAddCtaModalOpen} onOpenChange={(open) => {
-        setIsAddCtaModalOpen(open);
-        if (!open) resetCtaForm();
-      }}>
-        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] text-gray-900">{ctaModalNoun(isRequestMomentCta, !!editingCtaWidgetId)}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{ctaModalNoun(isRequestMomentCta, !!editingCtaWidgetId)}</DialogTitle>
-                <p className="text-sm text-gray-500">{isRequestMomentCta ? 'Visitors tap this button to submit a photo and caption' : 'Add a title and a button that links somewhere'}</p>
-              </DialogHeader>
-
-              {/* Title */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Title</label>
-                <input
-                  type="text"
-                  value={ctaTitle}
-                  onChange={(e) => setCtaTitle(e.target.value)}
-                  placeholder="e.g. Ready to book your stay?"
-                  className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                />
-              </div>
-
-              {/* Button text */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button text</label>
-                <input
-                  type="text"
-                  value={ctaButtonText}
-                  onChange={(e) => setCtaButtonText(e.target.value)}
-                  placeholder="e.g. Book Now"
-                  className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                />
-              </div>
-
-              {/* Button link — hidden for Share Request a Moment, which opens a form
-                  rather than navigating anywhere. */}
-              {!isRequestMomentCta && (
-                <div className="space-y-1.5">
-                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Button link (URL)</label>
-                  <input
-                    type="text"
-                    value={ctaButtonLink}
-                    onChange={(e) => setCtaButtonLink(e.target.value)}
-                    placeholder="https://example.com"
-                    className={`w-full h-12 px-4 border rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 ${
-                      ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink)
-                        ? 'border-red-400 focus:ring-red-200 focus:border-red-400'
-                        : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
-                    }`}
-                  />
-                  {ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink) && (
-                    <p className="text-xs text-red-500">Please enter a valid URL (e.g. https://example.com)</p>
-                  )}
-                </div>
-              )}
-
-              {/* Colors */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Button color</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="h-10 w-12 rounded border border-gray-300 cursor-pointer bg-white p-0.5" />
-                    <input type="text" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[14px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Text color</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="h-10 w-12 rounded border border-gray-300 cursor-pointer bg-white p-0.5" />
-                    <input type="text" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[14px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Icon picker — hidden for Share Request a Moment, whose icon is
-                  fixed to Upload. */}
-              {!isRequestMomentCta && (
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Icon</label>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCtaIcon('')}
-                    className={`h-10 w-10 rounded-lg border flex items-center justify-center text-[12px] text-gray-500 ${ctaIcon === '' ? 'border-[#6C60FF] bg-[#6C60FF]/10' : 'border-gray-300 hover:bg-gray-50'}`}
-                    title="No icon"
-                  >
-                    None
-                  </button>
-                  {CTA_ICON_KEYS.map((key) => {
-                    const Icon = CTA_ICONS[key];
-                    return (
-                      <button
-                        type="button"
-                        key={key}
-                        onClick={() => setCtaIcon(key)}
-                        className={`h-10 w-10 rounded-lg border flex items-center justify-center ${ctaIcon === key ? 'border-[#6C60FF] bg-[#6C60FF]/10 text-[#6C60FF]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
-                        title={key}
-                      >
-                        <Icon className="w-5 h-5" />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              )}
-
-              {/* Icon size */}
-              {ctaIcon && (
-                <div className="space-y-1.5">
-                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Icon size: {ctaIconSize}px</label>
-                  <input
-                    type="range"
-                    min={12}
-                    max={48}
-                    value={ctaIconSize}
-                    onChange={(e) => setCtaIconSize(Number(e.target.value))}
-                    className="w-full accent-[#6C60FF]"
-                  />
-                </div>
-              )}
-
-              {/* Button text size */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button text size: {ctaFontSize}px</label>
-                <input
-                  type="range"
-                  min={12}
-                  max={32}
-                  value={ctaFontSize}
-                  onChange={(e) => setCtaFontSize(Number(e.target.value))}
-                  className="w-full accent-[#6C60FF]"
-                />
-              </div>
-
-              {/* Button width */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button width: {ctaButtonWidth ? `${ctaButtonWidth}px` : 'Full width'}</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={480}
-                  step={10}
-                  value={ctaButtonWidth}
-                  onChange={(e) => setCtaButtonWidth(Number(e.target.value))}
-                  className="w-full accent-[#6C60FF]"
-                />
-              </div>
-
-              {/* Round corners */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Round corners: {ctaBorderRadius}px</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={40}
-                  step={2}
-                  value={ctaBorderRadius}
-                  onChange={(e) => setCtaBorderRadius(Number(e.target.value))}
-                  className="w-full accent-[#6C60FF]"
-                />
-              </div>
-
-              {/* Pin to bottom — Share Request a Moment only. Keeps the button pinned
-                  after the current last item in the timeline, instead of the fixed
-                  spot it was inserted at. */}
-              {isRequestMomentCta && (
-                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
-                  <div className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
-                      <Download className="w-4 h-4 text-[#6C60FF]" />
-                    </div>
-                    <div>
-                      <p className="text-[14px] md:text-sm font-medium text-gray-900">Pin to bottom</p>
-                      <p className="text-xs text-gray-500">Fixed at end of campaign</p>
-                    </div>
-                  </div>
-                  <Switch checked={ctaPinToBottom} onCheckedChange={setCtaPinToBottom} />
-                </div>
-              )}
-
-              {/* Live preview */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Preview</label>
-                <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 flex flex-col items-center text-center gap-3">
-                  {ctaTitle && <p className="text-lg font-bold text-gray-900 break-words">{ctaTitle}</p>}
-                  <span
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold"
-                    style={{
-                      backgroundColor: ctaButtonColor || CTA_DEFAULT_BUTTON_COLOR,
-                      color: ctaTextColor || CTA_DEFAULT_TEXT_COLOR,
-                      fontSize: ctaFontSize,
-                      borderRadius: `${ctaBorderRadius}px`,
-                      width: ctaButtonWidth ? `${ctaButtonWidth}px` : '100%',
-                      maxWidth: '100%',
-                    }}
-                  >
-                    {ctaIcon && CTA_ICONS[ctaIcon] && (() => { const Ic = CTA_ICONS[ctaIcon]; return <Ic style={{ width: ctaIconSize, height: ctaIconSize }} />; })()}
-                    <span>{ctaButtonText || (isRequestMomentCta ? 'Share a Moment' : 'Learn More')}</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* Footer */}
-          <div className="flex-shrink-0 flex justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => { setIsAddCtaModalOpen(false); resetCtaForm(); }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!ctaButtonText.trim() || (!isRequestMomentCta && !ctaIsValidUrl(ctaButtonLink))}
-              onClick={async () => {
-                const widget_data = {
-                  title: ctaTitle,
-                  buttonText: ctaButtonText,
-                  // A request-moment button has no destination.
-                  buttonLink: isRequestMomentCta ? '' : ctaNormalizeUrl(ctaButtonLink),
-                  mode: ctaMode,
-                  buttonColor: ctaButtonColor,
-                  textColor: ctaTextColor,
-                  icon: ctaIcon,
-                  iconSize: ctaIconSize,
-                  buttonWidth: ctaButtonWidth,
-                  fontSize: ctaFontSize,
-                  borderRadius: ctaBorderRadius,
-                  // Only meaningful for the request-moment mode, but harmless to include either way.
-                  pinToBottom: ctaPinToBottom,
-                };
-                if (editingCtaWidgetId) {
-                  // A product's in-card button keeps its placement, so it stays in its card after the edit (Chris, 8 Nov 2026).
-                  const keepInCard = ctaMode !== 'request_moment' && !!ctaWidgets.find(w => w.id === editingCtaWidgetId)?.inCard;
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingCtaWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: keepInCard ? { ...widget_data, placement: 'in_card' } : widget_data }),
-                    });
-                    setCtaWidgets(prev => prev.map(w => w.id === editingCtaWidgetId ? { ...w, ...widget_data } : w));
-                    toast.success('Call to action updated');
-                  } catch { toast.error('Failed to update call to action'); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === ctaWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await postNewWidget({
-                        widget_type: 'cta',
-                        after_post_id: ctaWidgetAfterPostId,
-                        widget_order,
-                        widget_data,
-                      });
-                    if (!res.success) { toast.error('Failed to add call to action'); return; }
-                    const cRaw = res.data?.data || res.data;
-                    if (res.pending_approval === true || cRaw?.admin_approval === 0 || cRaw?.admin_approval === '0') {
-                      toast.warning('Call to action added! It will appear after admin approval.', {
-                        duration: 5000,
-                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
-                      });
-                    } else {
-                      const newWidgetId = cRaw?.id?.toString() || `cta_${Date.now()}`;
-                      pendingScrollWidgetRef.current = { type: 'cta', id: newWidgetId };
-                      setCtaWidgets(prev => [...prev, {
-                        id: newWidgetId,
-                        ...widget_data,
-                        afterPostId: ctaWidgetAfterPostId,
-                        widget_order,
-                        createdAt: Date.now(),
-                      }]);
-                      toast.success('Call to action added');
-                    }
-                  } catch { toast.error('Failed to add call to action'); return; }
-                }
-                setIsAddCtaModalOpen(false);
-                resetCtaForm();
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editingCtaWidgetId ? 'Save Changes' : (isRequestMomentCta ? 'Save' : 'Add Call to Action')}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CtaWidgetDialog
+        open={isAddCtaModalOpen}
+        onOpenChange={(open) => {
+          setIsAddCtaModalOpen(open);
+          if (!open) resetCtaForm();
+        }}
+        editing={!!editingCtaWidgetId}
+        isRequestMoment={isRequestMomentCta}
+        form={{
+          title: ctaTitle, buttonText: ctaButtonText, buttonLink: ctaButtonLink, buttonColor: ctaButtonColor, textColor: ctaTextColor,
+          icon: ctaIcon, iconSize: ctaIconSize, fontSize: ctaFontSize, buttonWidth: ctaButtonWidth, borderRadius: ctaBorderRadius, pinToBottom: ctaPinToBottom,
+        }}
+        onChange={(patch) => {
+          if (patch.title !== undefined) setCtaTitle(patch.title);
+          if (patch.buttonText !== undefined) setCtaButtonText(patch.buttonText);
+          if (patch.buttonLink !== undefined) setCtaButtonLink(patch.buttonLink);
+          if (patch.buttonColor !== undefined) setCtaButtonColor(patch.buttonColor);
+          if (patch.textColor !== undefined) setCtaTextColor(patch.textColor);
+          if (patch.icon !== undefined) setCtaIcon(patch.icon);
+          if (patch.iconSize !== undefined) setCtaIconSize(patch.iconSize);
+          if (patch.fontSize !== undefined) setCtaFontSize(patch.fontSize);
+          if (patch.buttonWidth !== undefined) setCtaButtonWidth(patch.buttonWidth);
+          if (patch.borderRadius !== undefined) setCtaBorderRadius(patch.borderRadius);
+          if (patch.pinToBottom !== undefined) setCtaPinToBottom(patch.pinToBottom);
+        }}
+        onSubmit={async () => {
+          const widget_data = {
+            title: ctaTitle,
+            buttonText: ctaButtonText,
+            // A request-moment button has no destination.
+            buttonLink: isRequestMomentCta ? '' : ctaNormalizeUrl(ctaButtonLink),
+            mode: ctaMode,
+            buttonColor: ctaButtonColor,
+            textColor: ctaTextColor,
+            icon: ctaIcon,
+            iconSize: ctaIconSize,
+            buttonWidth: ctaButtonWidth,
+            fontSize: ctaFontSize,
+            borderRadius: ctaBorderRadius,
+            // Only meaningful for the request-moment mode, but harmless to include either way.
+            pinToBottom: ctaPinToBottom,
+          };
+          if (editingCtaWidgetId) {
+            // A product's in-card button keeps its placement, so it stays in its card after the edit (Chris, 8 Nov 2026).
+            const keepInCard = ctaMode !== 'request_moment' && !!ctaWidgets.find(w => w.id === editingCtaWidgetId)?.inCard;
+            try {
+              await apiRequest(`/memories/${memoryId}/widgets/${editingCtaWidgetId}`, {
+                method: 'PUT',
+                body: JSON.stringify({ widget_data: keepInCard ? { ...widget_data, placement: 'in_card' } : widget_data }),
+              });
+              setCtaWidgets(prev => prev.map(w => w.id === editingCtaWidgetId ? { ...w, ...widget_data } : w));
+              toast.success('Call to action updated');
+            } catch { toast.error('Failed to update call to action'); return; }
+          } else {
+            try {
+              const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === ctaWidgetAfterPostId);
+              const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+              const res = await postNewWidget({
+                  widget_type: 'cta',
+                  after_post_id: ctaWidgetAfterPostId,
+                  widget_order,
+                  widget_data,
+                });
+              if (!res.success) { toast.error('Failed to add call to action'); return; }
+              const cRaw = res.data?.data || res.data;
+              if (res.pending_approval === true || cRaw?.admin_approval === 0 || cRaw?.admin_approval === '0') {
+                toast.warning('Call to action added! It will appear after admin approval.', {
+                  duration: 5000,
+                  style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                });
+              } else {
+                const newWidgetId = cRaw?.id?.toString() || `cta_${Date.now()}`;
+                pendingScrollWidgetRef.current = { type: 'cta', id: newWidgetId };
+                setCtaWidgets(prev => [...prev, {
+                  id: newWidgetId,
+                  ...widget_data,
+                  afterPostId: ctaWidgetAfterPostId,
+                  widget_order,
+                  createdAt: Date.now(),
+                }]);
+                toast.success('Call to action added');
+              }
+            } catch { toast.error('Failed to add call to action'); return; }
+          }
+          setIsAddCtaModalOpen(false);
+          resetCtaForm();
+        }}
+      />
     </>
   );
 
