@@ -101,6 +101,7 @@ import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind }
 import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
 import { addSlotAfter, applyInsertPlace, collaboratorAddWidgetOptions, slotWidgetRanks, type InsertPlace, type SlotWidget } from "../utils/timelineAddSlots";
+import { applyWidgetMove, widgetMoveTarget } from "../utils/widgetMove";
 import { categoryDisplayName } from "../utils/products";
 import { canUseHandlePicker, convertHeicToJpeg, coverVideoTooLongMessage, ensureInMemory, HEIC_CONVERT_FAILED, IMAGE_ACCEPT, isHeicFile, isImageFile, isVideoFile, MEDIA_ACCEPT, PHOTO_READ_FAILED, pickFiles, prepareImageForUpload, readVideoDuration, UploadFileError } from "../utils/uploadFiles";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
@@ -388,14 +389,43 @@ function carLinkedMemoryTags(lm: any): string[] {
   return tags;
 }
 
+// Move up / Move down rows for a widget's ⋮ menu (Deepak 24 Nov 2026, batch b P2): the moments' chevrons and words, in
+// the widget menus' row style; each shows only where the widget can go that way (none on the first / last item).
+function WidgetMoveRows({ onMoveUp, onMoveDown }: { onMoveUp?: () => void; onMoveDown?: () => void }) {
+  const row = 'flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors';
+  return (
+    <>
+      {onMoveUp && (
+        <PopoverClose asChild>
+          <div role="menuitem" data-testid="widget-move-up" className={row} onClick={(e) => { e.stopPropagation(); onMoveUp(); }}>
+            <ChevronLeft className="w-4 h-4 rotate-90 text-[#6C60FF]" strokeWidth={3} /><span className="text-sm text-gray-700">Move up</span>
+          </div>
+        </PopoverClose>
+      )}
+      {onMoveDown && (
+        <PopoverClose asChild>
+          <div role="menuitem" data-testid="widget-move-down" className={row} onClick={(e) => { e.stopPropagation(); onMoveDown(); }}>
+            <ChevronRight className="w-4 h-4 rotate-90 text-[#6C60FF]" strokeWidth={3} /><span className="text-sm text-gray-700">Move down</span>
+          </div>
+        </PopoverClose>
+      )}
+    </>
+  );
+}
+
 // Presentational CTA card used in every content panel (owner / shared / mobile).
 // Pass onEdit/onDelete (e.g. on mobile, where there's no sidebar) to show a three-dot menu.
-function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId, onRequestMoment }: {
+function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, onMoveUp, onMoveDown, onDuplicate, memoryId, onRequestMoment }: {
   widget: CtaWidget;
   cardRef?: (el: HTMLDivElement | null) => void;
   isActive?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Move up / Move down (Deepak 24 Nov 2026): given only where the widget can go that way. */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  /** Duplicate, as the desktop list's menu has it (the phone card's menu, Deepak 24 Nov 2026). */
+  onDuplicate?: () => void;
   memoryId?: string | null;
   // Supplied only where the submission form exists (the shared/collaborator view).
   // Where it is absent — the owner view — the button explains itself instead,
@@ -426,7 +456,7 @@ function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId, 
       data-cta-widget-id={widget.id}
       className={`relative rounded-2xl bg-white p-6 flex flex-col items-center text-center gap-4 ${isActive ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}
     >
-      {(onEdit || onDelete) && (
+      {(onEdit || onDelete || onMoveUp || onMoveDown) && (
         <div className="absolute top-2 right-2 z-10">
           <Popover>
             <PopoverTrigger asChild>
@@ -439,6 +469,14 @@ function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId, 
                 <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
                   <Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit</span>
                 </div>
+              )}
+              <WidgetMoveRows onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
+              {onDuplicate && (
+                <PopoverClose asChild>
+                  <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
+                    <Copy className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Duplicate</span>
+                  </div>
+                </PopoverClose>
               )}
               {onDelete && (
                 <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
@@ -485,11 +523,14 @@ function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId, 
 // Shopify product card (widget_type 'product'). widget_data holds a synced snapshot
 // { product_id, title, price, currency, image, description, handle, shop_domain, product_url }.
 // "Buy Now" routes the viewer to the Shopify product page. onDelete shows a remove control.
-function ProductWidgetCard({ widget, cardRef, isActive, onDelete, memoryId }: {
+function ProductWidgetCard({ widget, cardRef, isActive, onDelete, onMoveUp, onMoveDown, memoryId }: {
   widget: any;
   cardRef?: (el: HTMLDivElement | null) => void;
   isActive?: boolean;
   onDelete?: () => void;
+  /** Move up / Move down (Deepak 24 Nov 2026): with either, the remove button becomes a ⋮ menu holding them and Delete. */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   memoryId?: string | null;
 }) {
   const productUrl = widget.product_url
@@ -502,7 +543,25 @@ function ProductWidgetCard({ widget, cardRef, isActive, onDelete, memoryId }: {
   };
   return (
     <div ref={cardRef} data-product-widget-id={widget.id} className={`relative rounded-2xl bg-white overflow-hidden ${isActive ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
-      {onDelete && (
+      {(onMoveUp || onMoveDown) ? (
+        <div className="absolute top-2 right-2 z-10">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" aria-label="Product actions" onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white">
+                <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+              <WidgetMoveRows onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
+              {onDelete && (
+                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+                  <Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
+      ) : onDelete && (
         <div className="absolute top-2 right-2 z-10">
           <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-8 h-8 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white">
             <Trash2 className="w-4 h-4 text-red-500" />
@@ -2237,6 +2296,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     try {
       const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === widget.afterPostId);
       const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+      // The copy goes right after its original (Deepak 24 Nov 2026): the API's after_widget_id; then reload the widgets
+      // so the slot's new order shows. An unsaved original (no numeric id): the end of its slot, as before.
+      const afterWidgetId = /^\d+$/.test(String(widget.id)) ? Number(widget.id) : null;
       const res = await apiRequest(`/memories/${memoryId}/widgets`, {
         method: 'POST',
         body: JSON.stringify({
@@ -2244,6 +2306,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           after_post_id: widget.afterPostId,
           widget_order,
           widget_data,
+          ...(afterWidgetId !== null ? { after_widget_id: afterWidgetId } : {}),
         }),
       });
       if (!res.success) { toast.error('Failed to duplicate call to action'); return; }
@@ -2257,6 +2320,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         widget_order,
         createdAt: Date.now(),
       }]);
+      if (afterWidgetId !== null) void fetchWidgets();
       toast.success('Call to action duplicated');
     } catch { toast.error('Failed to duplicate call to action'); }
   };
@@ -6617,13 +6681,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Render the product cards anchored after a given post (null = top of timeline).
   // The remove control shows only for the memory owner.
-  const renderProductWidgets = (afterPostId: string | null, plus?: (w: any) => React.ReactNode, gap?: string) =>
+  const renderProductWidgets = (afterPostId: string | null, plus?: (w: any) => React.ReactNode, gap?: string, movable = false) =>
     productWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => slotItem(w, (
       <ProductWidgetCard
         key={w.id}
         widget={w}
         memoryId={memoryId}
         onDelete={isOwner ? () => deleteProductWidget(w) : undefined}
+        onMoveUp={movable && isOwner ? widgetMoveFn(w.id, 'up') : undefined}
+        onMoveDown={movable && isOwner ? widgetMoveFn(w.id, 'down') : undefined}
       />
     ), plus?.(w), gap));
 
@@ -6636,7 +6702,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Render the AI Creator cards anchored after a given post (null = top of timeline).
   // The remove control shows only for the memory owner.
-  const renderAiCreatorWidgets = (afterPostId: string | null, plus?: (w: any) => React.ReactNode, gap?: string) =>
+  // `movable` (the owner's phone timeline, which has no side list): a ⋮ with Move up / Move down (Deepak 24 Nov 2026).
+  const renderAiCreatorWidgets = (afterPostId: string | null, plus?: (w: any) => React.ReactNode, gap?: string, movable = false) =>
     aiCreatorWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => slotItem(w, (
       <div
         key={w.id}
@@ -6645,6 +6712,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         className="relative w-full min-h-[160px] rounded-2xl p-6 flex items-center justify-center overflow-hidden bg-cover bg-center"
         style={w.imageUrl ? { backgroundImage: `url(${w.imageUrl})` } : { background: w.background }}
       >
+        {movable && isOwner && (widgetMoveFn(w.id, 'up') || widgetMoveFn(w.id, 'down')) && (
+          <div className="absolute top-2 right-2 z-10">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" aria-label="AI Creator actions" onClick={(e) => e.stopPropagation()} className="w-8 h-8 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white">
+                  <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+                {widgetMoveRows(w.id)}
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
         {w.imageUrl && (
           <div
             className="absolute inset-0"
@@ -6678,6 +6759,45 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       {plus}
     </div>
   );
+  // ── Move up / Move down for widgets (Deepak 24 Nov 2026, batch b P2) ──
+  // One timeline with the moments (utils/widgetMove): a widget steps over the widget or moment next to it. Pinned
+  // "Share Request a Moment" buttons and a product's in-card button stay where they are (no move).
+  const movableSlotWidgets = (): SlotWidget[] => {
+    const inCard = new Set(ctaWidgets.filter(isCardCta).map((w) => String(w.id)));
+    return timelineSlotWidgets().filter((w) => !(w.type === 'cta' && inCard.has(String(w.id))));
+  };
+  const timelinePostOrder = (): string[] => (combinedTimeline || []).filter((i) => i.type === 'post').map((i) => String(i.id));
+  const moveWidget = async (id: string, direction: 'up' | 'down') => {
+    if (!memoryId) return;
+    const widgets = movableSlotWidgets();
+    const target = widgetMoveTarget(timelinePostOrder(), widgets, id, direction);
+    if (!target) return;
+    const changes = applyWidgetMove(widgets, id, target);
+    const patch = <T extends { id: string; afterPostId: string | null; widget_order: number }>(list: T[]): T[] =>
+      list.map((w) => { const c = changes.get(String(w.id)); return c ? { ...w, ...c } : w; });
+    setHtmlWidgets(patch); setYoutubeWidgets(patch); setQuoteWidgets(patch); setCtaWidgets(patch); setAiCreatorWidgets(patch);
+    setProductWidgets((prev: any[]) => patch(prev));
+    try {
+      const res = await apiRequest(`/memories/${memoryId}/widgets/${id}/move`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          after_post_id: target.afterPostId === null ? null : Number(target.afterPostId),
+          after_widget_id: target.afterWidgetId === null ? null : Number(target.afterWidgetId),
+        }),
+      });
+      if (!res.success) { toast.error(res.message || 'Failed to move'); void fetchWidgets(); return; }
+      // A move is an edit: the campaign is "recent" on the Dashboard again, as for moments.
+      dashboardAPI.markMemoryVisited(String(memoryId)).catch(() => {});
+    } catch {
+      toast.error('Failed to move');
+      void fetchWidgets();
+    }
+  };
+  /** The handler for that direction, or undefined where the widget can't go that way (the menu then leaves it out). */
+  const widgetMoveFn = (id: string, direction: 'up' | 'down'): (() => void) | undefined =>
+    widgetMoveTarget(timelinePostOrder(), movableSlotWidgets(), String(id), direction) ? () => { void moveWidget(String(id), direction); } : undefined;
+  const widgetMoveRows = (id: string) => <WidgetMoveRows onMoveUp={widgetMoveFn(id, 'up')} onMoveDown={widgetMoveFn(id, 'down')} />;
+
   // Create a widget at the place of the "+" it came from (after_widget_id / first in the slot), then reload the widgets
   // so the new one shows where the API put it. Without a place: exactly the old request.
   const postNewWidget = async (body: { widget_type: string; after_post_id: string | null; widget_order: number; widget_data?: unknown }) => {
@@ -8082,6 +8202,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return (
       <div
         key={widget.id}
+        style={{ order: slotRanks.get(String(widget.id)) ?? 0 }}
         className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer"
         onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); if (isCardCta(widget)) setSelectedCardButton({ id: widget.id, at: Date.now() }); }}
       >
@@ -8095,6 +8216,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <PopoverTrigger asChild><div className="cursor-pointer" onClick={(e) => e.stopPropagation()}><MoreVertical className="w-5 h-5 text-[#6C60FF]" /></div></PopoverTrigger>
               <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
                 <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); openEditCta(widget); }}><Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit</span></div>
+                {widgetMoveRows(widget.id)}
                 <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); duplicateCta(widget); }}><Copy className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Duplicate</span></div>
                 <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); deleteCta(widget); }}><Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span></div>
               </PopoverContent>
@@ -12885,12 +13007,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       </div>
                     </div>
 
+                    {/* The top slot's entries in widget_order, as the cards (Deepak 24 Nov 2026: Move up / Move down) */}
+                    <div className="flex flex-col" data-testid="sidebar-slot">
                     {/* HTML widget titles added from intro + button */}
                     {htmlWidgets.filter(w => w.afterPostId === null).map(widget => {
                       const isWidgetActive = activeHtmlWidgetId === widget.id;
                       const widgetTime = new Date(widget.updatedAt || widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                       return (
-                        <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
+                        <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
                           const el = htmlWidgetCardRefs.current[widget.id];
                           if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         }}>
@@ -12922,6 +13046,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <Type className="w-4 h-4 text-[#6C60FF]" />
                                       <span className="text-sm text-gray-700">Edit HTML</span>
                                     </div>
+                                    {widgetMoveRows(widget.id)}
                                     <div
                                       className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                       onClick={(e) => {
@@ -12953,7 +13078,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
                     {/* AI Creator widget titles added from intro + button */}
                     {aiCreatorWidgets.filter(w => w.afterPostId === null).map(widget => (
-                      <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
+                      <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
                         const el = aiCreatorWidgetCardRefs.current[widget.id];
                         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       }}>
@@ -12970,6 +13095,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                               </PopoverTrigger>
                               <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+                                {widgetMoveRows(widget.id)}
                                 <div
                                   className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                   onClick={(e) => { e.stopPropagation(); deleteAiCreatorWidget(widget); }}
@@ -12997,7 +13123,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       const isYtActive = activeYoutubeWidgetId === widget.id;
                       const widgetTime = new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                       return (
-                        <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
+                        <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
                           <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                           <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.6665 8.66664L14.1485 10.988C14.1987 11.0214 14.257 11.0405 14.3172 11.0434C14.3775 11.0463 14.4373 11.0328 14.4905 11.0043C14.5437 10.9759 14.5881 10.9335 14.6191 10.8818C14.6501 10.8301 14.6665 10.7709 14.6665 10.7106V5.24664C14.6665 5.18799 14.6511 5.13037 14.6217 5.07961C14.5923 5.02884 14.5501 4.98672 14.4992 4.95751C14.4484 4.92829 14.3907 4.91301 14.332 4.91321C14.2734 4.91341 14.2158 4.92908 14.1652 4.95864L10.6665 6.99997" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/><path d="M9.3335 4H2.66683C1.93045 4 1.3335 4.59695 1.3335 5.33333V10.6667C1.3335 11.403 1.93045 12 2.66683 12H9.3335C10.0699 12 10.6668 11.403 10.6668 10.6667V5.33333C10.6668 4.59695 10.0699 4 9.3335 4Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -13023,6 +13149,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <Edit className="w-4 h-4 text-[#6C60FF]" />
                                       <span className="text-sm text-gray-700">Edit Video</span>
                                     </div>
+                                    {widgetMoveRows(widget.id)}
                                     <div
                                       className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                       onClick={(e) => {
@@ -13058,7 +13185,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       const isQActive = activeQuoteWidgetId === widget.id;
                       const widgetTime = new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                       return (
-                        <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
+                        <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
                           <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                           <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -13085,6 +13212,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <Edit className="w-4 h-4 text-[#6C60FF]" />
                                     <span className="text-sm text-gray-700">Edit Quote</span>
                                   </div>
+                                  {widgetMoveRows(widget.id)}
                                   <div
                                     className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                     onClick={(e) => {
@@ -13117,6 +13245,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       );
                     })}
                     {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => renderCtaSidebarEntry(widget))}
+                    </div>
 
                     {(combinedTimeline || [
                       ...(apiMemoryData?.linked_memories || []).map((lm: any) => ({ type: 'linked' as const, id: String(lm.id) })),
@@ -13288,6 +13417,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                           </div>
                         </div>
+                        <div className="flex flex-col" data-testid="sidebar-slot">{/* this moment's entries in widget_order (Deepak 24 Nov 2026) */}
                         {/* HTML widget titles after this post */}
                         {widgetsAfterThisPost.map(widget => {
                           const isWidgetActive = activeHtmlWidgetId === widget.id;
@@ -13295,6 +13425,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           return (
                             <div
                               key={widget.id}
+                              style={{ order: slotRanks.get(String(widget.id)) ?? 0 }}
                               className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer"
                               onClick={() => {
                                 const el = htmlWidgetCardRefs.current[widget.id];
@@ -13329,6 +13460,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           <Type className="w-4 h-4 text-[#6C60FF]" />
                                           <span className="text-sm text-gray-700">Edit HTML</span>
                                         </div>
+                                        {widgetMoveRows(widget.id)}
                                         <div
                                           className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                           onClick={(e) => {
@@ -13359,7 +13491,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         })}
                         {/* AI Creator widget titles after this post */}
                         {aiCreatorWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
-                          <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
+                          <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
                             const el = aiCreatorWidgetCardRefs.current[widget.id];
                             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                           }}>
@@ -13376,6 +13508,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                   </PopoverTrigger>
                                   <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+                                    {widgetMoveRows(widget.id)}
                                     <div
                                       className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                       onClick={(e) => { e.stopPropagation(); deleteAiCreatorWidget(widget); }}
@@ -13402,7 +13535,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           const isYtActive = activeYoutubeWidgetId === widget.id;
                           const widgetTime = new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                           return (
-                            <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
+                            <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
                               <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                               <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
                                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.6665 8.66664L14.1485 10.988C14.1987 11.0214 14.257 11.0405 14.3172 11.0434C14.3775 11.0463 14.4373 11.0328 14.4905 11.0043C14.5437 10.9759 14.5881 10.9335 14.6191 10.8818C14.6501 10.8301 14.6665 10.7709 14.6665 10.7106V5.24664C14.6665 5.18799 14.6511 5.13037 14.6217 5.07961C14.5923 5.02884 14.5501 4.98672 14.4992 4.95751C14.4484 4.92829 14.3907 4.91301 14.332 4.91321C14.2734 4.91341 14.2158 4.92908 14.1652 4.95864L10.6665 6.99997" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/><path d="M9.3335 4H2.66683C1.93045 4 1.3335 4.59695 1.3335 5.33333V10.6667C1.3335 11.403 1.93045 12 2.66683 12H9.3335C10.0699 12 10.6668 11.403 10.6668 10.6667V5.33333C10.6668 4.59695 10.0699 4 9.3335 4Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -13429,6 +13562,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                           <Edit className="w-4 h-4 text-[#6C60FF]" />
                                           <span className="text-sm text-gray-700">Edit Video</span>
                                         </div>
+                                        {widgetMoveRows(widget.id)}
                                         <div
                                           className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                           onClick={(e) => {
@@ -13462,7 +13596,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           const isQActive = activeQuoteWidgetId === widget.id;
                           const widgetTime = new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
                           return (
-                            <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
+                            <div key={widget.id} style={{ order: slotRanks.get(String(widget.id)) ?? 0 }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer">
                               <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                               <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -13489,6 +13623,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         <Edit className="w-4 h-4 text-[#6C60FF]" />
                                         <span className="text-sm text-gray-700">Edit Quote</span>
                                       </div>
+                                      {widgetMoveRows(widget.id)}
                                       <div
                                         className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                         onClick={(e) => {
@@ -13521,6 +13656,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           );
                         })}
                         {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => renderCtaSidebarEntry(widget))}
+                        </div>
                         </React.Fragment>
                       );
                       }
@@ -13845,7 +13981,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                           </div>
                         ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
-                        {renderProductWidgets(null, (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
+                        {renderProductWidgets(null, (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }), undefined, true)}
                         {renderAiCreatorWidgets(null, (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
                         {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => slotItem(widget, (
                           <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
@@ -14112,7 +14248,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47407 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                                     </div>
                                   ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
-                                  {renderProductWidgets(post.id?.toString(), (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
+                                  {renderProductWidgets(post.id?.toString(), (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }), undefined, true)}
                                   {renderAiCreatorWidgets(post.id?.toString(), (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
                                   {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => slotItem(widget, (
                                     <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
@@ -14371,6 +14507,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <Type className="w-4 h-4 text-[#6C60FF]" />
                                   <span className="text-sm text-gray-700">Edit HTML</span>
                                 </div>
+                                {widgetMoveRows(widget.id)}
                                 <div
                                   className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                   onClick={(e) => {
@@ -14421,6 +14558,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <Edit className="w-4 h-4 text-[#6C60FF]" />
                                   <span className="text-sm text-gray-700">Edit Video</span>
                                 </div>
+                                {widgetMoveRows(widget.id)}
                                 <div
                                   className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                   onClick={(e) => {
@@ -14479,6 +14617,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <Edit className="w-4 h-4 text-[#6C60FF]" />
                                   <span className="text-sm text-gray-700">Edit Quote</span>
                                 </div>
+                                {widgetMoveRows(widget.id)}
                                 <div
                                   className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                   onClick={(e) => {
@@ -14500,12 +14639,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </div>
                         </React.Fragment>
                       ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
-                      {renderProductWidgets(null, (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
-                      {renderAiCreatorWidgets(null, (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                      {renderProductWidgets(null, (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4', true)}
+                      {renderAiCreatorWidgets(null, (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4', true)}
                       {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => slotItem(widget, (
                         <React.Fragment key={`mobile-cta-top-${widget.id}`}>
                         <div className="mx-4">
-                          <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
+                          <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} onMoveUp={widgetMoveFn(widget.id, 'up')} onMoveDown={widgetMoveFn(widget.id, 'down')} onDuplicate={() => duplicateCta(widget)} />
                         </div>
                         </React.Fragment>
                       ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
@@ -14735,6 +14874,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         <Type className="w-4 h-4 text-[#6C60FF]" />
                                         <span className="text-sm text-gray-700">Edit HTML</span>
                                       </div>
+                                      {widgetMoveRows(widget.id)}
                                       <div
                                         className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                         onClick={(e) => {
@@ -14784,6 +14924,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         <Edit className="w-4 h-4 text-[#6C60FF]" />
                                         <span className="text-sm text-gray-700">Edit Video</span>
                                       </div>
+                                      {widgetMoveRows(widget.id)}
                                       <div
                                         className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                         onClick={(e) => {
@@ -14841,6 +14982,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         <Edit className="w-4 h-4 text-[#6C60FF]" />
                                         <span className="text-sm text-gray-700">Edit Quote</span>
                                       </div>
+                                      {widgetMoveRows(widget.id)}
                                       <div
                                         className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
                                         onClick={(e) => {
@@ -14862,12 +15004,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </div>
                               </React.Fragment>
                             ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
-                            {renderProductWidgets(post.id?.toString(), (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
-                            {renderAiCreatorWidgets(post.id?.toString(), (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                            {renderProductWidgets(post.id?.toString(), (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4', true)}
+                            {renderAiCreatorWidgets(post.id?.toString(), (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4', true)}
                             {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => slotItem(widget, (
                               <React.Fragment key={`mobile-cta-${widget.id}`}>
                               <div className="mx-4">
-                                <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
+                                <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} onMoveUp={widgetMoveFn(widget.id, 'up')} onMoveDown={widgetMoveFn(widget.id, 'down')} onDuplicate={() => duplicateCta(widget)} />
                               </div>
                               </React.Fragment>
                             ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
@@ -14879,7 +15021,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {/* Pinned "Share Request a Moment" buttons — always after the last item */}
                       {ctaWidgets.filter(isPinnedCta).map(widget => (
                         <div key={`mobile-cta-bottom-${widget.id}`} className="mx-4">
-                          <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
+                          <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} onMoveUp={widgetMoveFn(widget.id, 'up')} onMoveDown={widgetMoveFn(widget.id, 'down')} onDuplicate={() => duplicateCta(widget)} />
                         </div>
                       ))}
 
