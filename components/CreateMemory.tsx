@@ -61,6 +61,8 @@ import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './wi
 import { postIdsAfterCreate, widgetAnchorPostId, type PreviewCardButton, type PreviewWidget } from './storeel/lib/storeelWidgets';
 import { failedWidgetsMessage, isPinnedPending, movePending, orderedPending, pendingCreateBodies, pendingMoves, pendingPreviewWidgets, resolveAnchor, type PendingWidget } from './storeel/lib/pendingWidgets';
 import StoreelWidgetEditors, { type SavedWidget, type WidgetEditorRequest } from './storeel/StoreelWidgetEditors';
+import VideoMomentDialog, { type VideoMomentValue } from './storeel/VideoMomentDialog';
+import { mediaAPI } from '../services/mediaAPI';
 import { useProductsStatus } from '../hooks/useProductsStatus';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { opensAtTarget, type StepperOpensAt } from './storeel/lib/publishing';
@@ -302,6 +304,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [accountModeration, setAccountModeration] = useState<boolean | null>(null);
   const [momentFiles, setMomentFiles] = useState<FileList | null>(null);
   const [isVideoRecorderOpen, setIsVideoRecorderOpen] = useState(false);
+  // "+" → Video (Deepak 24 Nov 2026, P5): the video moment editor; `index` = an unsaved video moment being edited.
+  const [videoMoment, setVideoMoment] = useState<{ index: number | null } | null>(null);
+  const [videoMomentSaving, setVideoMomentSaving] = useState(false);
 
   useImperativeHandle(ref, () => ({
     focusTitle: () => (campaignTypeRef.current === 'newsletter' ? newsletterComposerRef.current?.focusName() : titleInputRef.current?.focus()),
@@ -2890,6 +2895,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   /** Edit Moment: a photo's original editor before the campaign exists; once saved, its caption in step 2. */
   const editMoment = (m: PreviewMoment) => {
     if (m.kind !== 'photo') return;
+    // An unsaved video moment (P5): its own editor (Add a Moment's photo editor can't show a video).
+    if (!flowCampaignRef.current && m.index !== undefined && m.video) { addAnchorRef.current = undefined; setVideoMoment({ index: m.index }); return; }
     if (!flowCampaignRef.current && m.index !== undefined) { addAnchorRef.current = undefined; setEditingPhotoIndex(m.index); setIsAddMomentOpen(true); return; }
     setCaptionRequest((prev) => ({ key: m.key, n: (prev?.n ?? 0) + 1 }));
   };
@@ -2906,6 +2913,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   /** An option picked at a place (`anchor` as for Add a Moment). Moment: Add a Moment. The rest: their own editors. */
   const pickWidget = (kind: AddWidgetKind, anchor: string | null | undefined) => {
     if (kind === 'moment') { openAddMoment(anchor); return; }
+    // Video (P5): a video moment at this "+". Before the campaign exists it is held until Save as Draft / Send, like
+    // the photos; on a saved campaign (Edit Storeel too) it is added at once and placed at the "+", like Add a Moment.
+    if (kind === 'video') { addAnchorRef.current = anchor; setVideoMoment({ index: null }); return; }
     if (flowCampaignRef.current && onAddWidget) {
       // On the campaign page (Edit): its own editor, saved there at once, after the moment the "+" followed.
       const after = widgetAnchorPostId(previewMoments, anchor, (m) => (m.kind === 'photo' ? m.postId : undefined));
@@ -2967,6 +2977,58 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     toast.success(`${added.length} moment${added.length > 1 ? 's' : ''} added.`);
     return true;
   };
+
+  /**
+   * "+" → Video saved (P5). Before the campaign exists: a moment in the form's photos (its video already uploaded,
+   * memories/upload-video purpose=moment), where the "+" was — sent with Save as Draft / Send like every photo. An
+   * edit keeps its place. A saved campaign (Create after Send): added to it at once, as Add a Moment does there.
+   */
+  const saveVideoMoment = async (v: VideoMomentValue): Promise<boolean> => {
+    const editing = videoMoment?.index ?? null;
+    const saved = flowCampaignRef.current;
+    if (saved) {
+      setVideoMomentSaving(true);
+      try {
+        const res = await mediaAPI.addMoment({
+          memoryId: String(saved.id),
+          files: [new File([], v.name || 'video.mp4', { type: 'video/mp4' })],
+          s3Urls: { 0: v.fileUrl },
+          sizes: { 0: v.sizeMB },
+          imageDetails: { 0: { title: v.title, description: v.description, date: localDateISO(), location: formData.location || '' } },
+          userRole: canSend ? ('owner' as unknown as 'admin') : undefined,
+          isProperty: viewType === 'property',
+        });
+        if (!(res?.success || (res as any)?.status === true)) { toast.error((res as any)?.message || "The video couldn't be added. Please try again."); return false; }
+      } finally {
+        setVideoMomentSaving(false);
+      }
+      setVideoMoment(null);
+      setSavedNow(true);
+      void placeSavedUploads(saved.id, shownPlacedKeys, addAnchorRef.current);
+      onCampaignSaved?.(saved.id);
+      toast.success('Video added.');
+      return true;
+    }
+    const fields = {
+      name: v.name, title: v.title, description: v.description, fileUrl: v.fileUrl, imageName: v.name, originalSizeMB: v.sizeMB,
+    };
+    if (editing !== null) {
+      setMainPhotosArray((prev) => prev.map((p, i) => (i === editing ? { ...p, ...fields } : p)));
+    } else {
+      const added = withPhotoIds([{ ...fields, location: formData.location || '', capture_date: localDateISO(), capture_time: '', tags: [] } as (typeof mainPhotosArray)[number]]);
+      setMainPhotosArray((prev) => [...prev, ...added]);
+      placeAdded(added.map((p) => `photo-${p.id}`));
+    }
+    setVideoMoment(null);
+    return true;
+  };
+  const videoMomentEditing: VideoMomentValue | null = videoMoment?.index != null && mainPhotosArray[videoMoment.index] ? {
+    fileUrl: mainPhotosArray[videoMoment.index].fileUrl || '',
+    sizeMB: mainPhotosArray[videoMoment.index].originalSizeMB || 0,
+    name: mainPhotosArray[videoMoment.index].imageName || mainPhotosArray[videoMoment.index].name || 'Video',
+    title: mainPhotosArray[videoMoment.index].title || '',
+    description: mainPhotosArray[videoMoment.index].description || '',
+  } : null;
 
   /** Each widget's ⋮ in the preview / row in step 2: Edit / Move up / Move down / Delete (not a product's Edit: the
    *  campaign page has none either). */
@@ -3042,7 +3104,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           moment: m,
           // Before the campaign exists: the caption is kept here and sent with the photo.
           onSaveCaption: (caption) => { setMainPhotosArray((prev) => prev.map((p, i) => (i === index ? { ...p, description: caption } : p))); return true; },
-          onEdit: () => { setEditingPhotoIndex(index); setIsAddMomentOpen(true); },
+          onEdit: () => { if (m.video) { addAnchorRef.current = undefined; setVideoMoment({ index }); return; } setEditingPhotoIndex(index); setIsAddMomentOpen(true); },
           onRemove: () => handleRemoveMediaFile(index),
         };
       }
@@ -3109,7 +3171,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] min-h-[var(--vv-min-height,100dvh)] md:inset-0 md:h-auto md:min-h-0 flex flex-col bg-[#F8F8FA]"
       // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it drops to the app's top bar's level:
       // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
-      style={{ zIndex: widgetEditorOpen || widgetEditor ? 50 : 99999 }}
+      style={{ zIndex: widgetEditorOpen || widgetEditor || videoMoment ? 50 : 99999 }}
     >
       {/* Edit (a saved campaign): one row on phones too (Chris, 19 Nov 2026, point 16) — the title gives way, not the buttons. */}
       <header className={cn('flex flex-shrink-0 items-center gap-x-2 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:gap-x-3 md:px-6', flowEditing || flowCampaign ? 'flex-nowrap' : 'flex-wrap')}>
@@ -4168,6 +4230,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           onSave={savePendingWidgets}
           onVoiceMoments={addVoiceMoments}
           userProfileImage={user?.avatar || undefined}
+        />
+      ) : null}
+      {/* "+" → Video (P5, 24 Nov 2026). */}
+      {open ? (
+        <VideoMomentDialog
+          open={videoMoment !== null}
+          onOpenChange={(o) => { if (!o) setVideoMoment(null); }}
+          editing={videoMomentEditing}
+          memoryId={flowCampaign?.id ?? null}
+          saving={videoMomentSaving}
+          onSave={saveVideoMoment}
         />
       ) : null}
 

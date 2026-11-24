@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Clock, Code, FileText, MessageSquare, Mic, Pointer, ShoppingCart, Sparkles, Upload, Video } from 'lucide-react';
+import { Clapperboard, Clock, Code, FileText, MessageSquare, Mic, Pointer, ShoppingCart, Sparkles, Upload, Video } from 'lucide-react';
 import { PopoverClose } from '../ui/popover';
 import type { AddWidgetKind, AddWidgetOption } from './addWidgetOptions';
 
@@ -9,6 +9,7 @@ export { addWidgetOptions } from './addWidgetOptions';
 /** Each option's icon, as the campaign page's desktop chooser draws it. */
 const ICONS: Record<AddWidgetKind, ReactNode> = {
   moment: <Clock className="w-5 h-5 text-[#009689]" />,
+  video: <Clapperboard className="w-5 h-5 text-[#009689]" />,
   cta: <Pointer className="w-5 h-5 text-[#6C60FF]" />,
   request_moment: <Upload className="w-5 h-5 text-[#6C60FF]" />,
   voice: <Mic className="w-5 h-5 text-[#6C60FF]" />,

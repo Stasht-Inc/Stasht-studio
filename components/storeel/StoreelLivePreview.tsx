@@ -442,7 +442,15 @@ function MomentPicture({ src, video, brand }: { src: string | null; video?: bool
       ? <div data-testid="storeel-preview-moment-brand" className="aspect-[370/256] w-full overflow-hidden"><UserFallbackAvatar user={brand} scrim={false} /></div>
       : <div className="aspect-[370/256] bg-gray-100" />;
   }
-  if (video) return <video src={VIDEO_FRAME(src)} muted playsInline preload="metadata" className="aspect-[370/256] w-full object-cover" />;
+  // A video moment (P5, 24 Nov 2026): its first frame with a play mark, as the campaign page's moment cards draw it.
+  if (video) return (
+    <div className="relative" data-testid="storeel-preview-moment-video">
+      <video src={VIDEO_FRAME(src)} muted playsInline preload="metadata" className="aspect-[370/256] w-full object-cover" />
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm"><Play className="ml-0.5 h-5 w-5 text-white" /></span>
+      </span>
+    </div>
+  );
   return <img src={src} alt="" className="aspect-[370/256] w-full object-cover" />;
 }
 

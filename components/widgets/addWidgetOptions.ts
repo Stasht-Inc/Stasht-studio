@@ -3,7 +3,7 @@
 // opens this same chooser — every option, never a narrower copy.
 import { DOCUSIGN_ENABLED } from '../../constants/features.ts';
 
-export const ADD_WIDGET_KINDS = ['moment', 'cta', 'request_moment', 'voice', 'html', 'youtube', 'quote', 'ai_creator', 'shopify_product', 'docusign'] as const;
+export const ADD_WIDGET_KINDS = ['moment', 'video', 'cta', 'request_moment', 'voice', 'html', 'youtube', 'quote', 'ai_creator', 'shopify_product', 'docusign'] as const;
 export type AddWidgetKind = typeof ADD_WIDGET_KINDS[number];
 
 export interface AddWidgetOption {
@@ -17,6 +17,8 @@ export interface AddWidgetOption {
 
 const BASE: AddWidgetOption[] = [
   { kind: 'moment', label: 'Moment', desc: 'Add a special moment' },
+  // Deepak 24 Nov 2026 (P5): a video moment (upload or record; its first 30 seconds are kept).
+  { kind: 'video', label: 'Video', desc: 'Upload or record a video' },
   { kind: 'cta', label: 'Call to Action', desc: 'Add a button with a link' },
   { kind: 'request_moment', label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
   { kind: 'voice', label: 'Voice to Text', desc: 'Create moment captions' },

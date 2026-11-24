@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
 import { campaignCover } from "../utils/campaignCover";
-import { ArrowUpDown } from "lucide-react"; // Media panel sort button (Chris 20 Nov 2026)
+import { ArrowUpDown, Clapperboard } from "lucide-react"; // Media panel sort button (Chris 20 Nov 2026); Clapperboard: "+" → Video (P5)
 import { formatStoredSize, momentInsertAtStart, readMediaColumns, saveMediaColumns, type MediaColumns, mediaInTimelineOrder, nextMediaSort, planMediaDrop, type MediaSortBy } from "../utils/campaignMoments";
 import { campaignMomentsAPI } from "../services/campaignMomentsAPI";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import { pullTouchApplies } from "../utils/pullToRefresh";
 import { carOwnerAuthor, inventoryItemIsReadOnly, inventoryOwnerAuthor, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
+import { localDateISO } from "../utils/localDate";
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { dashboardAPI, tokenUtils, apiRequest, getApiBaseUrl, userUtils, clearApiCache } from "../utils/authUtils";
 import { EditMediaItemPopover } from "../components/EditMediaItemPopover";
@@ -65,6 +66,7 @@ import MemorySelectionDialog from "../components/MemorySelectionDialog";
 import MemoryDetailsMediaItem from "../components/MemoryDetailsMediaItem";
 import { ImageViewer } from "../components/ImageViewer";
 import { AddMomentModal } from "../components/AddMomentModal";
+import VideoMomentDialog, { type VideoMomentValue } from "../components/storeel/VideoMomentDialog";
 import { DocuSignSendModal } from "../components/DocuSignSendModal";
 import { DocuSignEnvelopesSection } from "../components/DocuSignEnvelopesSection";
 import { DOCUSIGN_ENABLED } from "../constants/features.ts";
@@ -1993,6 +1995,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   
   // Add Moment modal state
   const [isAddMomentModalOpen, setIsAddMomentModalOpen] = useState(false);
+  // "+" → Video (Deepak 24 Nov 2026, P5): a video moment at that "+" (its place), saved at once like Add a Moment.
+  const [videoMomentAt, setVideoMomentAt] = useState<{ afterPostId: string | null; atStart: boolean } | null>(null);
+  const [videoMomentSaving, setVideoMomentSaving] = useState(false);
   const [insertAfterPostId, setInsertAfterPostId] = useState<string | null>(null);
   // Ref to persist insertAfterPostId across re-renders (state can reset before modal submits)
   const insertAfterPostIdRef = useRef<string | null>(null);
@@ -7990,6 +7995,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const openAddWidget = (kind: AddWidgetKind, afterPostId: string | null, place?: { atStart: true } | { afterWidgetId: string }) => {
     insertPlaceRef.current = place ? { ...place, afterPostId } : null;
     if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; insertMomentAtStartRef.current = momentInsertAtStart(afterPostId, place); setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
+    else if (kind === 'video') { setVideoMomentAt({ afterPostId: afterPostId || null, atStart: momentInsertAtStart(afterPostId, place) }); }
     else if (kind === 'html') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
     else if (kind === 'youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
     else if (kind === 'quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
@@ -8002,6 +8008,38 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   };
 
   openAddWidgetRef.current = openAddWidget;
+
+  // "+" → Video saved (P5): the uploaded video (memories/upload-video purpose=moment, its first 30 s) becomes a moment
+  // at that "+", sent exactly as Add a Moment sends an uploaded photo (upload-photos-after-creation, its URL).
+  const saveVideoMoment = async (v: VideoMomentValue): Promise<boolean> => {
+    if (!memoryId || !videoMomentAt) return false;
+    setVideoMomentSaving(true);
+    try {
+      const res: any = await mediaAPI.addMoment({
+        memoryId: String(memoryId),
+        files: [new File([], v.name || 'video.mp4', { type: 'video/mp4' })],
+        s3Urls: { 0: v.fileUrl },
+        sizes: { 0: v.sizeMB },
+        imageDetails: { 0: { title: v.title, description: v.description, date: localDateISO(), location: apiMemoryData?.location || '' } },
+        userRole: currentUserRole,
+        afterPostId: videoMomentAt.afterPostId ?? undefined,
+        insertAtStart: !videoMomentAt.afterPostId && videoMomentAt.atStart,
+        isProperty: viewType === 'property',
+      });
+      if (!(res?.success || res?.status === true)) throw new Error(res?.message || "The video couldn't be added. Please try again.");
+      const newPostId = Array.isArray(res?.data) ? res.data[res.data.length - 1]?.image?.id : undefined;
+      if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
+      const needsApproval = res?.data?.[0]?.image?.admin_approval === 0 || res?.data?.[0]?.image?.admin_approval === '0';
+      toast.success(needsApproval ? 'Video added! Waiting for admin approval.' : 'Video added.');
+      setVideoMomentAt(null);
+      await triggerMemoryCountsRefresh();
+      fetchMemoryDetails(true);
+      onRefresh?.();
+      return true;
+    } finally {
+      setVideoMomentSaving(false);
+    }
+  };
 
   // One of the widget editors is open (over the Storeel page, when it is open).
   // (AI Creator has no credit purchase of its own: the purchase windows belong to the page's AI Wizard / AI scan,
@@ -8121,6 +8159,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <div className="flex flex-col">
                 <span className="text-[14px] md:text-sm font-medium text-[#101828]">Moment</span>
                 <span className="text-[12px] md:text-xs text-[#6A7282]">Add a special moment</span>
+              </div>
+            </button>
+            {/* Option 1b: Video (P5, 24 Nov 2026) */}
+            <button
+              type="button"
+              data-widget-kind="video"
+              className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
+              onClick={() => { setActivePlusDivider(null); setVideoMomentAt({ afterPostId: afterPostId || null, atStart: momentInsertAtStart(afterPostId, place) }); }}
+            >
+              <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8.75px] flex items-center justify-center" style={{ background: 'rgba(240,253,250,0.4)' }}>
+                <Clapperboard className="w-[18px] h-[18px] text-[#009689]" strokeWidth={1.6} />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[14px] md:text-sm font-medium text-[#101828]">Video</span>
+                <span className="text-[12px] md:text-xs text-[#6A7282]">Upload or record a video</span>
               </div>
             </button>
             {/* Option 2: Voice to Text */}
@@ -9397,6 +9450,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           isOpen={isProductPickerOpen}
           onClose={() => { setIsProductPickerOpen(false); setProductWidgetAfterPostId(null); }}
           onAdd={handleAddProductWidgets}
+        />
+
+        {/* "+" → Video (P5, 24 Nov 2026): a video moment at that "+" */}
+        <VideoMomentDialog
+          open={videoMomentAt !== null && !isInventoryDetail}
+          onOpenChange={(o) => { if (!o) setVideoMomentAt(null); }}
+          memoryId={memoryId}
+          saving={videoMomentSaving}
+          onSave={saveVideoMoment}
         />
 
         {/* Add Moment Modal */}
@@ -16923,6 +16985,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         isOpen={isProductPickerOpen}
         onClose={() => { setIsProductPickerOpen(false); setProductWidgetAfterPostId(null); }}
         onAdd={handleAddProductWidgets}
+      />
+
+      {/* "+" → Video (P5, 24 Nov 2026): a video moment at that "+" */}
+      <VideoMomentDialog
+        open={videoMomentAt !== null && !isInventoryDetail}
+        onOpenChange={(o) => { if (!o) setVideoMomentAt(null); }}
+        memoryId={memoryId}
+        saving={videoMomentSaving}
+        onSave={saveVideoMoment}
       />
 
       {/* Add Moment Modal */}
