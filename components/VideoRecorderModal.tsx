@@ -11,13 +11,19 @@ interface VideoRecorderModalProps {
    *  product's media). Given: no upload here; the recorded file is handed back and the recorder closes. Closing with
    *  X while recording hands back nothing. */
   onRecorded?: (file: File) => void;
+  /** The longest recording, in seconds (it stops by itself then). Intro Video: 60 (the default). Storeel "+" → Video:
+   *  30 (Deepak 24 Nov 2026, P5). */
+  maxSeconds?: number;
+  /** The recorded file's name start ("intro" → intro_1732….webm). */
+  filePrefix?: string;
 }
 
-const MAX_SECONDS = 60;
+const DEFAULT_MAX_SECONDS = 60;
 const CIRCLE_RADIUS = 44;
 const CIRCLE_CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS;
 
-export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }: VideoRecorderModalProps) {
+export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded, maxSeconds = DEFAULT_MAX_SECONDS, filePrefix = 'intro' }: VideoRecorderModalProps) {
+  const MAX_SECONDS = maxSeconds > 0 ? Math.round(maxSeconds) : DEFAULT_MAX_SECONDS;
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -55,7 +61,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
     setCameraError(null);
     setCameraReady(false);
     onClose();
-  }, [stopCamera, onClose]);
+  }, [stopCamera, onClose, MAX_SECONDS]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -86,7 +92,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
     setUploadProgress(0);
 
     const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-    const fileName = `intro_${Date.now()}.${ext}`;
+    const fileName = `${filePrefix}_${Date.now()}.${ext}`;
     const formData = new FormData();
     formData.append('video', blob, fileName);
 
@@ -121,7 +127,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
       clearInterval(progressTimer);
       setIsUploading(false);
     }
-  }, [onVideoReady, stopCamera, onClose]);
+  }, [onVideoReady, stopCamera, onClose, filePrefix]);
 
   const stopRecording = useCallback(() => {
     if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
@@ -154,7 +160,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
       if (onRecorded) {
         if (cancelledRef.current) return;
         const type = mimeType.split(';')[0];
-        onRecorded(new File([blob], `intro_${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`, { type }));
+        onRecorded(new File([blob], `${filePrefix}_${Date.now()}.${type.includes('mp4') ? 'mp4' : 'webm'}`, { type }));
         stopCamera();
         onClose();
         return;
@@ -171,11 +177,11 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
       setTimeLeft(prev => Math.max(0, prev - 1));
     }, 1000);
 
-    // Auto-stop at 60s
+    // Auto-stop at MAX_SECONDS (60 s for Intro Video, 30 s for a Storeel video)
     autoStopRef.current = setTimeout(() => {
       stopRecording();
     }, MAX_SECONDS * 1000);
-  }, [uploadVideo, stopRecording, onRecorded, stopCamera, onClose]);
+  }, [uploadVideo, stopRecording, onRecorded, stopCamera, onClose, MAX_SECONDS, filePrefix]);
 
   if (!isOpen) return null;
 
@@ -211,7 +217,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
         {isRecording && (
           <div className="flex items-center gap-2 bg-black/60 rounded-full px-4 py-1.5">
             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-white font-mono font-bold text-base">
+            <span className="text-white font-mono font-bold text-base" data-testid="video-recorder-countdown">
               {String(timeLeft).padStart(2, '0')}s
             </span>
           </div>
@@ -219,7 +225,7 @@ export function VideoRecorderModal({ isOpen, onClose, onVideoReady, onRecorded }
 
         {!isRecording && !isUploading && (
           <div className="bg-black/60 rounded-full px-4 py-1.5">
-            <span className="text-white/70 text-sm">Max 60s</span>
+            <span className="text-white/70 text-sm" data-testid="video-recorder-max">Max {MAX_SECONDS}s</span>
           </div>
         )}
       </div>

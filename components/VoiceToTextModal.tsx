@@ -70,6 +70,11 @@ interface VoiceToTextModalProps {
   afterPostId?: string | null;
   userProfileImage?: string;
   onMomentsCreated?: (firstPostId?: string) => void;
+  /**
+   * Create Storeel, before the campaign exists (Deepak 24 Nov 2026, P1): the moments are handed over (each part's words
+   * and its photo, if one was taken) instead of being created on a campaign. True: added, the modal closes.
+   */
+  onCreateLocal?: (moments: Array<{ text: string; file: File | null }>) => Promise<boolean>;
 }
 
 type ModalState = 'initial' | 'recording' | 'review' | 'processing';
@@ -99,6 +104,7 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
   afterPostId,
   userProfileImage,
   onMomentsCreated,
+  onCreateLocal,
 }) => {
   const [modalState, setModalState] = useState<ModalState>('initial');
   const [segments, setSegments] = useState<string[]>(['']);
@@ -152,7 +158,8 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
 
   const stopAll = () => {
     try { processorRef.current?.disconnect(); } catch (_) {}
-    try { audioContextRef.current?.close(); } catch (_) {}
+    // Closed once only: a second close() rejects ("Cannot close a closed AudioContext"), uncaught.
+    try { const ctx = audioContextRef.current; audioContextRef.current = null; if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {}); } catch (_) {}
     try {
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.close();
@@ -317,7 +324,8 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
   // Stop audio and go straight to review with live Deepgram transcript
   const stopRecording = () => {
     try { processorRef.current?.disconnect(); } catch (_) {}
-    try { audioContextRef.current?.close(); } catch (_) {}
+    // Closed once only: a second close() rejects ("Cannot close a closed AudioContext"), uncaught.
+    try { const ctx = audioContextRef.current; audioContextRef.current = null; if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {}); } catch (_) {}
     try {
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.close();
@@ -354,6 +362,16 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
 
     setProcessingStatus('');
     setModalState('processing');
+
+    if (onCreateLocal) {
+      // Create Storeel: its form adds them where the "+" was (a part with no photo gets the same placeholder there).
+      setProcessingStatus(`Adding ${rawSegments.length} moment${rawSegments.length > 1 ? 's' : ''}...`);
+      const ok = await onCreateLocal(rawSegments.map((text, i) => ({ text: text.replace(PHOTO_SLOT_MARKER, '').trim(), file: segmentPhotosRef.current[i] || null })))
+        .catch(() => false);
+      if (ok) onClose();
+      else setModalState('review');
+      return;
+    }
 
     let placeholderFile: File | null = null;
 

@@ -31,7 +31,7 @@ import ProductEnquireModal from "../components/ProductEnquireModal";
 import { enquireColorMap, enquirePostMap } from "../utils/productEnquiry";
 import { isProductPost, splitProductCaption, viewerDetails } from "../utils/productMoment";
 import { ProductEnquireButton, ProductPriceBadge } from "../components/ProductMomentParts";
-import { UserFallbackAvatar } from "../components/MemoryCard";
+import { UserFallbackAvatar, VideoThumbnail } from "../components/MemoryCard";
 import { qrFromSearch, withQr } from "../utils/qrAccess";
 import { DOCUSIGN_ENABLED } from "../constants/features.ts";
 
@@ -331,6 +331,14 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
               </span>
             </div>
           )
+        ) : isVideoUrl(currentImage.src) ? (
+          // A video moment (Storeel "+" → Video, P5 24 Nov 2026): its first frame and a play mark; a tap opens it.
+          <div className="relative w-full h-full" data-testid="published-moment-video">
+            <VideoThumbnail src={currentImage.src} className="w-full h-full object-cover" />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm"><Play className="ml-0.5 h-6 w-6 text-white" /></span>
+            </span>
+          </div>
         ) : (
           <ImageWithFallback
             src={currentImage?.src}
@@ -3183,6 +3191,9 @@ export default function PublishedMemoryPage() {
                 pdfBlobUrl
                   ? <iframe src={pdfBlobUrl} className="w-4/5 h-full border-0 rounded-lg" title={imageViewer.title || 'PDF'} style={{ minHeight: '60vh' }} />
                   : <div className="flex flex-col items-center gap-3 text-white/60"><svg xmlns="http://www.w3.org/2000/svg" className="w-16 h-16 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg><span className="text-sm">Loading PDF…</span></div>
+              ) : isVideoUrl(currentDisplayImage.src || '') ? (
+                // A video moment (Storeel "+" → Video, P5 24 Nov 2026) plays here.
+                <video key={currentDisplayImage.src} data-testid="published-viewer-video" src={currentDisplayImage.src} controls playsInline preload="metadata" className="w-full max-h-[70vh] object-contain bg-black" />
               ) : (
                 <ImageWithFallback
                   src={currentDisplayImage.src}
@@ -3450,11 +3461,16 @@ export default function PublishedMemoryPage() {
                     className="relative transition-transform duration-200 ease-out"
                     style={{ maxWidth: '100%' }}
                   >
+                    {isVideoUrl(currentDisplayImage.src || '') ? (
+                      // A video moment (P5, 24 Nov 2026) plays here.
+                      <video key={currentDisplayImage.src} data-testid="published-viewer-video" src={currentDisplayImage.src} controls playsInline preload="metadata" className="w-full object-contain max-h-[calc(100vh-200px)] rounded-lg bg-black" />
+                    ) : (
                     <ImageWithFallback
                       src={currentDisplayImage.src}
                       alt={currentDisplayImage.alt}
                       className="w-full h-full object-contain max-h-[calc(100vh-200px)]"
                     />
+                    )}
                   </div>
                 )}
 

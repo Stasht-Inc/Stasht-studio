@@ -40,14 +40,34 @@ export interface MomentRow {
 }
 
 /**
+ * A widget added here before the Storeel exists (Deepak 24 Nov 2026, P1): saved with the Storeel. Listed under the
+ * moments with the preview's ⋮ actions, so phones (no preview) can edit, move and delete it too.
+ */
+export interface WidgetRow {
+  key: string;
+  /** Its own words (a title / button text), else its kind. */
+  label: string;
+  /** Its kind ("Call to Action", "Quote" …). */
+  kindLabel: string;
+  /** Where it shows ("At the top", "After <moment>"). */
+  place: string;
+  onEdit?(): void;
+  onRemove(): void;
+  onMoveUp?(): void;
+  onMoveDown?(): void;
+}
+
+/**
  * Step 2 Moments (Chris, 4 Nov 2026: "You need to be able to add moments, and captions here... use the original UI"):
  * every moment the campaign will have, in order — picked catalogue products / vehicles / campaigns, then photos and
  * videos — with each caption edited the way the campaign page edits it (Write a caption…, Cancel / Save), the original
  * moment editor on the pencil, and "Add a Moment", which opens the original Add a Moment UI (AddMomentModal).
  * Photos can be dropped on the card, as on the old Media box.
  */
-export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, onAddCampaigns, onDropFiles, busy = false, note = null, captionRequest = null, addChooser, brand = null }: {
+export default function StoreelMomentsCard({ rows, widgetRows = [], onAddMoment, onAddProducts, onAddCampaigns, onDropFiles, busy = false, note = null, captionRequest = null, addChooser, brand = null }: {
   rows: MomentRow[];
+  /** Widgets not saved yet (P1, 24 Nov 2026), in the preview's order. */
+  widgetRows?: WidgetRow[];
   /** A moment with no picture shows this brand (Chris 21 Nov 2026, P7) — the Add a Moment picker's ProductBrandThumb. */
   brand?: BrandOwner | null;
   /** The preview's Edit Moment on a saved moment (Chris, 7 Nov 2026): open this row's caption editor, scrolled to. */
@@ -84,6 +104,14 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, o
         ) : (
           <p className="text-sm text-gray-500">No moments yet. Add photos or videos with Add a Moment, or pick items in step 1.</p>
         )}
+        {widgetRows.length ? (
+          <div className="space-y-2" data-testid="storeel-pending-widgets">
+            <p className="text-sm font-medium text-gray-700">Widgets</p>
+            <ul aria-label="Widgets" className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+              {widgetRows.map((w) => <WidgetRowItem key={w.key} row={w} busy={busy} />)}
+            </ul>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2" data-testid="storeel-moments-actions">
           {addChooser ? (
             <Popover>
@@ -111,6 +139,36 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onAddProducts, o
 }
 
 const VIDEO_FRAME = (src: string) => `${src}#t=0.1`;
+
+/** A widget's row: its kind and words, where it shows, and the same actions as its ⋮ in the preview. */
+function WidgetRowItem({ row, busy }: { row: WidgetRow; busy: boolean }) {
+  return (
+    <li className="flex items-start gap-2 p-3" data-widget-row={row.key}>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-gray-900">{row.label}</p>
+        <p className="truncate text-sm text-gray-500">{row.kindLabel === row.label ? row.place : `${row.kindLabel} · ${row.place}`}</p>
+      </div>
+      {row.onMoveUp || row.onMoveDown ? (
+        <div className="flex flex-shrink-0 items-center md:hidden" data-testid="storeel-widget-reorder">
+          <button type="button" onClick={row.onMoveUp} disabled={!row.onMoveUp || busy} aria-label={`Move ${row.label} up`} className="rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-[#6C60FF] disabled:opacity-30">
+            <ChevronUp className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button type="button" onClick={row.onMoveDown} disabled={!row.onMoveDown || busy} aria-label={`Move ${row.label} down`} className="rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-[#6C60FF] disabled:opacity-30">
+            <ChevronDown className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
+      {row.onEdit ? (
+        <button type="button" onClick={row.onEdit} disabled={busy} aria-label={`Edit ${row.label}`} className="flex-shrink-0 rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-[#6C60FF]">
+          <Pencil className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+      <button type="button" onClick={row.onRemove} disabled={busy} aria-label={`Remove ${row.label}`} className="flex-shrink-0 rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-red-500">
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </li>
+  );
+}
 
 function MomentRowItem({ row, captionRequest = 0, brand = null }: { row: MomentRow; captionRequest?: number; brand?: BrandOwner | null }) {
   const { moment } = row;

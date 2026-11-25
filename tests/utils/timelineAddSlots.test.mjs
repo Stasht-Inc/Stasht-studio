@@ -22,10 +22,10 @@ test('a "+" follows every moment card (its id, as a string); none follows a link
 test('the collaborator view offers what its own left "+" offered: no Share Request a Moment, no AI Creator', () => {
   const owner = addWidgetOptions({ docuSign: false });
   assert.deepEqual(collaboratorAddWidgetOptions(owner).map((o) => o.label),
-    ['Moment', 'Call to Action', 'Voice to Text', 'HTML', 'Youtube', 'Quote']);
+    ['Moment', 'Video', 'Call to Action', 'Voice to Text', 'HTML', 'Youtube', 'Quote']);
   // With Shopify Product (Deepak, 10 Nov 2026: the desktop "+" offers it like the phone's), it stays.
   assert.deepEqual(collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: false, shopifyProduct: true })).map((o) => o.label),
-    ['Moment', 'Call to Action', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'Shopify Product']);
+    ['Moment', 'Video', 'Call to Action', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'Shopify Product']);
   const withDocuSign = addWidgetOptions({ docuSign: true, docuSignFeature: true });
   assert.deepEqual(collaboratorAddWidgetOptions(withDocuSign).map((o) => o.kind).slice(-1), ['docusign']);
 });

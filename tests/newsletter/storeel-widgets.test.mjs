@@ -13,7 +13,7 @@ const linked = (id) => ({ kind: 'campaign', key: `campaign-${id}`, sourceId: Str
 
 test('the chooser offers every campaign-page widget, in its order; DocuSign only when connected and the feature is on', () => {
   assert.deepEqual(addWidgetOptions({ docuSign: false }).map((o) => o.label),
-    ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator']);
+    ['Moment', 'Video', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator']);
   // DocuSign hidden everywhere (Deepak, 8 Nov 2026; FEATURES.docusign off): connected or not, never offered.
   assert.ok(!addWidgetOptions({ docuSign: true }).some((o) => o.kind === 'docusign'));
   assert.ok(!addWidgetOptions({ docuSign: true, shopifyProduct: true }).some((o) => o.kind === 'docusign'));
@@ -23,7 +23,8 @@ test('the chooser offers every campaign-page widget, in its order; DocuSign only
   const withShop = addWidgetOptions({ docuSign: true, shopifyProduct: true, docuSignFeature: true }).map((o) => o.label);
   assert.deepEqual(withShop.slice(-2), ['Shopify Product', 'DocuSign']);
   assert.equal(addWidgetOptions({ docuSign: false })[0].desc, 'Add a special moment');
-  assert.equal(addWidgetOptions({ docuSign: false })[1].desc, 'Add a button with a link');
+  assert.equal(addWidgetOptions({ docuSign: false })[1].desc, 'Upload or record a video'); // P5, 24 Nov 2026
+  assert.equal(addWidgetOptions({ docuSign: false })[2].desc, 'Add a button with a link');
   for (const o of addWidgetOptions({ docuSign: true, shopifyProduct: true, docuSignFeature: true })) assert.ok(ADD_WIDGET_KINDS.includes(o.kind));
 });
 

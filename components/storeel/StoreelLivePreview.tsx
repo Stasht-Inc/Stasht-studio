@@ -52,6 +52,8 @@ export interface PreviewControls {
   widgetOptions?: ReadonlyArray<AddWidgetOption>;
   onAddWidget?(kind: AddWidgetKind, key: string | null): void;
   menuFor(key: string, index: number): MomentMenuActions | null;
+  /** A widget's ⋮ (Create Storeel's widgets not saved yet — Deepak 24 Nov 2026, P1): Edit / Move up / Move down / Delete. */
+  widgetMenuFor?(id: string): MomentMenuActions | null;
   cover: { onPhoto(): void; onVideo(): void; onRemove?: () => void };
   onEditTitle(): void;
   /** While a change is being saved: the controls wait. */
@@ -135,7 +137,16 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
   const widgetStack = (key: string) => {
     const list = widgetGroups.get(key);
     return list?.length ? (
-      <div className="mt-3 space-y-3" data-testid="storeel-preview-widgets">{list.map((w) => <PreviewWidgetCard key={`${w.type}-${w.id}`} widget={w} />)}</div>
+      <div className="mt-3 space-y-3" data-testid="storeel-preview-widgets">{list.map((w) => {
+        const menu = controls?.widgetMenuFor?.(w.id) ?? null;
+        return menu ? (
+          <div key={`${w.type}-${w.id}`} className="relative" data-pending-widget={w.id}>
+            <PreviewWidgetCard widget={w} />
+            <MomentMenu menu={menu} busy={controls?.busy} noun="Widget"
+              className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-black/30 text-white backdrop-blur-sm hover:bg-black/50 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#6C60FF]/50" />
+          </div>
+        ) : <PreviewWidgetCard key={`${w.type}-${w.id}`} widget={w} />;
+      })}</div>
     ) : null;
   };
   const color = brandCoverColor(avatarColor);
@@ -396,16 +407,16 @@ function momentLabel(moment: PreviewMoment): string {
 }
 
 /** A moment's ⋮: Edit Moment / Move up / Move down / Delete (only those it has). */
-function MomentMenu({ menu, busy, className, iconClass = 'h-[18px] w-[18px]' }: { menu: MomentMenuActions; busy?: boolean; className: string; iconClass?: string }) {
+function MomentMenu({ menu, busy, className, iconClass = 'h-[18px] w-[18px]', noun = 'Moment' }: { menu: MomentMenuActions; busy?: boolean; className: string; iconClass?: string; noun?: 'Moment' | 'Widget' }) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <button type="button" disabled={busy} aria-label={`Moment actions: ${menu.label}`} data-testid="storeel-preview-moment-menu" className={className}>
+        <button type="button" disabled={busy} aria-label={`${noun} actions: ${menu.label}`} data-testid={noun === 'Widget' ? 'storeel-preview-widget-menu' : 'storeel-preview-moment-menu'} className={className}>
           <MoreVertical className={iconClass} aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" style={MENU_Z} className="bg-white">
-        {menu.edit ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.edit?.()}><Pencil className="h-4 w-4" aria-hidden="true" />Edit Moment</DropdownMenuItem> : null}
+        {menu.edit ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.edit?.()}><Pencil className="h-4 w-4" aria-hidden="true" />{noun === 'Widget' ? 'Edit' : 'Edit Moment'}</DropdownMenuItem> : null}
         {menu.up ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.up?.()}><ArrowUp className="h-4 w-4" aria-hidden="true" />Move up</DropdownMenuItem> : null}
         {menu.down ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.down?.()}><ArrowDown className="h-4 w-4" aria-hidden="true" />Move down</DropdownMenuItem> : null}
         {menu.remove ? <DropdownMenuItem className={`${MENU_ITEM} text-red-600 focus:text-red-600`} onSelect={() => menu.remove?.()}><Trash2 className="h-4 w-4" aria-hidden="true" />Delete</DropdownMenuItem> : null}
@@ -431,7 +442,15 @@ function MomentPicture({ src, video, brand }: { src: string | null; video?: bool
       ? <div data-testid="storeel-preview-moment-brand" className="aspect-[370/256] w-full overflow-hidden"><UserFallbackAvatar user={brand} scrim={false} /></div>
       : <div className="aspect-[370/256] bg-gray-100" />;
   }
-  if (video) return <video src={VIDEO_FRAME(src)} muted playsInline preload="metadata" className="aspect-[370/256] w-full object-cover" />;
+  // A video moment (P5, 24 Nov 2026): its first frame with a play mark, as the campaign page's moment cards draw it.
+  if (video) return (
+    <div className="relative" data-testid="storeel-preview-moment-video">
+      <video src={VIDEO_FRAME(src)} muted playsInline preload="metadata" className="aspect-[370/256] w-full object-cover" />
+      <span className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm"><Play className="ml-0.5 h-5 w-5 text-white" /></span>
+      </span>
+    </div>
+  );
   return <img src={src} alt="" className="aspect-[370/256] w-full object-cover" />;
 }
 

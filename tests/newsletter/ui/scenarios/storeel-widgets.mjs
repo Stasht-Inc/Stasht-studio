@@ -3,8 +3,9 @@
 //    with all its options (images/198.jpg), in view;
 //  - Moment → Add a Moment: "Media" tab (was "Photos & Videos"), and under the upload "Campaigns (optional)": a
 //    searchable multi-select; ticked campaigns show in the phone at that "+" and Save as Draft sends linked_memory_ids;
-//  - Call to Action (any non-Moment option) → "Save this Storeel as a draft first?" — Cancel saves nothing; Save draft
-//    and continue → one POST, then the campaign page is asked to open that editor after the moment the "+" followed;
+//  - Call to Action (any non-Moment option) opens its editor right here (Deepak 24 Nov 2026, P1 — no "Save this Storeel
+//    as a draft first?"): Cancel saves nothing; Add shows it in the phone; Save as Draft → one POST /memories, then the
+//    widget is made after the moment the "+" followed (tests/campaigns/ui/c24b-widgets-inplace.mjs covers every option);
 //  - tabs: Media alone → no tab bar; Products only with products; Vehicles only with vehicles.
 // node tests/newsletter/ui/check.mjs storeel-widgets   (NL_BASE = the dev server)
 import { readFileSync } from 'fs';
@@ -22,8 +23,8 @@ const CAMPAIGNS = [
   { id: 702, title: 'Spring kitchen reno', last_update_img: IMG, posts_count: 2 },
   { id: 704, title: 'Lakeside cabin', last_update_img: IMG, posts_count: 3 },
 ];
-// DocuSign only while FEATURES.docusign is on (hidden everywhere since 8 Nov 2026, even when connected).
-const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
+// DocuSign: never on Create (it signs a saved moment's document, so it stays on the campaign page — P1, 24 Nov 2026).
+const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product'];
 
 const flow = (page) => page.getByRole('dialog', { name: /^(Create|Edit) Campaign$/ });
 const preview = (page) => page.getByTestId('storeel-preview');
@@ -147,31 +148,29 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     // A linked campaign's ⋮: Move up / Move down / Delete.
     await shot(page, `${tag}-04-preview`);
 
-    // ── 4. Call to Action before the Storeel exists: save first, asked ─────────────────────────────────────────
+    // ── 4. Call to Action before the Storeel exists: its editor, right here (P1, 24 Nov 2026) ─────────────────────
     await tapPlus(page, 'Add a moment at the end');
     await pick(page, 'Call to Action');
-    const ask = page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' });
-    await expectVisible(ask, `${tag}: asks to save as a draft first`);
-    expect(((await ask.textContent()) ?? '').includes('Call to Action is added to a saved Storeel'), `${tag}: says why`);
-    await shot(page, `${tag}-05-save-first`);
-    await ask.getByRole('button', { name: 'Cancel' }).click();
+    expect(await page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' }).count() === 0, `${tag}: no "save as a draft first" question`);
+    const editor = page.getByRole('dialog').filter({ hasText: 'Add a title and a button that links somewhere' }).last();
+    await expectVisible(editor, `${tag}: the campaign page's Call to Action editor opens here`);
+    await shot(page, `${tag}-05-cta-editor`);
+    await editor.getByRole('button', { name: 'Cancel' }).click();
     await page.waitForTimeout(300);
-    expect(!api.state.calls.some((c) => c.method === 'POST' && c.path === '/memories'), `${tag}: Cancel saves nothing`);
+    const sentNow = () => api.state.calls.filter((c) => c.method === 'POST' && (c.path === '/memories' || /^\/memories\/\d+\/widgets$/.test(c.path))).map((c) => c.path);
+    expect(!sentNow().length, `${tag}: Cancel saves nothing ${JSON.stringify(sentNow())}`);
     expect(await flow(page).count() === 1, `${tag}: …and stays on the page`);
 
-    // DocuSign (connected) goes the same way (review I3) — only while DocuSign is on.
-    if (DOCUSIGN_ENABLED) {
-      await tapPlus(page, 'Add a moment at the end');
-      await pick(page, 'DocuSign');
-      const dsAsk = page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' });
-      expect(((await dsAsk.textContent().catch(() => '')) ?? '').includes('DocuSign is added to a saved Storeel'), `${tag}: DocuSign asks to save first too`);
-      await dsAsk.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(300);
-    }
-
     await tapPlus(page, 'Add a moment at the end');
     await pick(page, 'Call to Action');
-    await page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' }).getByRole('button', { name: 'Save draft and continue' }).click();
+    const editor2 = page.getByRole('dialog').filter({ hasText: 'Add a title and a button that links somewhere' }).last();
+    await editor2.getByPlaceholder('e.g. Book Now').fill('Book now');
+    await editor2.getByPlaceholder('https://example.com').fill('https://example.com');
+    await editor2.getByRole('button', { name: 'Add Call to Action' }).click();
+    await page.waitForTimeout(500);
+    expect(await preview(page).locator('[data-preview-widget="cta"]').count() === 1, `${tag}: the Call to Action shows in the phone`);
+    expect(!sentNow().length, `${tag}: …nothing sent yet ${JSON.stringify(sentNow())}`);
+    await flow(page).getByRole('button', { name: 'Save as Draft', exact: true }).filter({ visible: true }).last().click();
     await page.waitForTimeout(2500);
     await shot(page, `${tag}-05b-after-save`);
     const posts = api.state.calls.filter((c) => c.method === 'POST' && c.path === '/memories');
@@ -179,11 +178,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(posts.length === 1 && JSON.stringify(body.linked_memory_ids) === '[701,702]' && body.photos?.length === 1,
       `${tag}: one POST with linked_memory_ids [701,702] and the photo (got ${JSON.stringify({ l: body.linked_memory_ids, p: body.photos?.length, n: posts.length })})`);
     const id = api.state.storeels[0]?.id;
-    const intent = await page.evaluate(() => sessionStorage.getItem('stasht_storeel_widget_intent'));
-    const parsed = intent ? JSON.parse(intent) : null;
-    expect(parsed && parsed.memoryId === id && parsed.kind === 'cta' && parsed.afterPostId === id * 100,
-      `${tag}: the campaign page is asked to open Call to Action after the photo (got ${intent})`);
-    expect(!(await flow(page).count()), `${tag}: the Storeel page closes (the campaign page opens)`);
+    const widgetPosts = api.state.calls.filter((c) => c.method === 'POST' && c.path === `/memories/${id}/widgets`);
+    expect(widgetPosts.length === 1 && widgetPosts[0].body?.widget_type === 'cta' && widgetPosts[0].body?.after_post_id === String(id * 100),
+      `${tag}: then the Call to Action is made after the photo (got ${JSON.stringify(widgetPosts.map((c) => c.body))})`);
+    expect(!(await flow(page).count()), `${tag}: Save as Draft closes, as before`);
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await context.close();
 
