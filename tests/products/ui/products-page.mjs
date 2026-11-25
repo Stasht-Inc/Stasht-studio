@@ -1702,13 +1702,13 @@ try {
       });
       for (const products of [true, false]) {
         const dw = world({ pilot: products, dashboard: stats(products) });
-        const d = await open(dw, { width, height, path: '/' });
+        const d = await open(dw, { width, height, path: '/dashboard' }); // Stats ('/' = Campaigns since 24 Nov)
         const campaignsCard = d.page.getByText('Total Campaigns', { exact: true }).filter({ visible: true }).first();
         await campaignsCard.waitFor({ timeout: 20000 }).catch(() => {});
         const productsCard = d.page.getByText('Total Products', { exact: true }).filter({ visible: true });
         const grid = await campaignsCard.evaluate((el) => el.closest('.grid')?.className || '').catch(() => '');
         if (products) {
-          expect(await productsCard.count() === 1, `${tag}: Dashboard shows a Total Products card`);
+          expect(await productsCard.count() === 1, `${tag}: Stats shows a Total Products card`);
           const card = d.page.locator('div', { has: d.page.getByText('Total Products', { exact: true }) }).filter({ hasText: '3' }).last();
           expect(await card.isVisible().catch(() => false), `${tag}: … with the API's count (3)`);
           expect(/\b2xl:grid-cols-5\b/.test(grid) && /\blg:grid-cols-4\b/.test(grid), `${tag}: … 4 columns at lg, 5 from 2xl (${grid})`);

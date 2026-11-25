@@ -24,3 +24,20 @@ test('an invite sign-in lands on Campaigns; nothing happens before the sign-in i
   assert.equal(landingAfterSignIn({ ...base, authReady: false, currentPage: 'dashboard', role: '3' }), 'wait');
   assert.equal(landingAfterSignIn({ ...base, done: true, currentPage: 'dashboard', role: '3' }), 'wait');
 });
+
+// Deepak, 24 Nov 2026 (P4): the Dashboard is now Stats, under Leads, and Campaigns is first — Studio opens on Campaigns.
+import { initialPage, LANDING_PAGE } from '../../utils/landing.ts';
+
+test('Studio opens on Campaigns; /dashboard (old links) opens Stats', () => {
+  assert.equal(LANDING_PAGE, 'memories');
+  assert.equal(initialPage('/'), 'memories');
+  assert.equal(initialPage('/payment'), 'memories');
+  assert.equal(initialPage('/something-unknown'), 'memories');
+  assert.equal(initialPage('/dashboard'), 'dashboard');
+  assert.equal(initialPage('/dashboard/'), 'dashboard');
+  assert.equal(initialPage('/dashboards'), 'memories');
+});
+
+test('opened on Campaigns (the new default), the sign-in landing is simply done for every role', () => {
+  for (const role of ['2', '3', 4]) assert.equal(landingAfterSignIn({ ...base, currentPage: initialPage('/'), role }), 'done');
+});

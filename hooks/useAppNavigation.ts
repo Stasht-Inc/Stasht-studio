@@ -1,7 +1,9 @@
 import { useState, useCallback } from "react";
+import { initialPage } from "../utils/landing";
 
 export function useAppNavigation() {
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  // Campaigns first (Deepak, 24 Nov 2026): Studio opens on Campaigns; /dashboard opens Stats (utils/landing).
+  const [currentPage, setCurrentPage] = useState(() => initialPage(window.location.pathname));
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
   const [memoryHistory, setMemoryHistory] = useState<string[]>([]);
   const [memoriesNavKey, setMemoriesNavKey] = useState(0);
@@ -36,7 +38,8 @@ export function useAppNavigation() {
 
     // Update browser URL to match the page (without page reload)
     const urlMap: Record<string, string> = {
-      'dashboard': '/',
+      // Stats (was Dashboard) has its own address now that '/' opens Campaigns (Deepak, 24 Nov 2026).
+      'dashboard': '/dashboard',
       'memories': '/stories',
       'media': '/media',
       'products': '/products',

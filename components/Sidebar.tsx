@@ -510,17 +510,9 @@ export default function Sidebar({
     }
 
     // Personal account navigation (existing logic)
-    // Dashboard: every role but 3, and role 3 (a self sign-up) once its plan is Teams or Business (utils/planGate).
-    if (showsDashboardAndApps) {
-      items.push({
-        id: 'dashboard',
-        label: 'Dashboard',
-        icon: <LayoutDashboard className="w-5 h-5" />,
-      });
-    }
-
-    // Campaigns, then Leads right under it (Chris, 2026-09-21), then Media. Leads is shown
-    // for every role, partial admins included (the Leads API is partial-admin aware).
+    // Campaigns first, then Leads right under it (Chris, 2026-09-21), then Stats, then Media (Deepak, 24 Nov 2026:
+    // "Stats not Dashboard … under Leads. Campaigns should be shown first"). Leads is shown for every role, partial
+    // admins included (the Leads API is partial-admin aware).
     items.push(
       {
         id: 'memories',
@@ -535,6 +527,19 @@ export default function Sidebar({
         count: leadsCount,
         unreadCount: leadsUnreadCount,
       },
+    );
+
+    // Stats (was Dashboard; page id still 'dashboard'): every role but 3, and role 3 (a self sign-up) once its plan is
+    // Teams or Business (utils/planGate).
+    if (showsDashboardAndApps) {
+      items.push({
+        id: 'dashboard',
+        label: 'Stats',
+        icon: <LayoutDashboard className="w-5 h-5" />,
+      });
+    }
+
+    items.push(
       {
         id: 'media',
         label: 'Media',
@@ -568,7 +573,7 @@ export default function Sidebar({
         count: usersCount,
       });
 
-      // Apps: same rule as Dashboard
+      // Apps: same rule as Stats (was Dashboard)
       if (showsDashboardAndApps) {
         items.push({
           id: 'apps',
@@ -595,7 +600,7 @@ export default function Sidebar({
       case 'dashboard':
         return {
           icon: <LayoutDashboard className="w-5 h-5 text-white" />,
-          title: 'Dashboard',
+          title: 'Stats',
           subtitle: 'Overview & Analytics'
         };
       case 'memories':
@@ -649,7 +654,7 @@ export default function Sidebar({
       default:
         return {
           icon: <LayoutDashboard className="w-5 h-5 text-white" />,
-          title: 'Dashboard',
+          title: 'Stats',
           subtitle: 'Overview & Analytics'
         };
     }

@@ -86,8 +86,8 @@ async function open(width, height = 900) {
   });
   const page = await context.newPage();
   page.on('pageerror', (e) => pageErrors.push(e.message));
-  await page.goto(`${BASE}/`);
-  await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 40000 });
+  await page.goto(`${BASE}/dashboard`); // Stats (was Dashboard; '/' opens Campaigns since 24 Nov)
+  await page.getByRole('heading', { name: 'Stats', exact: true }).first().waitFor({ state: 'visible', timeout: 40000 });
   await page.waitForTimeout(2500);
   return { context, page };
 }
