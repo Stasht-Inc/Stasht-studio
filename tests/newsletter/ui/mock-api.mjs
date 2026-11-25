@@ -328,7 +328,9 @@ export function createMockApi(options = {}) {
     // default_message: "Set as my default message" (batch 3). defaultMessageColumn: false = an API before
     // docs/sql/2026-11-01-newsletter-default-message.sql ran (accepts the field, keeps nothing).
     // recent_colors (Chris, 6 Nov): NewsletterRecentColors; options.recentColors: false = an API without them (no key).
-    brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null,
+    // brandHeader: what GET /newsletter-brand and POST /newsletters start a new newsletter with (Deepak 24 Nov 2026: the
+    // account's avatar on its brand colour, NewsletterHeaderDefaults); default: the plain purple header.
+    brand: { header: options.brandHeader ?? { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null,
       ...(options.recentColors === false ? {} : { recent_colors: options.recentColors ?? [] }),
       // The account's default text sizes (Chris, 7 Nov), when one was saved.
       ...(options.brandTypeScale ? { type_scale: options.brandTypeScale } : {}) },
