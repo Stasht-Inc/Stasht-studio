@@ -313,7 +313,8 @@ try {
       await context.close();
 
       const off = world({ pilot: false });
-      const o = await open(off, { width, height, path: '/' });
+      // /dashboard (Stats): '/' opens Campaigns since 24 Nov (b) P4, whose category column has its own "Products" group.
+      const o = await open(off, { width, height, path: '/dashboard' });
       expect(!(await o.page.getByRole('button', { name: /^Products/ }).filter({ visible: true }).count()), `${tag}: switch off → no sidebar Products`);
       expect(!(await o.page.getByTestId('phone-bar-products').count()), `${tag}: switch off → no phone-bar Products`);
       expect(!off.calls.some((c) => c.p === '/products'), `${tag}: switch off → the gated list is never asked`);
